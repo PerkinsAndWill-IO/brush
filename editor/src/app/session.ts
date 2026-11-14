@@ -93,12 +93,31 @@ export const session = {
     history.add(stroke)
     syncStrokes()
   },
-  /** Live erasing during a gesture; call commitErase at pen-up. */
+  /** Add several strokes as one undo step (photo import). */
+  addStrokes(strokes: readonly Stroke[]) {
+    if (!strokes.length) return
+    history.addMany(strokes)
+    syncStrokes()
+  },
   /** Accept a prediction for a committed stroke (M3). Undoable; the stroke's ink stays. */
   commitDecision(decision: AcceptedDecision, command: Command | null) {
     history.commit(decision, command)
     syncStrokes()
   },
+  /** Accept several predictions as one undo step (elements made from a photo import, P1-08). */
+  commitDecisions(items: readonly { decision: AcceptedDecision; command: Command | null }[]) {
+    if (!items.length) return
+    history.commitMany(items)
+    syncStrokes()
+  },
+  /** Remove strokes (with their elements and commands) as one undo step (a photo import, P1-07). */
+  removeStrokes(ids: ReadonlySet<string>) {
+    const removed = history.removeLive(ids)
+    if (!removed.length) return
+    history.commitErase(removed)
+    syncStrokes()
+  },
+  /** Live erasing during a gesture; call commitErase at pen-up. */
   eraseLive(ids: ReadonlySet<string>): Removed[] {
     const removed = history.removeLive(ids)
     if (removed.length) syncStrokes(false)

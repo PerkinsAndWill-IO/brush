@@ -16,6 +16,7 @@ signals, engine rules and budget table; a human may renumber them.
 | [M6-revit-link.md](M6-revit-link.md) | Live link to Revit (plugin side in `revit/`) |
 | [V1-view-aids.md](V1-view-aids.md) | View aids from the chSpace viewer (scale bar, measure, grid, label size) |
 | [V2-drawing-filters.md](V2-drawing-filters.md) | Display filters for `.drawing` pages (categories, item kinds) |
+| [P1-photo-import.md](P1-photo-import.md) | Import pen and marker markup from a photo of a printed sheet, as brush strokes |
 | [V3-inspect.md](V3-inspect.md) | Inspect elements: hover highlights on every sheet, click pins the data card |
 | [eval-entry.md](eval-entry.md) | How a predictor plugs into `pnpm eval` |
 

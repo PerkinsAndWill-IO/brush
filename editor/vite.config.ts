@@ -154,6 +154,8 @@ export default defineConfig(({ mode }) => {
       '@app': resolve(root, 'src/app'),
     },
   },
+  // the photo worker's OpenCV build (11 MB, CommonJS): pre-bundle it up front so its first use does not reload the page
+  optimizeDeps: { include: ['@techstark/opencv-js'] },
   clearScreen: false,
   server: {
     port: 5173,
