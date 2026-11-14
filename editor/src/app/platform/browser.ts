@@ -82,7 +82,7 @@ const fsw = (): FsWindow => window as unknown as FsWindow
 /** Real pickers only for people: automated browsers (Playwright) use the <input type=file> / download fallback. */
 export const fsAccessAvailable = (): boolean => typeof window !== 'undefined' && typeof fsw().showOpenFilePicker === 'function' && !navigator.webdriver
 
-const DRAWING_TYPES: PickerType[] = [{ description: 'PDF or .drawing package', accept: { 'application/pdf': ['.pdf'], 'application/json': ['.drawing'] } }]
+const DRAWING_TYPES: PickerType[] = [{ description: 'PDF or .drawing', accept: { 'application/pdf': ['.pdf'], 'application/octet-stream': ['.drawing'] } }]
 
 /** Folder chosen for "Save to file" this session (one permission prompt). */
 let saveDir: FileSystemDirectoryHandle | null = null

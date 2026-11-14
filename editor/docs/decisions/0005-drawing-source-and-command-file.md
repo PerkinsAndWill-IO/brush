@@ -2,6 +2,9 @@
 
 Date: 2026-11-14
 
+> Superseded in part by 0008: the `.drawing` format is the binary one in `schema/schema/drawing-format.md`. The manifest
+> containers below stay readable as a legacy input.
+
 ## Context
 
 Two inputs, one shape (spec "Inputs and document model"): a plain PDF (context inferred) and a `.drawing`
