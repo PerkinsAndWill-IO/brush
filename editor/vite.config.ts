@@ -46,7 +46,7 @@ function serveFixtures(): Plugin {
 }
 
 export interface SampleEntry {
-  /** Path relative to the samples folder, e.g. `house.drawing` or `kro/kro-test.drawing`. */
+  /** Path relative to the samples folder, e.g. `house.drawing` or `kro/kro-sample.drawing`. */
   name: string
   /** Label for the picker, from the file name. */
   label: string
