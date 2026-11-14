@@ -13,6 +13,7 @@ import {
   layoutSheets,
   panBy,
   renderScaleFor,
+  detailRegionFor,
   screenToBoard,
   screenToSheet,
   sheetAt,
@@ -122,6 +123,35 @@ describe('M1-05: render resolution', () => {
   it('is capped by the pixel budget', () => {
     const s = renderScaleFor(8, 2, A3)
     expect(A3.w * A3.h * s * s).toBeLessThanOrEqual(4096 * 4096 + 1)
+  })
+})
+
+describe('detail raster when zoomed past the page raster budget', () => {
+  const pl = { sheetId: 's', pageIndex: 0, x: 0, y: 0, w: A3.w, h: A3.h }
+  it('is null while the page raster is sharp enough', () => {
+    const cam = { x: 0, y: 0, z: 1 }
+    expect(detailRegionFor(cam, 1200, 800, pl, 2, renderScaleFor(1, 2, A3))).toBeNull()
+  })
+  it('covers the visible part of the sheet at exactly zoom × dpr, inside the pixel budget', () => {
+    // zoomed to 8× on the sheet centre
+    const cam = { x: 1200 / 2 / 8 - A3.w / 2, y: 800 / 2 / 8 - A3.h / 2, z: 8 }
+    const base = renderScaleFor(8, 2, A3)
+    const d = detailRegionFor(cam, 1200, 800, pl, 2, base)!
+    expect(d.scale).toBe(16)
+    const vis = { x: -cam.x, y: -cam.y, w: 1200 / 8, h: 800 / 8 }
+    expect(d.rect.x).toBeLessThanOrEqual(vis.x)
+    expect(d.rect.y).toBeLessThanOrEqual(vis.y)
+    expect(d.rect.x + d.rect.w).toBeGreaterThanOrEqual(vis.x + vis.w)
+    expect(d.rect.y + d.rect.h).toBeGreaterThanOrEqual(vis.y + vis.h)
+    expect(d.rect.w * d.rect.h * d.scale * d.scale).toBeLessThanOrEqual(4096 * 4096)
+    expect(Number.isInteger(d.rect.x * d.scale)).toBe(true)
+  })
+  it('stays inside the sheet and is null off screen', () => {
+    const cam = { x: 10, y: 10, z: 8 } // sheet's top-left corner near the viewport's top-left
+    const d = detailRegionFor(cam, 1200, 800, pl, 2, 2)!
+    expect(d.rect.x).toBe(0)
+    expect(d.rect.y).toBe(0)
+    expect(detailRegionFor({ x: -5000, y: 0, z: 8 }, 1200, 800, pl, 2, 2)).toBeNull()
   })
 })
 

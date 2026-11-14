@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { DECISION_KINDS, type BrushMode, type DecisionKind } from '@core/types'
 import { KIND_LABEL } from '../brain/overlays'
 import { acceptReading } from '../brain/predictEngine'
-import { useLive } from '../brain/live'
+import { commitPauseFor, useLive } from '../brain/live'
 import { setSecondPassAdapter, useSecondPass } from '../brain/secondPass'
 import type { RescoreAdapterSetting } from '@core/rescore'
 import { useCameraZoom } from '../camera'
@@ -704,23 +704,29 @@ function SessionList() {
   const byStroke = new Map(accepted.map((a) => [a.strokeId, a]))
   const doc = useDocState()
   const names = new Map(doc.sheets.map((s) => [s.id, s.number ?? s.name]))
-  const list = strokes.slice(-50).reverse()
+  // M3-11: a multi-stroke gesture is one row, on its last stroke
+  const folded = new Set(Object.values(live.gestures).flatMap((ids) => ids.slice(0, -1)))
+  const list = strokes
+    .slice(-50)
+    .filter((s) => !folded.has(s.id))
+    .reverse()
   return (
     <ol className="session-list" data-testid="session-list">
       {list.length === 0 && <li className="empty-row">No strokes yet. Pick the brush and draw on a sheet.</li>}
       {list.map((s) => {
         const n = strokes.indexOf(s) + 1
         const a = byStroke.get(s.id)
+        const parts = live.gestures[s.id]?.filter((id) => strokes.some((x) => x.id === id)).length ?? 1
         const reading = !a && live.strokeId === s.id && ['drawing', 'pending', 'offer'].includes(live.phase)
         return (
-          <li key={s.id} data-stroke-id={s.id} data-kind={a?.kind ?? 'ink'}>
+          <li key={s.id} data-stroke-id={s.id} data-kind={a?.kind ?? 'ink'} data-strokes={parts}>
             <span className="swatch sm" style={{ background: a ? 'var(--accent)' : (s.color ?? '#D7263D') }} aria-hidden="true" />
             <div className="row-text">
-              <span className="row-title">{a ? `1 ${a.kind}` : `Stroke ${n}`}</span>
+              <span className="row-title">{a ? `1 ${a.kind}` : parts > 1 ? `Sketch · ${parts} strokes` : `Stroke ${n}`}</span>
               <span className="secondary">
                 {a?.type ? `${a.type} · ` : ''}
                 {names.get(s.sheetId)}
-                {a ? '' : ` · ${s.points.length} pts`}
+                {a ? (parts > 1 ? ` · ${parts} strokes` : '') : parts > 1 ? '' : ` · ${s.points.length} pts`}
               </span>
             </div>
             {reading ? <span className="row-status reading">Reading</span> : a ? <span className="row-status ok">Logged</span> : <span className="row-status">Ink</span>}
@@ -884,7 +890,9 @@ function ReadingPanel() {
                 ? `Committed as ${KIND_LABEL[live.decision!.kind].toLowerCase()}. Undo to revert.`
                 : live.phase === 'markup'
                   ? 'Kept as ink'
-                  : `Commits when you pause (${settings.commitPauseMs} ms)`}
+                  : (live.gesture?.length ?? 1) > 1
+                    ? `Reading ${live.gesture!.length} strokes together. Commits when you pause (${commitPauseFor(settings, live.gesture!.length)} ms)`
+                    : `Commits when you pause (${settings.commitPauseMs} ms)`}
           </div>
         </>
       )}

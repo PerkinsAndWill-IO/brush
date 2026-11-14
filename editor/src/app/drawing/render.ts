@@ -128,6 +128,8 @@ function drawText(g: CanvasRenderingContext2D, t: DrawText, minPx: number) {
  * Render a page into `canvas` at `pxPerPt` device pixels per sheet point (sets the backing size only; the board
  * sizes the canvas with CSS). Awaits the page's images. `gate` pauses between chunks while the pen is down.
  * `filter` drops items from the drawing (display filters); its `key` must change whenever `hide` does.
+ * `region` (sheet points) renders only that part of the page, so a zoomed-in view can be drawn at full resolution
+ * without a page-sized backing store; the canvas then covers exactly `region`.
  */
 export async function renderDrawingPage(
   page: DrawingPage,
@@ -136,6 +138,7 @@ export async function renderDrawingPage(
   signal?: AbortSignal,
   gate?: () => Promise<void> | null,
   filter?: { key: number; hide: ((it: DrawItem) => boolean) | null },
+  region?: { x: number; y: number; w: number; h: number },
 ): Promise<void> {
   const key = filter?.key ?? -1
   let entry = compiled.get(page)
@@ -147,8 +150,9 @@ export async function renderDrawingPage(
   if (wait) await wait
   if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
 
-  const w = Math.max(1, Math.floor(page.sizePt.w * pxPerPt))
-  const h = Math.max(1, Math.floor(page.sizePt.h * pxPerPt))
+  const r0 = region ?? { x: 0, y: 0, w: page.sizePt.w, h: page.sizePt.h }
+  const w = Math.max(1, Math.round(r0.w * pxPerPt))
+  const h = Math.max(1, Math.round(r0.h * pxPerPt))
   const g = canvas.getContext('2d')
   if (!g) throw new Error('renderDrawingPage: no 2D context')
   canvas.width = w
@@ -156,7 +160,7 @@ export async function renderDrawingPage(
   g.setTransform(1, 0, 0, 1, 0, 0)
   g.fillStyle = '#fff'
   g.fillRect(0, 0, w, h)
-  g.setTransform(pxPerPt, 0, 0, pxPerPt, 0, 0)
+  g.setTransform(pxPerPt, 0, 0, pxPerPt, -r0.x * pxPerPt, -r0.y * pxPerPt)
   g.lineJoin = 'round'
   g.lineCap = 'butt'
   const minPx = 1 / pxPerPt // one device pixel in points
