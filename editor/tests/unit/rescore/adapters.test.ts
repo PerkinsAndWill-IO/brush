@@ -63,7 +63,7 @@ describe('M4-01 adapters over a fake fetch (no network in CI)', () => {
   it('setting picks the adapter; off means no rescorer', () => {
     expect(createRescorer({ ...S, adapter: 'off' })).toBeNull()
     expect(createRescorer({ ...S, adapter: 'local' })?.name).toMatch(/^local:/)
-    expect(createRescorer({ ...S, adapter: 'hosted' })?.name).toBe('hosted:claude-haiku-5-5')
+    expect(createRescorer({ ...S, adapter: 'hosted' })?.name).toBe('hosted:anthropic/claude-haiku-5.5')
     expect(createRescorer({ ...S, adapter: 'jev' })?.name).toMatch(/^jev:/)
   })
 })

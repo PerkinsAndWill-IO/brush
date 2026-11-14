@@ -114,7 +114,7 @@ export function parseLocalResponse(raw: unknown): KindProbs {
 // ───────────────────────────── hosted (Anthropic Messages API) ─────────────────────────────
 
 /** Latest Claude Haiku (claude-api skill, cached 2026-11-03). */
-export const DEFAULT_HOSTED_MODEL = 'claude-haiku-5-5'
+export const DEFAULT_HOSTED_MODEL = 'anthropic/claude-haiku-5.5' // via Vercel AI Gateway
 
 export interface HostedCodecOptions {
   model?: string

@@ -81,7 +81,7 @@ describe('M4-01 hosted adapter parsing (decide tool with a probabilities object)
 
   it('request forces the single decide tool, no thinking, and names the latest Haiku by default', () => {
     const body = codecFor('hosted').buildRequest(samplePacket())
-    expect(body.model).toBe('claude-haiku-5-5')
+    expect(body.model).toBe('anthropic/claude-haiku-5.5')
     expect(body.tool_choice).toEqual({ type: 'any' })
     expect((body.tools as { name: string }[]).map((t) => t.name)).toEqual(['decide'])
     expect(body.thinking).toEqual({ type: 'disabled' })

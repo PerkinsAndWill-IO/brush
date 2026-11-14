@@ -36,8 +36,9 @@ export const DEFAULT_RESCORE_SETTINGS: RescoreSettings = {
   localUrl: 'http://127.0.0.1:8080/v1/chat/completions',
   localModel: 'local',
   localGrammar: true,
-  hostedModel: 'claude-haiku-5-5',
-  hostedBaseUrl: 'https://api.anthropic.com',
+  // Hosted calls go through Vercel AI Gateway (Anthropic Messages API, same request shape).
+  hostedModel: 'anthropic/claude-haiku-5.5',
+  hostedBaseUrl: 'https://ai-gateway.vercel.sh',
   jevUrl: 'http://127.0.0.1:8765/v1/decide',
 }
 

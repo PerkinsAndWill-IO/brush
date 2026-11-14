@@ -25,7 +25,7 @@ export function localRescorer(s: S & Pick<RescoreSettings, 'localUrl' | 'localMo
 
 /**
  * Hosted: Anthropic Messages API over plain fetch, one forced `decide` tool.
- * With `apiKey` the call goes browser -> api.anthropic.com directly (dev only:
+ * Default endpoint: Vercel AI Gateway (Anthropic Messages API). In dev the Vite proxy at /ai-gateway adds the key (dev only:
  * the key is visible to anyone with the app). Without a key, point
  * `hostedBaseUrl` at a proxy that adds it (production).
  */

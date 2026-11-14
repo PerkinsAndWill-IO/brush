@@ -47,3 +47,12 @@ only when `import.meta.env.DEV`, and must never be in `.env.local` when running 
 
 Add `https://api.anthropic.com` (hosted; or the proxy origin instead), `http://127.0.0.1:8080` (local default),
 `http://127.0.0.1:8765` (Jev default), or whatever URLs the settings point at.
+
+## Update 2026-11-14: hosted calls go through Vercel AI Gateway
+
+At the user's request the hosted adapter uses Vercel AI Gateway instead of api.anthropic.com. The gateway implements the Anthropic Messages API unchanged at `https://ai-gateway.vercel.sh/v1/messages` (auth: `x-api-key`), so only the base URL, key and model id (`anthropic/claude-haiku-5.5`, from the live `/v1/models` list) changed.
+
+- Key: `VERCEL_AI_GATEWAY_API_KEY` in `editor/.env.local`. It has no `VITE_` prefix, so it is never inlined into the bundle. This supersedes the browser-side `VITE_ANTHROPIC_API_KEY` approach above.
+- `pnpm dev`: Vite proxies `/ai-gateway/*` to the gateway and adds the key server-side; the app's hosted adapter targets that path in dev.
+- `scripts/record-cassettes.ts` reads the key from `.env.local` and calls the gateway directly from Node.
+- Tauri/production: needs a proxy you own (set `VITE_BRUSH_HOSTED_BASE_URL`). The Tauri CSP lists `https://ai-gateway.vercel.sh`.

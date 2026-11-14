@@ -3,7 +3,7 @@
  * fixtures/cassettes/<recorded|synthetic>/<adapter>/<requestHash>.json.
  *
  * Real recording (needs a key or a running server; never run in CI):
- *   pnpm exec tsx scripts/record-cassettes.ts --adapter=hosted   # ANTHROPIC_API_KEY (or VITE_ANTHROPIC_API_KEY) in env or .env.local
+ *   pnpm exec tsx scripts/record-cassettes.ts --adapter=hosted   # VERCEL_AI_GATEWAY_API_KEY in env or .env.local
  *   pnpm exec tsx scripts/record-cassettes.ts --adapter=local    # BRUSH_LOCAL_URL (default http://127.0.0.1:8080/v1/chat/completions), BRUSH_LOCAL_MODEL
  *   pnpm exec tsx scripts/record-cassettes.ts --adapter=jev      # BRUSH_JEV_URL (required), BRUSH_JEV_KEY optional
  *   Options: --limit=N  --dry-run (list the selection, call nothing)  --model=<id> (hosted/local model override)
@@ -118,9 +118,9 @@ function realAdapter(adapter: AdapterId, env: Record<string, string>): { rescore
   const base = { ...DEFAULT_RESCORE_SETTINGS, timeoutMs: 30_000 }
   switch (adapter) {
     case 'hosted': {
-      const apiKey = env.ANTHROPIC_API_KEY || env.VITE_ANTHROPIC_API_KEY
+      const apiKey = env.VERCEL_AI_GATEWAY_API_KEY || env.AI_GATEWAY_API_KEY
       if (!apiKey)
-        return 'No Anthropic API key. Put ANTHROPIC_API_KEY=... in editor/.env.local (never committed) or the environment, then re-run.\nTo exercise the pipeline without a key: pnpm exec tsx scripts/record-cassettes.ts --synthetic'
+        return 'No AI Gateway key. Put VERCEL_AI_GATEWAY_API_KEY=... in editor/.env.local (never committed) or the environment, then re-run.\nTo exercise the pipeline without a key: pnpm exec tsx scripts/record-cassettes.ts --synthetic'
       const rescorer = hostedRescorer({ ...base, hostedModel: arg('model') ?? base.hostedModel, hostedBaseUrl: env.BRUSH_HOSTED_BASE_URL || base.hostedBaseUrl }, { apiKey })
       return { rescorer, codec: rescorer.opts.codec }
     }

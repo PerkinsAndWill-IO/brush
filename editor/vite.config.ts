@@ -2,7 +2,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs'
 import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
-import { defineConfig, type Plugin } from 'vite'
+import { defineConfig, loadEnv, type Plugin } from 'vite'
 
 const root = fileURLToPath(new URL('.', import.meta.url))
 const fixturesDir = resolve(root, 'fixtures')
@@ -44,7 +44,21 @@ function serveFixtures(): Plugin {
 }
 
 // Tauri expects a fixed port; tests override with --port.
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  // The AI Gateway key stays on the dev server (no VITE_ prefix => never in the bundle).
+  // The app's hosted second pass targets /ai-gateway in dev; the proxy adds the key.
+  const gatewayKey = loadEnv(mode, root, '').VERCEL_AI_GATEWAY_API_KEY
+  const proxy = gatewayKey
+    ? {
+        '/ai-gateway': {
+          target: 'https://ai-gateway.vercel.sh',
+          changeOrigin: true,
+          rewrite: (p: string) => p.replace(/^\/ai-gateway/, ''),
+          headers: { 'x-api-key': gatewayKey },
+        },
+      }
+    : undefined
+  return {
   plugins: [react(), serveFixtures()],
   resolve: {
     alias: {
@@ -57,6 +71,7 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     watch: { ignored: ['**/src-tauri/**', '**/reports/**', '**/test-results/**'] },
+    proxy,
   },
   envPrefix: ['VITE_', 'TAURI_ENV_'],
   build: {
@@ -64,4 +79,5 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: true,
   },
+  }
 })
