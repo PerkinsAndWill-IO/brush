@@ -71,6 +71,8 @@ The page JSON:
 - **`boxes`:** for each element that has items on this page, the bounding box of its geometry (stroke points, segment
   ends, fill rings and image rectangles; text anchors may be left out). Coordinates are integers in units, relative to
   the page `min`.
+- **`image` items:** they may carry `rot`, the rotation in radians, anticlockwise about the centre of the image
+  rectangle. It is left out when it is 0. A reader that cannot rotate images draws them unrotated.
 
 ### Coordinate blobs
 
@@ -84,7 +86,8 @@ for y. Each blob is delta-coded on its own:
 
 The decoded values are the same as the legacy format's (paper feet, x right, y up), within half a unit (0.005 mm on paper).
 Lengths follow the legacy format: `pts` and ring blobs are a multiple of 8 bytes, and `segs` blobs a multiple of 16. `png` blobs
-are PNG file bytes, as in the legacy format.
+are image file bytes: PNG, JPEG, GIF or BMP, as the model stored them (the field keeps its legacy name). A reader skips
+an image it cannot decode.
 
 ## Writing
 
