@@ -5,18 +5,19 @@
  *
  * For every held-out recording of fixtures/strokes and fixtures/strokes-indep: StrokeSession to commit
  * (feed points, end, tick past the pause), twice: plain-PDF context (fixtures/contexts/*.json, inferred) and
- * package context (fixtures/packages/*.drawing via contextFromPackage). Commands come from commandFromDecision.
+ * package context (fixtures/packages/*.drawing, the binary format, via contextFromDrawing). Commands come from commandFromDecision.
  * Expected values come from the labels (expectedOp, note "target:<id>", the wall id named in a door note), never
  * from the predictor. Writes reports/commands.json; --write-golden rewrites fixtures/expected-commands/*.json.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { gunzipSync } from 'node:zlib'
 import { commandFromDecision } from '../../src/core/commands'
-import { contextFromPackage } from '../../src/core/context'
+import { contextFromDrawing } from '../../src/core/context'
+import { parseDrawingPayload, type DrawingDocument } from '../../src/core/drawing'
 import { StrokeSession } from '../../src/core/predict'
 import { settings as entrySettings } from '../../src/core/predict/eval-entry'
-import { parseManifest } from '../../src/app/source/package-file'
 import {
   DECISION_KINDS,
   DEFAULT_BRUSH_SETTINGS,
@@ -59,18 +60,18 @@ for (const c of CORPORA) {
   }
 }
 
-// ── packages: manifest + idmap per PDF (office-6-sheets, office-1-sheet); none for the scanned PDF ──
+// ── packages: .drawing + idmap per PDF (office-6-sheets, office-1-sheet); none for the scanned PDF ──
 interface Pkg {
-  manifest: ReturnType<typeof parseManifest>
+  doc: DrawingDocument
   idmap: Record<string, string>
 }
 const packages = new Map<string, Pkg>()
 for (const f of existsSync(resolve(root, 'fixtures/packages')) ? readdirSync(resolve(root, 'fixtures/packages')) : []) {
   if (!f.endsWith('.drawing')) continue
   const name = f.replace(/\.drawing$/, '')
-  const manifest = parseManifest(JSON.parse(readFileSync(resolve(root, 'fixtures/packages', f), 'utf8')))
+  const doc = parseDrawingPayload(new Uint8Array(gunzipSync(readFileSync(resolve(root, 'fixtures/packages', f)))))
   const idmapPath = resolve(root, 'fixtures/packages', `${name}.idmap.json`)
-  packages.set(`${name}.pdf`, { manifest, idmap: existsSync(idmapPath) ? (JSON.parse(readFileSync(idmapPath, 'utf8')) as Record<string, string>) : {} })
+  packages.set(`${name}.pdf`, { doc, idmap: existsSync(idmapPath) ? (JSON.parse(readFileSync(idmapPath, 'utf8')) as Record<string, string>) : {} })
 }
 
 function plainContext(rec: StrokeRecording): SheetContext {
@@ -82,7 +83,8 @@ function plainContext(rec: StrokeRecording): SheetContext {
 function packageContext(rec: StrokeRecording): SheetContext | null {
   const pkg = packages.get(rec.pdf)
   if (!pkg) return null
-  return contextFromPackage(pkg.manifest, pkg.manifest.sheets[rec.sheet]?.id)
+  const page = pkg.doc.pages[rec.sheet]
+  return page ? contextFromDrawing(pkg.doc, page.id) : null
 }
 
 function firstPass(rec: StrokeRecording, ctx: SheetContext, strokeId: string): Command | null {

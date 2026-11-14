@@ -63,5 +63,10 @@ No change to `core/types`. No new dependency.
 - The format has one owner: changes to `schema/schema/drawing-format.md` need the same change in `src/core/drawing`.
 - Footprints are derived from drawn geometry, so a curved wall becomes its chord and a wall drawn in several pieces one
   line. An exporter that wants exact footprints could add them to the format later. The Editor would then prefer them.
-- Follow-up: move the M5 fixtures and eval (`scripts/fixtures/gen-package.mjs`) to the binary format and retire the
-  manifest containers.
+- The M5 fixtures are binary `.drawing` files too. `scripts/fixtures/gen-package.mjs` draws each sheet of the PDF
+  truth the way an exporter would: walls as parallel lines or poché with `CURVE_ELEM_LENGTH`, doors as jambs, leaf and
+  swing, furniture outlines, room fills, grids, room tags, dimensions and the title block. Sheet ids are host page ids
+  (`900000` + page index). `tests/eval/run-commands.ts` reads them through `contextFromDrawing`. Package op agreement
+  went from 91.2% (manifest footprints) to 92.3% (derived from drawn geometry), with host refs unchanged (33/36).
+- Follow-up: retire the manifest containers (`src/app/source/package-file.ts`). Nothing in the repo writes them now;
+  only their own unit tests still build them inline.

@@ -55,6 +55,7 @@ For package sources `hostWallRef` and `delete.targets` are host element ids; for
 
 ## Consequences
 
-Fixture packages: `scripts/fixtures/gen-package.mjs` builds `fixtures/packages/*.drawing` and `*.idmap.json`
+Fixture packages: `scripts/fixtures/gen-package.mjs` builds `fixtures/packages/*.drawing` (since 0008: the binary
+format, no longer manifest envelopes) and `*.idmap.json`
 (truth id to host id, used only to derive expected host refs). M5 exit check: `tests/eval/run-commands.ts`,
 golden labels in `fixtures/expected-commands/`.
