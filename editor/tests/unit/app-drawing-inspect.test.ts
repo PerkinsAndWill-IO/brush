@@ -2,11 +2,11 @@
  * Inspecting host elements (docs/tasks/V3-inspect.md): hit-testing a page (V3-01), tag resolution and card labels
  * (V3-02), finding an element on every page (V3-03).
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { DrawingPage, DrawItem } from '@core/drawing'
-import { buildPageHitIndex, hitItem, roughMeasure, textQuad } from '../../src/app/drawing/hit'
+import { buildPageHitIndex, hitItem, pageHitIndexSteps, roughMeasure, textQuad } from '../../src/app/drawing/hit'
 import { splitUnit } from '../../src/app/drawing/InspectLayers'
-import { cardCategory, elementAt, inspect, getInspect, itemsOf, paramLabel, resolveElement } from '../../src/app/drawing/inspect'
+import { cardCategory, elementAt, elementAtIfReady, inspect, onHitIndexReady, getInspect, itemsOf, paramLabel, resolveElement } from '../../src/app/drawing/inspect'
 
 const common = { view: null }
 const seg = (el: string | null, x0: number, y0: number, x1: number, y1: number, w = 1): DrawItem => ({ t: 'segs', el, xy: new Float32Array([x0, y0, x1, y1]), w, c: [0, 0, 0], dash: [], ...common })
@@ -77,6 +77,36 @@ describe('V3-01 hit-testing', () => {
     const per = (performance.now() - t1) / 1000
     expect(build).toBeLessThan(1500)
     expect(per).toBeLessThan(1)
+  })
+})
+
+describe('V3-01 the hit index is built in slices', () => {
+  const items: DrawItem[] = []
+  for (let i = 0; i < 40_000; i++) items.push(seg(String(i), (i * 7) % 1000, (i * 13) % 800, ((i * 7) % 1000) + 5, ((i * 13) % 800) + 3))
+  const big = page('S', items)
+
+  it('a 40k-segment page takes several steps and ends with the same answers as the one-shot build', () => {
+    const steps = pageHitIndexSteps(big, roughMeasure)
+    let yields = 0
+    let r = steps.next()
+    while (!r.done) {
+      yields++
+      r = steps.next()
+    }
+    expect(yields).toBeGreaterThanOrEqual(4)
+    const once = buildPageHitIndex(big, roughMeasure)
+    for (const [x, y] of [[3, 2], [212, 205], [500, 391]]) expect(hitItem(r.value, x, y, 2)).toBe(hitItem(once, x, y, 2))
+  })
+
+  it('elementAtIfReady answers null while a page is being indexed and the element once it is warm', async () => {
+    const warm = page('W', [seg('20', 100, 100, 300, 100, 2)])
+    const ready = vi.fn()
+    const off = onHitIndexReady(ready)
+    expect(elementAtIfReady(warm, 200, 101, 3)).toBeNull()
+    await vi.waitFor(() => expect(elementAtIfReady(warm, 200, 101, 3)).toBe('20'))
+    expect(ready).toHaveBeenCalledTimes(1) // a resting pointer gets to look again
+    off()
+    expect(elementAtIfReady(warm, 400, 400, 3)).toBeNull()
   })
 })
 

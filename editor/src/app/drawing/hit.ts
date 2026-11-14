@@ -104,7 +104,14 @@ export interface PageHitIndex {
   maxHalfWidth: number
 }
 
-export function buildPageHitIndex(page: DrawingPage, measure: Measure = roughMeasure): PageHitIndex {
+/** The build yields after this many primitives (a power of two minus one), so a caller can slice a huge page. */
+const YIELD_MASK = 0x3fff
+
+/**
+ * Builds the index in steps: the generator yields every ~16k primitives and returns the index when done, so a
+ * caller can spread a sheet with millions of segments over many frames (`buildPageHitIndex` just runs it through).
+ */
+export function* pageHitIndexSteps(page: DrawingPage, measure: Measure = roughMeasure): Generator<void, PageHitIndex> {
   const { items } = page
   let prims = 0
   for (const it of items) {
@@ -137,16 +144,23 @@ export function buildPageHitIndex(page: DrawingPage, measure: Measure = roughMea
     add(item, kind, x0, y0, x1, y1)
   }
 
-  items.forEach((it, i) => {
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i]
     if (it.t === 'path') {
       maxHalfWidth = Math.max(maxHalfWidth, it.w / 2)
       const xy = it.xy, n = xy.length / 2
-      for (let k = 0; k + 1 < n; k++) add(i, SEGMENT, xy[2 * k], xy[2 * k + 1], xy[2 * k + 2], xy[2 * k + 3])
+      for (let k = 0; k + 1 < n; k++) {
+        add(i, SEGMENT, xy[2 * k], xy[2 * k + 1], xy[2 * k + 2], xy[2 * k + 3])
+        if ((p & YIELD_MASK) === 0) yield
+      }
       if (it.closed && n > 2) add(i, SEGMENT, xy[2 * n - 2], xy[2 * n - 1], xy[0], xy[1])
     } else if (it.t === 'segs') {
       maxHalfWidth = Math.max(maxHalfWidth, it.w / 2)
       const xy = it.xy
-      for (let k = 0; k + 3 < xy.length; k += 4) add(i, SEGMENT, xy[k], xy[k + 1], xy[k + 2], xy[k + 3])
+      for (let k = 0; k + 3 < xy.length; k += 4) {
+        add(i, SEGMENT, xy[k], xy[k + 1], xy[k + 2], xy[k + 3])
+        if ((p & YIELD_MASK) === 0) yield
+      }
     } else if (it.t === 'fill') {
       const all: number[] = []
       for (const r of it.rings) for (let k = 0; k < r.length; k++) all.push(r[k])
@@ -159,7 +173,7 @@ export function buildPageHitIndex(page: DrawingPage, measure: Measure = roughMea
       const r = it.rect
       add(i, AREA, r.x, r.y, r.x + r.w, r.y + r.h)
     }
-  })
+  }
 
   // grid over the page (items outside it clamp to the border cells)
   const { w, h } = page.sizePt
@@ -197,13 +211,27 @@ export function buildPageHitIndex(page: DrawingPage, measure: Measure = roughMea
     }
   }
   const cellStart = new Int32Array(nx * ny + 1)
-  for (let q = 0; q < prims; q++) visit(q, (c) => cellStart[c + 1]++)
+  for (let q = 0; q < prims; q++) {
+    visit(q, (c) => cellStart[c + 1]++)
+    if ((q & YIELD_MASK) === YIELD_MASK) yield
+  }
   for (let c = 0; c < nx * ny; c++) cellStart[c + 1] += cellStart[c]
   const fill = cellStart.slice(0, nx * ny)
   const cellPrims = new Int32Array(cellStart[nx * ny])
-  for (let q = 0; q < prims; q++) visit(q, (c) => (cellPrims[fill[c]++] = q))
+  for (let q = 0; q < prims; q++) {
+    visit(q, (c) => (cellPrims[fill[c]++] = q))
+    if ((q & YIELD_MASK) === YIELD_MASK) yield
+  }
 
   return { page, primItem, primKind, primXY, textQuads, cellStart, cellPrims, nx, ny, cs, big, maxHalfWidth }
+}
+
+export function buildPageHitIndex(page: DrawingPage, measure: Measure = roughMeasure): PageHitIndex {
+  const steps = pageHitIndexSteps(page, measure)
+  for (;;) {
+    const r = steps.next()
+    if (r.done) return r.value
+  }
 }
 
 /**
