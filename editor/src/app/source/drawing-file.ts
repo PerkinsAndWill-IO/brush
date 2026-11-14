@@ -25,7 +25,8 @@ export async function gunzip(bytes: Uint8Array): Promise<Uint8Array> {
 
 /** Parse the bytes of a `.drawing` file. Throws DrawingFormatError naming the problem (page, item, field). */
 export async function parseDrawingFile(bytes: Uint8Array): Promise<DrawingDocument> {
-  if (isDrawingPayload(bytes)) return parseDrawingPayload(bytes)
+  // pages after the first are decoded when first drawn or analysed, so the first sheet paints without waiting for them
+  if (isDrawingPayload(bytes)) return parseDrawingPayload(bytes, { lazy: true })
   if (!isGzip(bytes)) throw new DrawingFormatError('not a .drawing file: expected a gzip stream (it should start with bytes 1f 8b)')
   return parseLegacyDrawingPayload(await gunzip(bytes))
 }

@@ -1,6 +1,7 @@
 // Performance probe for large `.drawing` files in real Chrome (GPU canvas): load to first paint, all sheets painted,
 // per-page render cost at several scales, zoom frame times and the re-render after a zoom settles, memory.
 // Usage (from editor/, with `vite --port 5310` running): node scripts/perf-drawing.mjs /fixtures/perf/kro-test-lean.drawing ...
+// LOAD_ONLY=1 skips the zoom and detail checks.
 // (Git Bash rewrites a leading-slash argument into a Windows path: prefix the command with MSYS_NO_PATHCONV=1.)
 // Files are served by the dev server's /fixtures route. Prints one JSON object per file.
 /* global window, document, requestAnimationFrame */
@@ -108,6 +109,13 @@ for (const file of files) {
     }
     return r
   }, file)
+
+  if (process.env.LOAD_ONLY) {
+    // LOAD_ONLY=1: stop after loading and the per-phase numbers
+    console.log(JSON.stringify(out))
+    await ctx.close()
+    continue
+  }
 
   // zoom: ctrl+wheel bursts over the board centre, then wait for the settle re-render
   const vp = page.viewportSize()

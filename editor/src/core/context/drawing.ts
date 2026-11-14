@@ -533,12 +533,16 @@ function labelRole(e: DrawingElement | undefined, category: string): string {
 
 // ───────────────────────────── public API ─────────────────────────────
 
-/** Sheets of a `.drawing`, in the viewer's order (sheets, then views). Ids are the host page ids. */
-export function sheetsFromDrawing(doc: DrawingDocument): Sheet[] {
+/**
+ * Sheets of a `.drawing`, in the viewer's order (sheets, then views). Ids are the host page ids. Pages from index
+ * `analysed` on are listed without reading their items, so they carry only a scale their page states.
+ */
+export function sheetsFromDrawing(doc: DrawingDocument, analysed = Infinity): Sheet[] {
   return doc.pages.map((p, i) => {
     const sheet: Sheet = { id: p.id, name: p.name || (p.kind === 'view' ? `View ${p.id}` : `Sheet ${p.id}`), sizePt: { ...p.sizePt }, pageIndex: i }
     if (p.number) sheet.number = p.number
-    const scale = analyse(doc, p).scale
+    // pages past `analysed` are not read (lazy loading): only their stated scale, the estimate comes with their context
+    const scale = i < analysed ? analyse(doc, p).scale : p.scale ? parseScaleText(p.scale) : undefined
     if (scale) sheet.scale = scale
     return sheet
   })

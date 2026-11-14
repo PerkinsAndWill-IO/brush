@@ -643,7 +643,9 @@ export function LeftSidebar() {
 function FiltersSection() {
   const { source } = useDocState()
   const doc = source instanceof DrawingFileSource ? source.doc : null
-  const list = useMemo(() => (doc ? categoriesOf(doc) : []), [doc])
+  // counting reads every page: wait until the background context pass has decoded them all
+  const pending = [...useContexts().status.values()].includes('pending')
+  const list = useMemo(() => (doc && !pending ? categoriesOf(doc) : []), [doc, pending])
   const f = useFilters()
   if (!doc) return null
   const hiddenHere = list.filter((c) => f.hiddenCategories.has(c.name)).length + f.hiddenKinds.size
