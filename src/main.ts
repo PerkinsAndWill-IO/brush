@@ -3,7 +3,10 @@ import { ACTUAL_SIZE_SCALE, fitView, panBy, toWorld, zoomAt, type View } from ".
 import { categoryOf, paramLabel, resolveElement, type Resolved } from "./elements";
 import { buildHitIndex, hitTest, type HitIndex } from "./hit";
 import { Renderer } from "./render";
-import { parseScene, sceneTitle, type Scene } from "./scene";
+import { convertFile, drawingName, extensionOf, loadRuntimeConfig, NoConverterError, type RuntimeConfig } from "./converter";
+import { pageLabel, type DrawingDoc } from "./drawing-file";
+import { openDocument } from "./open";
+import type { Scene } from "./scene";
 import type { Measure } from "./text";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -13,6 +16,9 @@ const over = $<HTMLCanvasElement>("over");
 const card = $<HTMLElement>("card");
 const status = $<HTMLSpanElement>("status");
 const select = $<HTMLSelectElement>("scenes");
+const pageSelect = $<HTMLSelectElement>("pages");
+const saveButton = $<HTMLButtonElement>("save");
+const filePicker = $<HTMLInputElement>("file");
 const baseCtx = base.getContext("2d")!;
 const overCtx = over.getContext("2d")!;
 
@@ -27,10 +33,12 @@ const measure: Measure = (text, fontSize, bold) => {
 };
 
 /** Timings the page reports about itself (also read by the browser check). */
-const stats = { scene: "", items: 0, segments: 0, loadMs: 0, draws: 0, lastDrawMs: 0, maxDrawMs: 0, hits: 0, lastHitMs: 0, maxHitMs: 0 };
+const stats = { scene: "", pages: 0, page: 0, items: 0, segments: 0, loadMs: 0, pageMs: 0, draws: 0, lastDrawMs: 0, maxDrawMs: 0, hits: 0, lastHitMs: 0, maxHitMs: 0 };
 (window as unknown as { __brush: typeof stats }).__brush = stats;
 
 const renderer = new Renderer();
+let doc: DrawingDoc | null = null;
+let pageIdx = 0;
 let scene: Scene | null = null;
 let index: HitIndex | null = null;
 let view: View = { scale: 1, tx: 0, ty: 0 };
@@ -311,6 +319,10 @@ function unpin() {
 
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") unpin();
+  else if ((e.key === "PageUp" || e.key === "PageDown") && doc && doc.pages.length > 1) {
+    e.preventDefault(); // also keeps a focused page switcher from moving on its own
+    showPage(pageIdx + (e.key === "PageDown" ? 1 : -1));
+  }
 });
 
 stage.addEventListener(
@@ -344,35 +356,77 @@ renderer.onImageReady = () => schedule(true, false);
 
 // ---------- loading ----------
 
-function setScene(json: unknown, label: string, t0: number) {
-  const parsed = parseScene(json);
+/** Shows one page of the open document. */
+function showPage(i: number, parseMs?: number) {
+  if (!doc) return;
+  i = Math.max(0, Math.min(doc.pages.length - 1, i));
+  const t0 = performance.now();
+  const page = doc.pages[i];
+  const parsed = page.scene;
   const idx = buildHitIndex(parsed, measure);
   let segments = 0;
   for (const it of parsed.items) segments += it.t === "segs" ? it.xy.length / 4 : it.t === "path" ? Math.max(0, it.xy.length / 2 - 1) : 0;
   renderer.setScene(parsed, idx);
   deferred = segments > DEFER_SEGMENTS;
+  pageIdx = i;
   scene = parsed;
   index = idx;
   hoverEl = pinnedEl = null;
   card.hidden = true;
+  pageSelect.value = String(i);
   resizeCanvases();
   fit();
-  stats.scene = label;
+  stats.page = i;
   stats.items = parsed.items.length;
   stats.segments = segments;
-  stats.loadMs = performance.now() - t0;
+  stats.pageMs = performance.now() - t0;
   stats.maxDrawMs = stats.maxHitMs = 0;
-  document.title = `${sceneTitle(parsed)} - Brush`;
-  setStatus(`${sceneTitle(parsed)} | ${parsed.items.length.toLocaleString()} items, ${segments.toLocaleString()} segments | loaded in ${(stats.loadMs / 1000).toFixed(2)} s`);
+  const label = pageLabel(page);
+  document.title = `${label} - Brush`;
+  const pageNote = doc.pages.length > 1 ? ` | page ${i + 1} of ${doc.pages.length} (PageUp / PageDown)` : "";
+  setStatus(`${label} | ${parsed.items.length.toLocaleString()} items, ${segments.toLocaleString()} segments${pageNote} | ${parseMs === undefined ? "page ready" : "loaded"} in ${(((parseMs ?? 0) + stats.pageMs) / 1000).toFixed(2)} s`);
+}
+
+function setDoc(next: DrawingDoc, label: string, t0: number) {
+  doc = next;
+  pageSelect.replaceChildren(...next.pages.map((p, i) => new Option(pageLabel(p), String(i))));
+  pageSelect.hidden = next.pages.length < 2;
+  stats.scene = label;
+  stats.pages = next.pages.length;
+  const parseMs = performance.now() - t0; // reading and parsing the file; the first page's index comes on top
+  showPage(0, parseMs);
+  stats.loadMs = parseMs + stats.pageMs;
+}
+
+/** The converted .drawing the user can save, if the open document came from a converter. */
+let converted: { name: string; bytes: Uint8Array } | null = null;
+
+function offerSave(next: typeof converted) {
+  converted = next;
+  saveButton.hidden = next === null;
+}
+
+saveButton.addEventListener("click", () => {
+  if (!converted) return;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([converted.bytes as BlobPart], { type: "application/octet-stream" }));
+  a.download = converted.name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+});
+
+async function openBytes(bytes: Uint8Array, label: string, t0: number) {
+  setDoc(await openDocument(bytes), label, t0);
 }
 
 async function loadUrl(url: string) {
   const t0 = performance.now();
   setStatus(`Loading ${url} ...`);
+  offerSave(null);
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    setScene(await res.json(), url, t0);
+    await openBytes(new Uint8Array(await res.arrayBuffer()), url, t0);
   } catch (err) {
     setStatus(`Could not load ${url}: ${(err as Error).message}`, true);
   }
@@ -381,16 +435,56 @@ async function loadUrl(url: string) {
 async function loadFile(file: File) {
   const t0 = performance.now();
   setStatus(`Reading ${file.name} ...`);
+  offerSave(null);
   try {
-    setScene(JSON.parse(await file.text()), file.name, t0);
+    await openBytes(new Uint8Array(await file.arrayBuffer()), file.name, t0);
   } catch (err) {
     setStatus(`Could not open ${file.name}: ${(err as Error).message}`, true);
   }
 }
 
-$<HTMLInputElement>("file").addEventListener("change", (e) => {
-  const f = (e.target as HTMLInputElement).files?.[0];
-  if (f) void loadFile(f);
+const configReady: Promise<RuntimeConfig> = loadRuntimeConfig(`${import.meta.env.BASE_URL}config.json`, import.meta.env.VITE_CONVERTER_URL).then((config) => {
+  // With a converter any file may be offered to it, so the picker stops filtering by extension.
+  if (config.converter) filePicker.removeAttribute("accept");
+  return config;
+});
+
+async function convertAndOpen(file: File) {
+  const t0 = performance.now();
+  const started = new Date();
+  let message = `Converting ${file.name} ...`;
+  const tick = window.setInterval(() => setStatus(`${message} (${Math.round((Date.now() - started.getTime()) / 1000)} s)`), 500);
+  setStatus(message);
+  offerSave(null);
+  try {
+    const config = await configReady;
+    const bytes = await convertFile(file, config, {
+      onProgress: (m) => {
+        message = m;
+        setStatus(m);
+      },
+    });
+    window.clearInterval(tick);
+    const name = drawingName(file.name);
+    await openBytes(bytes, name, t0);
+    offerSave({ name, bytes });
+  } catch (err) {
+    window.clearInterval(tick);
+    setStatus(err instanceof NoConverterError ? err.message : `Could not convert ${file.name}: ${(err as Error).message}`, true);
+  }
+}
+
+/** .drawing and .json are read here; any other file goes to the configured converter. */
+function openFile(file: File) {
+  const ext = extensionOf(file.name);
+  return ext === ".drawing" || ext === ".json" ? loadFile(file) : convertAndOpen(file);
+}
+
+filePicker.addEventListener("change", (e) => {
+  const input = e.target as HTMLInputElement;
+  const f = input.files?.[0];
+  if (f) void openFile(f);
+  input.value = ""; // choosing the same file again must fire change again
 });
 
 let dragDepth = 0;
@@ -409,12 +503,14 @@ window.addEventListener("drop", (e) => {
   dragDepth = 0;
   drop.hidden = true;
   const f = e.dataTransfer?.files[0];
-  if (f) void loadFile(f);
+  if (f) void openFile(f);
 });
+
+pageSelect.addEventListener("change", () => showPage(Number(pageSelect.value)));
 
 select.addEventListener("change", () => {
   const url = `${import.meta.env.BASE_URL}scenes/${select.value}`;
-  history.replaceState(null, "", `?scene=${encodeURIComponent(url)}`);
+  history.replaceState(null, "", `?file=${encodeURIComponent(url)}`);
   void loadUrl(url);
 });
 
@@ -425,10 +521,11 @@ async function start() {
     const res = await fetch(`${import.meta.env.BASE_URL}scenes/index.json`);
     if (res.ok) list = await res.json();
   } catch {
-    /* no index: the picker and ?scene= still work */
+    /* no index: the picker and ?file= still work */
   }
   for (const s of list) select.add(new Option(s.title, s.file));
-  const wanted = new URLSearchParams(location.search).get("scene");
+  const params = new URLSearchParams(location.search);
+  const wanted = params.get("file") ?? params.get("scene"); // ?scene= is the old name of ?file=
   if (wanted) {
     const match = list.findIndex((s) => wanted.endsWith(`scenes/${s.file}`));
     select.selectedIndex = match;
