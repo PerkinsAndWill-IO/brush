@@ -3,6 +3,7 @@
  * capsule. Layout and look follow docs/design/project/{Main,Empty}.dc.html.
  */
 import { lazy, Suspense, useEffect, useState, type DragEvent } from 'react'
+import samples from 'virtual:brush-samples'
 import { Board } from './board/Board'
 import { installBrain } from './brain'
 import { getPlatform } from './platform'
@@ -21,6 +22,58 @@ async function openDropped(e: DragEvent) {
   if (f) await openFile(await fileToOpened(f))
 }
 
+const formatSize = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} kB`)
+
+/**
+ * Sample `.drawing` files from `schema/public/examples` (served by the `sampleDrawings` plugin in vite.config.ts).
+ * Picking one fetches it and opens it like a chosen file. Hidden when there are no samples.
+ */
+function SamplePicker({ disabled }: { disabled: boolean }) {
+  const [fetching, setFetching] = useState<string>()
+  const [fetchError, setFetchError] = useState<string>()
+  if (!samples.length) return null
+
+  async function open(name: string) {
+    const sample = samples.find((s) => s.name === name)
+    if (!sample) return
+    setFetching(sample.name)
+    setFetchError(undefined)
+    try {
+      const res = await fetch(sample.url)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const bytes = await res.arrayBuffer()
+      setFetching(undefined)
+      await openFile({ name: sample.name, size: bytes.byteLength, bytes })
+    } catch (e) {
+      setFetching(undefined)
+      setFetchError(`Could not download the sample “${sample.name}”. (${(e as Error).message})`)
+    }
+  }
+
+  return (
+    <>
+      <label className="samples">
+        <span className="secondary">{fetching ? `Downloading ${fetching}…` : 'or open a sample'}</span>
+        <select data-testid="sample-picker" aria-label="Open a sample drawing" value="" disabled={disabled || !!fetching} onChange={(e) => void open(e.target.value)}>
+          <option value="" disabled>
+            Choose a sample…
+          </option>
+          {samples.map((s) => (
+            <option key={s.name} value={s.name}>
+              {s.label} ({s.name}, {formatSize(s.size)})
+            </option>
+          ))}
+        </select>
+      </label>
+      {fetchError && (
+        <p className="error" role="alert" data-testid="sample-error">
+          {fetchError}
+        </p>
+      )}
+    </>
+  )
+}
+
 function EmptyState({ error, loading }: { error?: string; loading?: string }) {
   return (
     <div className="empty" data-testid="empty-state">
@@ -31,7 +84,7 @@ function EmptyState({ error, loading }: { error?: string; loading?: string }) {
             Drop a <span className="mono">PDF</span> to start
           </h1>
           <p>
-            Each page opens here as a sheet, side by side, ready to sketch on. Exported <span className="mono">.drawing</span> packages arrive later.
+            Each page opens here as a sheet, side by side, ready to sketch on. Exported <span className="mono">.drawing</span> packages open too.
           </p>
         </div>
         <div className="cta">
@@ -42,6 +95,7 @@ function EmptyState({ error, loading }: { error?: string; loading?: string }) {
             or press <kbd>Ctrl O</kbd>
           </span>
         </div>
+        <SamplePicker disabled={!!loading} />
         {error && (
           <p className="error" role="alert" data-testid="load-error">
             {error}

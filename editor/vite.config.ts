@@ -1,11 +1,13 @@
-import { createReadStream, existsSync, statSync } from 'node:fs'
-import { extname, resolve, sep } from 'node:path'
+import { createReadStream, existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { basename, extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
 import { defineConfig, loadEnv, type Plugin } from 'vite'
 
 const root = fileURLToPath(new URL('.', import.meta.url))
 const fixturesDir = resolve(root, 'fixtures')
+/** Sample `.drawing` files shipped with the format spec (`schema/` in this repo). Offered on the start page. */
+const samplesDir = resolve(root, '..', 'schema', 'public', 'examples')
 
 const MIME: Record<string, string> = {
   '.pdf': 'application/pdf',
@@ -43,6 +45,74 @@ function serveFixtures(): Plugin {
   }
 }
 
+export interface SampleEntry {
+  /** File name, e.g. `house.drawing`. */
+  name: string
+  /** Label for the picker, from the file name. */
+  label: string
+  /** Where the app fetches it. */
+  url: string
+  size: number
+}
+
+function listSamples(): SampleEntry[] {
+  if (!existsSync(samplesDir)) return []
+  return readdirSync(samplesDir)
+    .filter((f) => /\.drawing$/i.test(f) && statSync(resolve(samplesDir, f)).isFile())
+    .sort()
+    .map((name) => {
+      const stem = basename(name, extname(name)).replace(/[-_]+/g, ' ')
+      return { name, label: stem.charAt(0).toUpperCase() + stem.slice(1), url: `/samples/${encodeURIComponent(name)}`, size: statSync(resolve(samplesDir, name)).size }
+    })
+}
+
+/**
+ * The sample `.drawing` files in `../schema/public/examples` (single source: not copied into editor/).
+ * - `virtual:brush-samples` exports the list for the start page's sample picker.
+ * - `vite dev` / `vite preview` serve them at /samples/*; `vite build` emits them into dist/samples/.
+ * If the folder is missing (editor deployed on its own) the list is empty and the picker hides.
+ */
+function sampleDrawings(): Plugin {
+  const VIRTUAL = 'virtual:brush-samples'
+  const RESOLVED = '\0' + VIRTUAL
+  const handler = (req: { url?: string }, res: import('node:http').ServerResponse, next: () => void) => {
+    const url = decodeURIComponent((req.url ?? '').split('?')[0])
+    if (!url.startsWith('/samples/')) return next()
+    const sample = listSamples().find((s) => s.name === url.slice('/samples/'.length))
+    if (!sample) return next()
+    res.setHeader('Content-Type', 'application/octet-stream')
+    res.setHeader('Cache-Control', 'no-store')
+    createReadStream(resolve(samplesDir, sample.name)).pipe(res)
+  }
+  return {
+    name: 'brush-sample-drawings',
+    resolveId: (id) => (id === VIRTUAL ? RESOLVED : undefined),
+    load(id) {
+      if (id !== RESOLVED) return
+      return `export default ${JSON.stringify(listSamples())}`
+    },
+    configureServer(server) {
+      server.middlewares.use(handler)
+      // a sample added or removed refreshes the list
+      if (existsSync(samplesDir)) server.watcher.add(samplesDir)
+      const refresh = (file: string) => {
+        if (!file.startsWith(samplesDir + sep)) return
+        const mod = server.moduleGraph.getModuleById(RESOLVED)
+        if (mod) server.moduleGraph.invalidateModule(mod)
+        server.ws.send({ type: 'full-reload' })
+      }
+      server.watcher.on('add', refresh)
+      server.watcher.on('unlink', refresh)
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(handler)
+    },
+    generateBundle() {
+      for (const s of listSamples()) this.emitFile({ type: 'asset', fileName: `samples/${s.name}`, source: readFileSync(resolve(samplesDir, s.name)) })
+    },
+  }
+}
+
 // Tauri expects a fixed port; tests override with --port.
 export default defineConfig(({ mode }) => {
   // The AI Gateway key stays on the dev server (no VITE_ prefix => never in the bundle).
@@ -60,7 +130,7 @@ export default defineConfig(({ mode }) => {
       }
     : undefined
   return {
-  plugins: [react(), serveFixtures()],
+  plugins: [react(), serveFixtures(), sampleDrawings()],
   resolve: {
     alias: {
       '@core': resolve(root, 'src/core'),

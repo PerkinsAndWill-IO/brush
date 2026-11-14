@@ -56,3 +56,15 @@ test('M5-08: a binary .drawing opens, its pages render from vectors, contexts ca
   if (cmd.op === 'create_wall') expect(MODEL_WALL_TYPES).toContain(cmd.wallType)
   await page.screenshot({ path: screenPath('m5-drawing-house') })
 })
+
+test('M5-08: the start page offers the schema sample drawings and opens one', async ({ page }) => {
+  await openApp(page)
+  const picker = page.getByTestId('sample-picker')
+  await expect(picker).toBeVisible()
+  await expect(picker.locator('option[value="house.drawing"]')).toHaveCount(1)
+  await picker.selectOption('house.drawing')
+  await expect(page.locator('[data-testid="sheet"][data-rendered="true"]').first()).toBeVisible()
+  const sheets = await page.evaluate(() => window.__brush!.sheets())
+  expect(sheets.map((s) => s.number ?? s.name)).toEqual(['A102', 'A103', '{3D}'])
+  await page.screenshot({ path: screenPath('m5-sample-picker-house') })
+})
