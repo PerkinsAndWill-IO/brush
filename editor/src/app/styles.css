@@ -137,8 +137,8 @@ input[type='range'] { width: 100%; margin: 0; accent-color: var(--accent); heigh
 /* Hand-drawn tool icons: bigger buttons in the capsule (not in the colour popover). */
 .capsule > .tool, .tool.ink { width: 52px; height: 52px; }
 .tool-icon { width: 34px; height: 34px; object-fit: contain; display: block; pointer-events: none; }
-.tool.ink { position: relative; }
-.tool.ink .swatch { position: absolute; right: 7px; bottom: 7px; width: 11px; height: 11px; }
+.ink-can { position: relative; display: block; width: 34px; height: 34px; }
+.ink-can .ink-paint { position: absolute; inset: 0; mask-size: contain; mask-repeat: no-repeat; mask-position: center; -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; pointer-events: none; }
 .capsule .divider { width: 1px; height: 24px; margin: 0 6px; background: rgba(27, 29, 33, 0.18); }
 .swatch { width: 20px; height: 20px; border-radius: 50%; display: block; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9), 0 0 0 3px rgba(27, 29, 33, 0.25); }
 .swatch.sm { width: 10px; height: 10px; flex: 0 0 auto; box-shadow: none; }

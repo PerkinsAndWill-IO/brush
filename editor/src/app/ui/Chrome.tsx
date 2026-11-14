@@ -26,7 +26,8 @@ import brushToolIcon from './assets/tool-brush.png'
 import eraserToolIcon from './assets/tool-eraser.png'
 import panToolIcon from './assets/tool-pan.png'
 import measureToolIcon from './assets/tool-measure.png'
-import inkToolIcon from './assets/tool-ink.png'
+import inkOutlineIcon from './assets/tool-ink-outline.png'
+import inkPaintMask from './assets/tool-ink-paint.png'
 import { LABEL_SCALES, sheetScale, useView, view } from '../view'
 import { formatMetres, sheetDistanceMetres } from '../board/viewAids'
 import { RevitButton } from '../revit/RevitPanel'
@@ -284,8 +285,11 @@ function ColorButton({ disabled }: { disabled: boolean }) {
   return (
     <div className="menu-anchor" ref={ref}>
       <button type="button" className="tool ink" aria-label={`Ink colour, ${name}`} aria-haspopup="true" aria-expanded={open} disabled={disabled} data-testid="ink-color" onClick={() => setOpen(!open)}>
-        <img className="tool-icon" src={inkToolIcon} alt="" />
-        <span className="swatch" style={{ background: settings.color }} />
+        {/* the paint in the can takes the current ink colour: an outline image under a mask filled with it */}
+        <span className="ink-can" aria-hidden="true">
+          <img className="tool-icon" src={inkOutlineIcon} alt="" />
+          <span className="ink-paint" data-testid="ink-paint" style={{ backgroundColor: settings.color, maskImage: `url(${inkPaintMask})`, WebkitMaskImage: `url(${inkPaintMask})` }} />
+        </span>
       </button>
       {open && (
         <div className="swatches" role="radiogroup" aria-label="Ink colour">
