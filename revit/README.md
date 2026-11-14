@@ -17,7 +17,8 @@ Protocol: [`docs/protocol.md`](docs/protocol.md). Why it is built this way: [`do
 | Project | What | Runs on |
 |---|---|---|
 | `src/Brush.Link.Core` | Protocol, loopback WebSocket server, sheet ↔ model math, command planner, `.drawing` writer, `PackageHost` (in-memory stand-in for Revit). No Revit, no dependencies. | any OS, .NET 8 |
-| `src/Brush.Revit` | The add-in: ribbon button, API-thread dispatcher, reads sheets/viewports/elements, exports PDF, applies commands. | Windows, Revit 2025–2027 |
+| `src/Brush.Revit` | The add-in shim, the only DLL Revit loads: ribbon buttons, API-thread dispatcher, and the hot-reload loader. Kept small, since changing it needs a Revit restart. | Windows, Revit 2025–2027 |
+| `src/Brush.Revit.Link` | The rest of the add-in, hot-reloaded by the shim: starts the link, reads sheets/viewports/elements, exports PDF, applies commands. | Windows, Revit 2025–2027 |
 | `src/Brush.Link.DevHost` | The link without Revit: serves an editor `.drawing` package and applies commands to its manifest. For editor work on any machine. | any OS |
 | `tests/Brush.Link.Core.Tests` | Unit tests, plus end-to-end tests over a real socket against the editor's fixture package. | any OS |
 
@@ -43,13 +44,45 @@ Then connect from the editor (`pnpm dev`, port 5173, is allowed by default). In 
 ## Install in Revit (Windows)
 
 ```sh
-dotnet build src/Brush.Revit -c Release                         # Revit 2026 (default)
-dotnet build src/Brush.Revit -c Release -p:RevitVersion=2025    # or 2027
+dotnet build src/Brush.Revit.Link -c Release                         # Revit 2026 (default)
+dotnet build src/Brush.Revit.Link -c Release -p:RevitVersion=2025    # or 2027
 ```
 
-A Windows build copies `Brush.Revit.addin` and a `Brush\` folder into `%APPDATA%\Autodesk\Revit\Addins\<year>\`
+Building `Brush.Revit.Link` builds the shim too. A Windows build copies `Brush.Revit.addin` and a `Brush\` folder into `%APPDATA%\Autodesk\Revit\Addins\<year>\`
 (`-p:DeployToRevit=false` to skip). Start Revit and open a model. The link starts by itself. **Add-Ins → Brush → Brush
 Link** shows its status and turns it on or off.
+
+## Hot reload (no Revit restarts)
+
+Revit 2025+ runs on .NET 8, which can unload code. So Revit only loads a small shim (`Brush.Revit.dll`); everything
+else lives in `Brush.Revit.Link.dll`, which the shim loads from memory (the file is never locked) into a collectible
+`AssemblyLoadContext`. When hot reload is on, the shim watches the plugin folder and, after a rebuild, stops the
+running copy, starts the new one and unloads the old one. Editors reconnect by themselves.
+
+Edit loop, with Revit open (Debug build):
+
+```sh
+cd src/Brush.Revit.Link
+dotnet watch build        # each save: build, install into the Addins folder, Revit swaps it in about a second
+```
+
+- On by default in Debug builds, off in Release. Override with `"hotReload": true|false` in the settings file or
+  `BRUSH_HOT_RELOAD=1|0`. With it on, the ribbon also gets a **Reload Brush** button.
+- `"pluginDir"` in the settings file loads the plugin from another folder, for example straight from
+  `src\Brush.Revit.Link\bin\Debug\net8.0-windows`, which skips the copy into the Addins folder.
+- Safe to break: a build that fails to load, or throws in `Start`, is logged and shown in a dialog, and the previous
+  copy is started again. The **Brush Link** button shows the plugin number and lets you reload by hand.
+- Kept across reloads: whether the link was on, which elements each command created (so editor undo still works),
+  and origins allowed "this time".
+- Still needs a Revit restart: changes to `src/Brush.Revit` (the shim) or to the `.addin` file. Building while
+  Revit runs fails to copy a changed shim, which is the hint.
+- For method-body tweaks while debugging, Visual Studio or Rider Hot Reload on an attached `Revit.exe` also works and
+  needs no rebuild; this loader covers everything else (new classes, fields, signatures).
+- Plugin rules, so the old copy can unload: undo in `Dispose` what `Start` did (Revit events, servers, timers), keep
+  reload-proof data in `context.State` as BCL types only, and create no `ExternalEvent` or ribbon items. The log says
+  whether each old copy really left memory. If not, it stays until Revit closes, which is harmless.
+
+## Settings
 
 Settings, all optional, in `%APPDATA%\Brush\revit-link.json`:
 
@@ -59,7 +92,9 @@ Settings, all optional, in `%APPDATA%\Brush\revit-link.json`:
   "autoStart": true,
   "allowedOrigins": ["http://localhost:5173", "https://brush-editor.example"],
   "allowMissingOrigin": true,
-  "modelChangeDebounceMs": 600
+  "modelChangeDebounceMs": 600,
+  "hotReload": true,
+  "pluginDir": "C:\\src\\brush\\revit\\src\\Brush.Revit.Link\\bin\\Debug\\net8.0-windows"
 }
 ```
 
