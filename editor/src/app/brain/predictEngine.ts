@@ -31,6 +31,7 @@ import { pushMetric } from '../metrics'
 import { getSession, session as doc } from '../session'
 import { getDocState } from '../store'
 import { contextNow, emptyContext } from './contextStore'
+import { contextWithoutErased, erasedNow } from './erased'
 import { GESTURE, commitPauseFor, getLive, setLive } from './live'
 import { considerSecondPass, onSecondPassResult } from './secondPass'
 
@@ -64,14 +65,16 @@ const liveOn = () => getSession().settings.live
  * The sheet's context plus the walls drawn on it, so new walls snap to them and doors land in them.
  * Memoised on (context, accepted list) so the prepared context is only rebuilt when either changes.
  */
-let drawnMemo: { base: SheetContext; accepted: readonly unknown[]; out: SheetContext } | null = null
+let drawnMemo: { base: SheetContext; accepted: readonly unknown[]; erased: ReadonlySet<string>; out: SheetContext } | null = null
 function contextWithDrawn(base: SheetContext): SheetContext {
   const { accepted, commands } = getSession()
-  if (drawnMemo && drawnMemo.base === base && drawnMemo.accepted === accepted) return drawnMemo.out
+  const erased = erasedNow()
+  if (drawnMemo && drawnMemo.base === base && drawnMemo.accepted === accepted && drawnMemo.erased === erased) return drawnMemo.out
   const refs = new Map<string, string>()
   for (const c of commands) if (c.op === 'create_wall' && c.strokeId) refs.set(c.strokeId, c.id)
-  const out = withDrawnWalls(base, accepted, { palette: getDocState().source?.palette, refs })
-  drawnMemo = { base, accepted, out }
+  // erased elements leave the context first (they no longer snap or host doors), then drawn walls join it
+  const out = withDrawnWalls(contextWithoutErased(base), accepted, { palette: getDocState().source?.palette, refs })
+  drawnMemo = { base, accepted, erased, out }
   return out
 }
 

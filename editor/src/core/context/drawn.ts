@@ -44,3 +44,35 @@ export function withDrawnWalls(ctx: SheetContext, accepted: readonly AcceptedDec
   })
   return { ...ctx, items: [...ctx.items, ...items] }
 }
+
+/**
+ * Host elements (hostRef, e.g. a Revit / .drawing element id) removed by accepted deletes: an eraser pass or a
+ * scribble over an item of a package context. Element ids are shared by all pages of a source, so the element is
+ * gone from every sheet. Targets without a hostRef (inferred from a plain PDF) name no element.
+ */
+export function erasedElements(accepted: readonly AcceptedDecision[], ctxOf: (sheetId: string) => SheetContext | undefined): Set<string> {
+  const out = new Set<string>()
+  for (const a of accepted) {
+    if (a.kind !== 'delete' || !a.targets?.length) continue
+    const ctx = ctxOf(a.sheetId)
+    if (!ctx) continue
+    for (const t of a.targets) {
+      const ref = ctx.items.find((i) => i.id === t)?.hostRef
+      if (ref) out.add(ref)
+    }
+  }
+  return out
+}
+
+/**
+ * The context without what was erased: every item of an erased element (`refs`, from erasedElements), and the
+ * sheet's own delete targets that have no host. Erased items no longer snap, host doors or count as context.
+ * Returns the same object when nothing goes.
+ */
+export function withoutErased(ctx: SheetContext, accepted: readonly AcceptedDecision[], refs: ReadonlySet<string>): SheetContext {
+  const ids = new Set<string>()
+  for (const a of accepted) if (a.kind === 'delete' && a.sheetId === ctx.sheetId) for (const t of a.targets ?? []) ids.add(t)
+  if (!ids.size && !refs.size) return ctx
+  const items = ctx.items.filter((i) => !ids.has(i.id) && !(i.hostRef && refs.has(i.hostRef)))
+  return items.length === ctx.items.length ? ctx : { ...ctx, items }
+}

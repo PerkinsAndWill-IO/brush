@@ -13,6 +13,7 @@ import { getCamera, subscribeCamera } from '../camera'
 import { sheetToScreen, type Placement } from '../board/layout'
 import { useSession } from '../session'
 import { getDocState } from '../store'
+import { getFilters, useFilters } from '../drawing/filters'
 import { contextNow, useContexts } from './contextStore'
 import { getLive, useLive } from './live'
 import { acceptReading } from './predictEngine'
@@ -103,7 +104,13 @@ export function ReadingShape({ kind, geometry, type, targets, sheetId, ghost, st
     }
     case 'delete': {
       const ctx = contextNow(sheetId)
-      const items = (targets ?? []).map((id) => ctx?.items.find((i) => i.id === id)).filter((x): x is ContextItem => !!x)
+      // committed: an erased drawing element is hidden from the sheet itself, so only host-less targets
+      // (inferred from a plain PDF, which cannot be hidden) keep the strike
+      const erased = ghost ? undefined : getFilters().erased
+      const items = (targets ?? [])
+        .map((id) => ctx?.items.find((i) => i.id === id))
+        .filter((x): x is ContextItem => !!x && !(x.hostRef && erased?.has(x.hostRef)))
+      if (!items.length) return null
       return (
         <g data-kind="delete">
           <Strike items={items} opacity={op} dash={dash} />
@@ -120,6 +127,7 @@ export function ReadingShape({ kind, geometry, type, targets, sheetId, ghost, st
 export function ElementsOverlay({ sheet }: { sheet: Sheet; placement: Placement }) {
   const { accepted, hidden } = useSession()
   useContexts() // delete targets resolve once the context is in
+  useFilters() // erased elements drop their strike
   // hidden: landed in the linked model (M6-04), the sheet draws the real element now
   const mine = accepted.filter((a) => a.sheetId === sheet.id && !hidden.has(a.strokeId))
   return (
