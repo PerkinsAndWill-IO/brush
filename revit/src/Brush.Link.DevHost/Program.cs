@@ -2,7 +2,7 @@ using Brush.Link.Host;
 using Brush.Link.Server;
 
 // Usage: dotnet run --project src/Brush.Link.DevHost -- [package.drawing] [--port N] [--allow-origin URL]...
-// Default package: the editor's one-sheet fixture. Type "help" once it runs.
+// Default package: tests/fixtures/office-1-sheet.json.drawing (the editor's one-sheet fixture as a JSON envelope). Type "help" once it runs.
 var args_ = args.ToList();
 string? Take(string flag)
 {
@@ -17,7 +17,7 @@ var port = int.TryParse(Take("--port"), out var p) ? p : LinkOptions.DefaultPort
 var extraOrigins = new List<string>();
 while (Take("--allow-origin") is { } o) extraOrigins.Add(o);
 var packagePath = args_.FirstOrDefault()
-    ?? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../../editor/fixtures/packages/office-1-sheet.drawing"));
+    ?? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tests/fixtures/office-1-sheet.json.drawing"));
 if (!File.Exists(packagePath))
 {
     Console.Error.WriteLine($"no package at {packagePath}; pass one: dotnet run --project src/Brush.Link.DevHost -- path/to/file.drawing");

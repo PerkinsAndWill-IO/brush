@@ -3,18 +3,51 @@
  * The canvas asks a source for sheets (display) and per-sheet context; it never cares which kind it has.
  * pdf.js and the context worker are imported lazily so this module (and its tests) load in Node.
  */
-import { DEFAULT_PALETTE, contextFromPackage, paletteFromPackage, sheetsFromPackage, type DrawingManifest, type TypePalette } from '@core/context'
+import {
+  DEFAULT_PALETTE,
+  contextFromDrawing,
+  contextFromPackage,
+  paletteFromDrawing,
+  paletteFromPackage,
+  sheetsFromDrawing,
+  sheetsFromPackage,
+  type DrawingManifest,
+  type TypePalette,
+} from '@core/context'
+import { DrawingFormatError, type DrawingDocument } from '@core/drawing'
 import type { Sheet, SheetContext } from '@core/types'
 import type { LoadedPdf, PdfSource as PdfInput } from '../pdf/pdfjs'
+import { parseDrawingFile } from './drawing-file'
 import { PackageError, parsePackage, sniffBytes, type PackagePdfRef } from './package-file'
+
+/** Paints one page of a source into a canvas (pdf.js for PDFs, the vector renderer for `.drawing`). */
+export interface PageRenderer {
+  /**
+   * Render page `pageIndex` (0-based) into `canvas` at `pxPerPt` device pixels per sheet point; sets the backing
+   * size only. `gate` returns a promise while rendering must pause (pen down).
+   */
+  render(pageIndex: number, canvas: HTMLCanvasElement, pxPerPt: number, signal?: AbortSignal, gate?: () => Promise<void> | null): Promise<void>
+}
+
+function pdfRenderer(pdf: LoadedPdf): PageRenderer {
+  return {
+    render: async (i, canvas, pxPerPt, signal, gate) => {
+      const m = await import('../pdf/pdfjs')
+      return m.renderPageAt(pdf.doc, i, canvas, pxPerPt, signal, gate)
+    },
+  }
+}
 
 export interface LoadedSource {
   sheets: Sheet[]
-  /** pdf.js document for rendering; null when a package has no PDF (sheets draw blank). */
+  /** pdf.js document; null for a `.drawing` or a manifest package without a PDF. */
   pdf: LoadedPdf | null
+  /** Draws the pages; null when there is nothing to draw (manifest package without a PDF: blank sheets). */
+  pages: PageRenderer | null
 }
 
 export interface DrawingSource {
+  /** 'package' for anything that carries host-model context (`.drawing`, manifest packages); 'pdf' otherwise. */
   readonly kind: 'pdf' | 'package'
   /** Display / sidecar name (file name). */
   readonly name: string
@@ -52,7 +85,7 @@ export class PdfDrawingSource implements DrawingSource {
   ) {}
 
   load(): Promise<LoadedSource> {
-    this.loaded ??= loadPdfLazy(this.input).then((pdf) => ({ sheets: pdf.sheets, pdf }))
+    this.loaded ??= loadPdfLazy(this.input).then((pdf) => ({ sheets: pdf.sheets, pdf, pages: pdfRenderer(pdf) }))
     return this.loaded
   }
 
@@ -111,11 +144,11 @@ export class PackageDrawingSource implements DrawingSource {
     this.loaded ??= (async () => {
       const sheets = sheetsFromPackage(this.manifest)
       const input = this.pdfInput
-      if (!input) return { sheets, pdf: null }
+      if (!input) return { sheets, pdf: null, pages: null }
       const pdf = await loadPdfLazy(input)
       // The manifest is the truth for sheet identity; pdf.js only validates the pages exist.
       if (pdf.doc.numPages < sheets.length) throw new SourceError(`package lists ${sheets.length} sheets but its PDF has ${pdf.doc.numPages} pages`)
-      return { sheets, pdf }
+      return { sheets, pdf, pages: pdfRenderer(pdf) }
     })()
     return this.loaded
   }
@@ -129,6 +162,43 @@ export class PackageDrawingSource implements DrawingSource {
     await l?.pdf?.destroy()
     this.loaded = undefined
   }
+}
+
+/**
+ * Binary `.drawing` (decision 0008): sheets, vector pages and context all come from the file. Context is built from
+ * the host elements (origin 'package', confidence 1, hostRef = element id); the palette lists the model's own types.
+ */
+export class DrawingFileSource implements DrawingSource {
+  readonly kind = 'package' as const
+  readonly palette: TypePalette
+  readonly project?: string
+  private readonly sheets: Sheet[]
+
+  constructor(
+    readonly name: string,
+    readonly doc: DrawingDocument,
+  ) {
+    this.sheets = sheetsFromDrawing(doc)
+    this.palette = paletteFromDrawing(doc)
+    if (doc.source.file) this.project = doc.source.file.replace(/\.[^.]+$/, '')
+  }
+
+  async load(): Promise<LoadedSource> {
+    const pages = this.doc.pages
+    const renderer: PageRenderer = {
+      render: async (i, canvas, pxPerPt, signal, gate) => {
+        const m = await import('../drawing/render')
+        return m.renderDrawingPage(pages[i], canvas, pxPerPt, signal, gate)
+      },
+    }
+    return { sheets: this.sheets, pdf: null, pages: renderer }
+  }
+
+  async contextFor(sheetId: string): Promise<SheetContext> {
+    return contextFromDrawing(this.doc, sheetId)
+  }
+
+  async close(): Promise<void> {}
 }
 
 /** Only plain relative paths: no scheme, no absolute path, no `..` segments, no backslashes. */
@@ -174,6 +244,13 @@ export async function openSource(input: SourceInput, opts: PackageDrawingSourceO
   switch (sniffBytes(bytes, name)) {
     case 'pdf':
       return new PdfDrawingSource(name, bytes)
+    case 'drawing':
+      try {
+        return new DrawingFileSource(name, await parseDrawingFile(bytes))
+      } catch (e) {
+        if (e instanceof DrawingFormatError) throw new SourceError(`${name}: ${e.message}`)
+        throw e
+      }
     case 'package-json':
     case 'package-zip': {
       try {

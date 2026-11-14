@@ -14,9 +14,10 @@ edits are applied as they are committed, and the sheet comes back as a new versi
    back as the editor's `.drawing` JSON envelope (manifest + base64 PDF, editor decisions 0002 and 0005). The editor
    can open every version with code it already has. Nothing new is defined except the message envelope
    (`docs/protocol.md`).
-   - Alternative: the binary `.drawing` of `schema/` (gzip, vector items). Rejected for now because the editor does
-     not read it. It is the better long-term format: the editor would get vectors instead of a PDF, and the exporter
-     here would write items instead of printing. Add it as a second `package` encoding once the editor reads it.
+   - Alternative: the binary `.drawing` of `schema/` (gzip, vector items). Not taken for v1, when the editor could not
+     read it. **Update:** the editor reads it since its decision 0008, and calls the JSON envelope legacy. It is the
+     better format: the editor gets vectors instead of a PDF, and the exporter here writes items instead of printing.
+     Next step: export the sheet as a binary `.drawing` page, and send it as the `package` (base64) or as a binary frame.
 
 2. **WebSocket on loopback, served by the add-in.** Revit pushes versions when the model changes in Revit, so the link
    needs a channel in both directions. The add-in listens on `127.0.0.1` with a `TcpListener` and

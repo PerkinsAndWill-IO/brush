@@ -93,6 +93,8 @@ The Editor accepts a plain PDF today and an enhanced `.drawing` package later, a
 | Palette of types | A small built-in default list | The host model's own wall types and families |
 | Confidence in context | Low to medium, every item carries a score | High |
 
+The `.drawing` format itself is specified in `schema/schema/drawing-format.md`; how the Editor reads it into sheets and contexts is decision 0008.
+
 **Core types**
 
 ```ts

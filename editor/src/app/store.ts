@@ -3,13 +3,12 @@
  * the test API. Opening binds the stroke session to the PDF's sidecar.
  */
 import { useSyncExternalStore } from 'react'
-import type { PDFDocumentProxy } from 'pdfjs-dist'
 import type { Sheet } from '@core/types'
 import { layoutSheets, type Placement } from './board/layout'
 import type { OpenedFile } from './platform'
 import { closeSession, openSession } from './session'
 import { closeContexts, openContexts, type ContextProvider } from './brain/contextStore'
-import { openSource, type DrawingSource } from './source'
+import { openSource, type DrawingSource, type PageRenderer } from './source'
 import { resetLive } from './brain/live'
 
 export type DocStatus = 'empty' | 'loading' | 'ready' | 'error'
@@ -18,8 +17,8 @@ export interface DocState {
   status: DocStatus
   fileName?: string
   fileSize?: number
-  /** pdf.js document for the sheet images; undefined for a package without a PDF (sheets draw blank). */
-  doc?: PDFDocumentProxy
+  /** Draws the sheet images (pdf.js or the `.drawing` vector renderer); undefined when there is nothing to draw (sheets draw blank). */
+  pages?: PageRenderer
   /** The open source (M5): PDF or `.drawing` package. */
   source?: DrawingSource
   destroy?: () => Promise<void>
@@ -110,7 +109,7 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
     // own copy for the context worker: PdfDrawingSource hands the same buffer to pdf.js, which detaches it
     const ctxBytes = bytes?.slice()
     source = await openSource(bytes ? { name: fileName, bytes } : (input as string))
-    const { sheets, pdf } = await source.load()
+    const { sheets, pages } = await source.load()
     if (sheets.length === 0) throw new Error(`“${fileName}” has no sheets.`)
     if (loadId !== state.loadId) {
       void source.close()
@@ -122,7 +121,7 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
     set({
       status: 'ready',
       fileName: source.name,
-      doc: pdf?.doc,
+      pages: pages ?? undefined,
       source,
       sheets,
       placements: layoutSheets(sheets),
@@ -130,7 +129,7 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
     })
     const ids = sheets.map((s) => s.id)
     if (source.kind === 'pdf') void openContexts(ctxBytes ?? (input as string), ids) // inferred in the context worker
-    else void openContexts('', ids, contextsFrom(source)) // from the package manifest
+    else void openContexts('', ids, contextsFrom(source)) // from the host model (.drawing elements or package manifest)
     return loadId
   } catch (e) {
     void source?.close()
@@ -142,7 +141,7 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
     const error = /not a PDF/i.test(msg)
       ? `“${fileName}” is not a PDF or a .drawing package. Choose a .pdf or .drawing file.`
       : `Could not read “${fileName}”. It may be damaged. (${msg})`
-    set({ status: 'error', doc: undefined, source: undefined, destroy: undefined, sheets: [], placements: [], error })
+    set({ status: 'error', pages: undefined, source: undefined, destroy: undefined, sheets: [], placements: [], error })
     throw e
   }
 }

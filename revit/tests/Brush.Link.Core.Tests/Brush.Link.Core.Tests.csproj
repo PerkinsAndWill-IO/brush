@@ -8,8 +8,9 @@
     <ProjectReference Include="..\..\src\Brush.Link.Core\Brush.Link.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <!-- The editor's fixture package: the plugin is tested against the editor's real files. -->
-    <None Include="..\..\..\editor\fixtures\packages\office-1-sheet.drawing" Link="fixtures\office-1-sheet.drawing" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The editor's one-sheet fixture as a JSON-envelope package (the form the link sends; the editor's own fixtures
+         moved to the binary .drawing in editor decision 0008). -->
+    <None Include="..\fixtures\office-1-sheet.json.drawing" Link="fixtures\office-1-sheet.drawing" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.12.0" />

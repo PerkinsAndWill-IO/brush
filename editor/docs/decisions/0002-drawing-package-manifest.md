@@ -2,6 +2,9 @@
 
 Date: 2026-11-14
 
+> Superseded in part by 0008: the `.drawing` format is the binary one in `schema/schema/drawing-format.md`. The manifest
+> containers below stay readable as a legacy input.
+
 The Exporter teammate plugs into the Editor through one JSON manifest per package, typed in
 `src/core/context/package-format.ts`. `contextFromPackage(manifest, sheetId?)` turns one sheet of it into the
 frozen `SheetContext` (`origin: 'package'`, every item `confidence: 1`, `hostRef` = element id).

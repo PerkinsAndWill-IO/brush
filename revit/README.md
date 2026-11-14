@@ -33,7 +33,7 @@ dotnet test                      # core tests, including the socket round trip
 ## Try it without Revit
 
 ```sh
-dotnet run --project src/Brush.Link.DevHost                         # serves editor/fixtures/packages/office-1-sheet.drawing
+dotnet run --project src/Brush.Link.DevHost                         # serves tests/fixtures/office-1-sheet.json.drawing
 dotnet run --project src/Brush.Link.DevHost -- path/to/x.drawing --allow-origin https://brush-editor.example
 ```
 
@@ -87,5 +87,8 @@ Known limits:
   the Revit session.
 - Every model change re-exports every open sheet. Exports that did not change are not pushed, but they still cost
   Revit time.
+- The sheet goes back as the editor's JSON-envelope package (manifest + PDF), which the editor now treats as legacy.
+  The editor reads the binary `.drawing` since its decision 0008; sending that instead is the next format step (see
+  decision 0001).
 - The link works on the active document. Switching documents changes the sheet list, and the editor gets a `sheets`
   message.

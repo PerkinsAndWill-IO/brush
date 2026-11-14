@@ -1,5 +1,8 @@
 /**
- * Reading `.drawing` files (decision 0005). Pure and DOM-free: bytes in, manifest + optional PDF bytes out.
+ * Reading legacy manifest packages (decision 0005). Pure and DOM-free: bytes in, manifest + optional PDF bytes out.
+ * The `.drawing` format proper is the binary one in `schema/schema/drawing-format.md` (decision 0008, read by
+ * `drawing-file.ts`); `sniffBytes` tells them apart by content. These manifest containers stay readable for the
+ * M5 fixtures and older exports.
  *
  * Three container shapes, all carrying the same manifest (docs/decisions/0002):
  *  1. JSON envelope (what we write): the manifest at the top level plus `pdf: { name, encoding: 'base64', data }`.
@@ -9,6 +12,7 @@
  * `sheets` list or an unsupported schemaVersion is an error.
  */
 import { DRAWING_MANIFEST_VERSION, type DrawingManifest, type ManifestElement, type ManifestSheet } from '@core/context'
+import { isDrawingPayload, isGzip } from '@core/drawing'
 import type { Point } from '@core/types'
 
 export class PackageError extends Error {
@@ -32,12 +36,14 @@ export interface ParsedPackage {
   container: 'json' | 'zip'
 }
 
-export type SniffedType = 'pdf' | 'package-json' | 'package-zip' | 'unknown'
+/** `drawing` is the binary `.drawing` format (gzip, or an already decompressed payload; decision 0008). */
+export type SniffedType = 'pdf' | 'drawing' | 'package-json' | 'package-zip' | 'unknown'
 
 const ascii = (b: Uint8Array, from: number, len: number): string => String.fromCharCode(...b.subarray(from, from + len))
 
 /** Decide what a file is from its first bytes (extension is only the tie-break for JSON). */
 export function sniffBytes(bytes: Uint8Array, name = ''): SniffedType {
+  if (isGzip(bytes) || isDrawingPayload(bytes)) return 'drawing'
   if (bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && (bytes[2] === 3 || bytes[2] === 5)) return 'package-zip'
   if (ascii(bytes, 0, Math.min(bytes.length, 1024)).includes('%PDF-')) return 'pdf'
   let i = 0

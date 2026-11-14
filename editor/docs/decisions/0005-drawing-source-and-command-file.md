@@ -2,6 +2,9 @@
 
 Date: 2026-11-14
 
+> Superseded in part by 0008: the `.drawing` format is the binary one in `schema/schema/drawing-format.md`. The manifest
+> containers below stay readable as a legacy input.
+
 ## Context
 
 Two inputs, one shape (spec "Inputs and document model"): a plain PDF (context inferred) and a `.drawing`
@@ -52,6 +55,7 @@ For package sources `hostWallRef` and `delete.targets` are host element ids; for
 
 ## Consequences
 
-Fixture packages: `scripts/fixtures/gen-package.mjs` builds `fixtures/packages/*.drawing` and `*.idmap.json`
+Fixture packages: `scripts/fixtures/gen-package.mjs` builds `fixtures/packages/*.drawing` (since 0008: the binary
+format, no longer manifest envelopes) and `*.idmap.json`
 (truth id to host id, used only to derive expected host refs). M5 exit check: `tests/eval/run-commands.ts`,
 golden labels in `fixtures/expected-commands/`.
