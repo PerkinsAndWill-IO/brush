@@ -1,0 +1,210 @@
+{
+ "schema": "brush.cassette/v1",
+ "adapter": "hosted",
+ "model": "anthropic/claude-haiku-5.5",
+ "requestHash": "d5df2c21f113e969",
+ "requestSummary": {
+  "source": "fixtures/strokes/furniture/furniture-038.json",
+  "corpus": "strokes",
+  "split": "train",
+  "label": "furniture",
+  "firstPass": [
+   [
+    "furniture",
+    0.716
+   ],
+   [
+    "markup",
+    0.284
+   ]
+  ],
+  "note": "ambiguous: tiny closed blob, could be markup loop",
+  "room": "OFFICE 503"
+ },
+ "request": {
+  "model": "anthropic/claude-haiku-5.5",
+  "max_tokens": 256,
+  "thinking": {
+   "type": "disabled"
+  },
+  "output_config": {
+   "effort": "low"
+  },
+  "system": "You read a pen stroke drawn on an architectural floor plan PDF and decide what the user meant. Use the stroke shape, its size in metres, nearby drawing elements, the room and recent decisions. The first-pass guess comes from fast rules and is often right; disagree only with a reason.\nAlways answer by calling the decide tool once, with calibrated probabilities for all five options.",
+  "tools": [
+   {
+    "name": "decide",
+    "description": "Report what the stroke most likely means as a probability for EACH option (0..1, summing to 1). wall: create a wall along the stroke. door: place a door in a wall the stroke crosses. furniture: place a furniture/fixture instance in the outlined area. delete: delete the element(s) the stroke scribbles over. markup: keep as plain ink (annotation, no model change).",
+    "strict": true,
+    "input_schema": {
+     "type": "object",
+     "properties": {
+      "probabilities": {
+       "type": "object",
+       "properties": {
+        "wall": {
+         "type": "number",
+         "description": "P(wall)"
+        },
+        "door": {
+         "type": "number",
+         "description": "P(door)"
+        },
+        "furniture": {
+         "type": "number",
+         "description": "P(furniture)"
+        },
+        "delete": {
+         "type": "number",
+         "description": "P(delete)"
+        },
+        "markup": {
+         "type": "number",
+         "description": "P(markup)"
+        }
+       },
+       "required": [
+        "wall",
+        "door",
+        "furniture",
+        "delete",
+        "markup"
+       ],
+       "additionalProperties": false
+      },
+      "reason": {
+       "type": "string",
+       "description": "One short sentence: the deciding evidence."
+      }
+     },
+     "required": [
+      "probabilities",
+      "reason"
+     ],
+     "additionalProperties": false
+    }
+   }
+  ],
+  "tool_choice": {
+   "type": "any"
+  },
+  "messages": [
+   {
+    "role": "user",
+    "content": "stroke: best fit arc; fits arc=0.64, blob=0.39, rectangle=0.19\nsize: length 70 pt (2.46 m), bbox 22x20 pt (0.77x0.7 m)\nshape: closed=true closure=0.07 corners=1 self-intersections=3 reversal-density=0\nmotion: 240 ms, mean speed 0.29 pt/ms\nnearby: grid \"D\" @11pt; fixture @23pt; fixture @43pt; unknown @59pt; fixture @60pt; wall @61pt; unknown @65pt; fixture @80pt\nroom: OFFICE 503; scale: 1:100\nrecent decisions: none\nfirst-pass guess: furniture 0.72, markup 0.28\n\nOptions:\nA) wall: create a wall along the stroke\nB) door: place a door in a wall the stroke crosses\nC) furniture: place a furniture/fixture instance in the outlined area\nD) delete: delete the element(s) the stroke scribbles over\nE) markup: keep as plain ink (annotation, no model change)"
+   }
+  ]
+ },
+ "response": {
+  "id": "gen_01M7DQ7GD7BKHXNXDN9PQJF0M7",
+  "type": "message",
+  "role": "assistant",
+  "content": [
+   {
+    "type": "tool_use",
+    "id": "toolu_012E4cMgeC6yUENQmKUTmhY4",
+    "name": "decide",
+    "input": {
+     "probabilities": {
+      "wall": 0.05,
+      "door": 0.12,
+      "furniture": 0.5,
+      "delete": 0.2,
+      "markup": 0.13
+     },
+     "reason": "Small closed, arc-like loop (0.77x0.7 m) with self-intersections inside an office near fixtures suggests a scribbled outline of a fixture, but the self-intersections and grid marker nearby leave delete or markup plausible; first-pass furniture is reasonable though somewhat tempered."
+    }
+   }
+  ],
+  "model": "anthropic/claude-haiku-5.5",
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "usage": {
+   "input_tokens": 1279,
+   "output_tokens": 205,
+   "cache_creation_input_tokens": 0,
+   "cache_read_input_tokens": 0,
+   "cache_creation": {
+    "ephemeral_5m_input_tokens": 0,
+    "ephemeral_1h_input_tokens": 0
+   },
+   "speed": "standard",
+   "service_tier": "standard",
+   "output_tokens_details": {
+    "thinking_tokens": 0
+   }
+  },
+  "provider_metadata": {
+   "anthropic": {
+    "usage": {
+     "input_tokens": 1279,
+     "output_tokens": 205,
+     "output_tokens_details": {
+      "thinking_tokens": 0
+     },
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 0
+     },
+     "service_tier": "standard",
+     "inference_geo": "global",
+     "speed": "standard"
+    },
+    "cacheCreationInputTokens": 0,
+    "stopSequence": null,
+    "iterations": null,
+    "container": null,
+    "contextManagement": null
+   },
+   "gateway": {
+    "routing": {
+     "originalModelId": "anthropic/claude-haiku-5.5",
+     "resolvedProvider": "anthropic",
+     "fallbacksAvailable": [
+      "bedrock",
+      "claudeaws",
+      "vertexAnthropic"
+     ],
+     "canonicalSlug": "anthropic/claude-haiku-5.5",
+     "finalProvider": "anthropic",
+     "modelAttemptCount": 1,
+     "modelAttempts": [
+      {
+       "canonicalSlug": "anthropic/claude-haiku-5.5",
+       "success": true,
+       "providerAttemptCount": 1,
+       "providerAttempts": [
+        {
+         "provider": "anthropic",
+         "credentialType": "system",
+         "success": true,
+         "startTime": 1794683158985,
+         "endTime": 1794683160347,
+         "providerRequestId": "req_011Ch3LrwSMu7utMZHNFdC84",
+         "statusCode": 200,
+         "providerResponseId": "msg_011Ch3LrwowA1vDXnTKtt28C"
+        }
+       ]
+      }
+     ],
+     "totalProviderAttemptCount": 1,
+     "clientSessionId": "b34c60fa31678a32812b959357e5fcf0",
+     "clientSessionIdSource": "fingerprint"
+    },
+    "cost": "0.0002304",
+    "marketCost": "0.0002304",
+    "surchargeCost": "0",
+    "gatewayCost": "0.0002304",
+    "inferenceCost": "0.0002304",
+    "inputInferenceCost": "0.0001279",
+    "outputInferenceCost": "0.0001025",
+    "generationId": "gen_01M7DQ7GD7BKHXNXDN9PQJF0M7"
+   }
+  }
+ },
+ "latencyMs": 1623,
+ "recordedAt": "2026-11-14T19:06:00.441Z",
+ "synthetic": false
+}

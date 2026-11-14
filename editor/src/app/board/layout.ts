@@ -1,0 +1,141 @@
+/**
+ * Board layout and coordinate transforms. PURE: no DOM, no React — unit
+ * tested in tests/unit/app-layout.test.ts.
+ *
+ * Three spaces:
+ *  - sheet:  PDF points of one sheet, origin top-left, y down (core/types).
+ *  - board:  one shared plane; 1 board unit = 1 PDF point. Each sheet is a
+ *            rectangle placed at (x, y) on it.
+ *  - screen: CSS pixels relative to the viewport element's top-left.
+ *
+ * Camera (same convention as tldraw): screen = (board + cam.xy) * cam.z.
+ */
+import type { Point, Rect, Sheet } from '@core/types'
+
+export interface Camera {
+  x: number
+  y: number
+  z: number
+}
+
+export interface Placement {
+  sheetId: string
+  pageIndex: number
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export interface LayoutOptions {
+  /** Columns; default ceil(sqrt(n)) (6 sheets → 3 × 2, as in the design). */
+  columns?: number
+  /** Horizontal gap between sheets, board units. */
+  gapX?: number
+  /** Vertical gap between rows, board units (room for the name label above each sheet). */
+  gapY?: number
+}
+
+export const MIN_ZOOM = 0.05
+export const MAX_ZOOM = 8
+
+/** Lay sheets out in a grid, row-major in page order. Cells are sized by the largest sheet in their column/row. */
+export function layoutSheets(sheets: readonly Pick<Sheet, 'id' | 'pageIndex' | 'sizePt'>[], opts: LayoutOptions = {}): Placement[] {
+  const n = sheets.length
+  if (n === 0) return []
+  const cols = Math.max(1, Math.min(n, opts.columns ?? Math.ceil(Math.sqrt(n))))
+  const rows = Math.ceil(n / cols)
+  const maxW = Math.max(...sheets.map((s) => s.sizePt.w))
+  const gapX = opts.gapX ?? Math.round(maxW * 0.12)
+  const gapY = opts.gapY ?? Math.round(maxW * 0.14)
+  const colW: number[] = new Array(cols).fill(0)
+  const rowH: number[] = new Array(rows).fill(0)
+  sheets.forEach((s, i) => {
+    colW[i % cols] = Math.max(colW[i % cols], s.sizePt.w)
+    rowH[Math.floor(i / cols)] = Math.max(rowH[Math.floor(i / cols)], s.sizePt.h)
+  })
+  const colX = colW.map((_, c) => colW.slice(0, c).reduce((a, b) => a + b + gapX, 0))
+  const rowY = rowH.map((_, r) => rowH.slice(0, r).reduce((a, b) => a + b + gapY, 0))
+  return sheets.map((s, i) => ({
+    sheetId: s.id,
+    pageIndex: s.pageIndex,
+    x: colX[i % cols],
+    y: rowY[Math.floor(i / cols)],
+    w: s.sizePt.w,
+    h: s.sizePt.h,
+  }))
+}
+
+export function boardBounds(placements: readonly Placement[]): Rect {
+  if (placements.length === 0) return { x: 0, y: 0, w: 0, h: 0 }
+  const x0 = Math.min(...placements.map((p) => p.x))
+  const y0 = Math.min(...placements.map((p) => p.y))
+  const x1 = Math.max(...placements.map((p) => p.x + p.w))
+  const y1 = Math.max(...placements.map((p) => p.y + p.h))
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+}
+
+// ───────────── transforms ─────────────
+
+export const sheetToBoard = (pl: Placement, p: Point): Point => ({ x: p.x + pl.x, y: p.y + pl.y })
+export const boardToSheet = (pl: Placement, p: Point): Point => ({ x: p.x - pl.x, y: p.y - pl.y })
+export const boardToScreen = (cam: Camera, p: Point): Point => ({ x: (p.x + cam.x) * cam.z, y: (p.y + cam.y) * cam.z })
+export const screenToBoard = (cam: Camera, p: Point): Point => ({ x: p.x / cam.z - cam.x, y: p.y / cam.z - cam.y })
+export const sheetToScreen = (cam: Camera, pl: Placement, p: Point): Point => boardToScreen(cam, sheetToBoard(pl, p))
+export const screenToSheet = (cam: Camera, pl: Placement, p: Point): Point => boardToSheet(pl, screenToBoard(cam, p))
+
+export function containsBoardPoint(pl: Placement, p: Point): boolean {
+  return p.x >= pl.x && p.x <= pl.x + pl.w && p.y >= pl.y && p.y <= pl.y + pl.h
+}
+
+/** The sheet under a board point, or null (ink there is discarded, M1-07). Later sheets win on overlap. */
+export function sheetAt(placements: readonly Placement[], p: Point): Placement | null {
+  for (let i = placements.length - 1; i >= 0; i--) if (containsBoardPoint(placements[i], p)) return placements[i]
+  return null
+}
+
+// ───────────── camera ─────────────
+
+export const clampZoom = (z: number): number => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z))
+
+/** Zoom to `z`, keeping the board point under `screenPt` fixed (zoom centered on the pointer, M1-04). */
+export function zoomAt(cam: Camera, screenPt: Point, z: number): Camera {
+  const nz = clampZoom(z)
+  const b = screenToBoard(cam, screenPt)
+  return { x: screenPt.x / nz - b.x, y: screenPt.y / nz - b.y, z: nz }
+}
+
+/** Pan by a screen-space delta. */
+export const panBy = (cam: Camera, dxScreen: number, dyScreen: number): Camera => ({
+  x: cam.x + dxScreen / cam.z,
+  y: cam.y + dyScreen / cam.z,
+  z: cam.z,
+})
+
+/** Camera that fits `rect` (board units) into a viewport of `vw × vh` px with `pad` px margin, centered. */
+export function fitCamera(rect: Rect, vw: number, vh: number, pad = 48, maxZ = 1): Camera {
+  if (rect.w <= 0 || rect.h <= 0 || vw <= 0 || vh <= 0) return { x: 0, y: 0, z: 1 }
+  const z = clampZoom(Math.min((vw - 2 * pad) / rect.w, (vh - 2 * pad) / rect.h, maxZ))
+  return { x: vw / 2 / z - (rect.x + rect.w / 2), y: vh / 2 / z - (rect.y + rect.h / 2), z }
+}
+
+/** Board-space rectangle visible in a `vw × vh` viewport. */
+export function visibleBoardRect(cam: Camera, vw: number, vh: number): Rect {
+  const a = screenToBoard(cam, { x: 0, y: 0 })
+  return { x: a.x, y: a.y, w: vw / cam.z, h: vh / cam.z }
+}
+
+export function rectsIntersect(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+}
+
+/**
+ * Page raster scale (device px per PDF point) a sheet should have at zoom `z`
+ * (M1-05). Quantized to powers of two so small zoom changes don't re-render,
+ * always >= z * dpr (sharp) unless capped by `maxPixels` (memory guard).
+ */
+export function renderScaleFor(z: number, dpr: number, sizePt: { w: number; h: number }, maxPixels = 4096 * 4096): number {
+  const want = Math.max(0.5, Math.pow(2, Math.ceil(Math.log2(Math.max(1e-6, z * dpr)) - 1e-9)))
+  const cap = Math.sqrt(maxPixels / Math.max(1, sizePt.w * sizePt.h))
+  return Math.min(want, cap)
+}

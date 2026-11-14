@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Empty state, no file loaded</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1E55D9}a:hover{color:#163F9F}
+</style>
+</helmet>
+<div style="min-height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; background-color: #E4E6EA; font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif; color: #1B1D21; font-size: 12px; line-height: 1.35">
+
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 4px 10px; background: #F4F5F7; border-bottom: 1px solid rgba(27,29,33,0.16)">
+<div style="display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 6px">
+<span style="font-weight: 600; font-size: 12.5px">No drawing open</span>
+</div>
+<div style="margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+<span style="display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 10px; border-radius: 999px; background: #FFFFFF; font-size: 11.5px"><span aria-hidden="true" style="width: 7px; height: 7px; border-radius: 50%; background: #8A9099; display: block"></span>No host linked</span>
+<button type="button" style="display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border: 0; border-radius: 12px; background: #FFFFFF; color: #1B1D21; font: inherit; font-weight: 500; cursor: pointer">Open file</button>
+</div>
+</header>
+
+<main aria-label="Sheets canvas" style="position: relative; flex: 1; min-height: 600px; display: flex; align-items: center; justify-content: center; padding: 32px 24px 96px; box-sizing: border-box">
+
+<div style="width: min(100%, 560px); box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 56px 40px; border: 2px dashed rgba(30,85,217,0.45); border-radius: 20px; background: #F4F5F7; text-align: center">
+
+<svg aria-hidden="true" width="88" height="70" viewBox="0 0 88 70" fill="none">
+<rect x="6" y="10" width="68" height="54" rx="2" fill="#FFFFFF" stroke="#8A9099" stroke-width="1.2"></rect>
+<rect x="14" y="4" width="68" height="54" rx="2" fill="#FFFFFF" stroke="#1B1D21" stroke-width="1.4"></rect>
+<path d="M66 4V58M66 46H82" stroke="#1B1D21" stroke-width="1"></path>
+<rect x="21" y="12" width="38" height="38" stroke="#1B1D21" stroke-width="2.2"></rect>
+<path d="M40 12V31M21 31H50" stroke="#1B1D21" stroke-width="1.4"></path>
+<circle cx="70" cy="58" r="13" fill="{{accent}}"></circle>
+<path d="M70 52V64M65 59l5 5 5-5" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+
+<div style="display: flex; flex-direction: column; gap: 6px; align-items: center">
+<h1 style="margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em">Drop a <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 500">.drawing</span> file to start</h1>
+<p style="margin: 0; max-width: 380px; color: #4A4F57; font-size: 12.5px; line-height: 1.5; text-wrap: pretty">Export one from Revit or Rhino with the Exporter add-in. Its sheets open here side by side, ready to sketch on.</p>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px">
+<button type="button" style="min-height: 44px; padding: 0 18px; border: 0; border-radius: 12px; background: {{accent}}; color: #FFFFFF; font: inherit; font-weight: 600; cursor: pointer">Choose file</button>
+<span style="color: #4A4F57; font-size: 11.5px">or press <kbd style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; padding: 2px 6px; border-radius: 5px; background: #FFFFFF; border: 1px solid rgba(27,29,33,0.16)">Ctrl O</kbd></span>
+</div>
+
+</div>
+
+<nav aria-label="Tools, unavailable until a drawing is open" style="position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); max-width: calc(100% - 16px); box-sizing: border-box; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px; padding: 6px; border-radius: 22px; background: #F9FAFB; border: 1px solid rgba(27,29,33,0.12); box-shadow: 0 12px 32px rgba(24,30,46,0.12), 0 1px 2px rgba(24,30,46,0.08); opacity: 0.5">
+<button type="button" disabled aria-label="Select" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; border-radius: 16px; background: transparent; color: #1B1D21"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l11 6.5-5 1.5-1.5 5z"></path></svg></button>
+<button type="button" disabled aria-label="Brush" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; border-radius: 16px; background: transparent; color: #1B1D21"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 3.5l2 2L7 15l-3 1 1-3z"></path><path d="M12.5 5.5l2 2"></path></svg></button>
+<button type="button" disabled aria-label="Eraser" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; border-radius: 16px; background: transparent; color: #1B1D21"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 16h7"></path><path d="M4.5 12.5l7-7a1.5 1.5 0 0 1 2 0l2 2a1.5 1.5 0 0 1 0 2L10 15H7z"></path></svg></button>
+<button type="button" disabled aria-label="Pan" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; border-radius: 16px; background: transparent; color: #1B1D21"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v14M3 10h14M8 5l2-2 2 2M8 15l2 2 2-2M5 8l-2 2 2 2M15 8l2 2-2 2"></path></svg></button>
+</nav>
+
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#1E55D9","options":["#1E55D9","#0B6E78","#6B4BD8"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+renderVals() {
+return { accent: this.props.accent ?? '#1E55D9' };
+}
+}
+</script>
+</body>
+</html>

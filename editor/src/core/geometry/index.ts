@@ -1,0 +1,6 @@
+export * from './vec'
+export * from './resample'
+export * from './fit'
+export * from './spatial'
+export { snapPoint, snapAngle, nearestWallDirection } from './snap'
+export type { SnapKind, SnapResult, SnapOptions, AngleSnapOptions, AngleSnapResult } from './snap'

@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Editor, mid-stroke</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1E55D9}a:hover{color:#163F9F}
+</style>
+</helmet>
+<div style="min-height: 100vh; box-sizing: border-box; padding: 0; display: flex; flex-direction: column; gap: 0; position: relative; overflow: hidden; background-color: #E4E6EA; font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif; color: #1B1D21; font-size: 12px; line-height: 1.35">
+
+
+<header style="position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 4px 10px; background: #F4F5F7; border-bottom: 1px solid rgba(27,29,33,0.16)">
+<div style="display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 6px">
+<span style="font-weight: 600; font-size: 12.5px">[PROJECT NAME]</span>
+<span style="color: #4A4F57">6 sheets</span>
+</div>
+<div style="margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+<span style="display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 10px; border-radius: 999px; background: rgba(255,255,255,0.5); font-size: 11.5px"><span aria-hidden="true" style="width: 7px; height: 7px; border-radius: 50%; background: #1F8A4C; display: block"></span>Revit linked</span>
+<span style="display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 10px; border-radius: 999px; background: rgba(255,255,255,0.5); font-size: 11.5px"><span style="color: #4A4F57">First guess</span><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 500; font-size: 11px">18 ms</span></span>
+<button type="button" aria-label="Undo" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; border-radius: 12px; background: transparent; color: #1B1D21; cursor: pointer"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 5L3.5 8.5 7 12"></path><path d="M4 8.5h7.5a4 4 0 0 1 0 8H9"></path></svg></button>
+<button type="button" aria-label="Redo" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; border-radius: 12px; background: transparent; color: #1B1D21; cursor: pointer"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 5l3.5 3.5L13 12"></path><path d="M16 8.5H8.5a4 4 0 0 0 0 8H11"></path></svg></button>
+<button type="button" aria-label="Zoom, currently fit to sheet" style="display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 12px; border: 0; border-radius: 12px; background: rgba(255,255,255,0.6); color: #1B1D21; font: inherit; font-weight: 500; cursor: pointer">48%<svg aria-hidden="true" width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8l5 5 5-5"></path></svg></button>
+</div>
+</header>
+
+<div style="position: relative; flex: 1; display: flex; flex-wrap: wrap; gap: 0; align-items: stretch">
+
+<aside aria-label="Brush options" style="flex: 1 1 208px; min-width: 0; display: flex; flex-direction: column; gap: 0; background: #F4F5F7; border-right: 1px solid rgba(27,29,33,0.16)">
+
+<div style="display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid rgba(27,29,33,0.12)">
+<span aria-hidden="true" style="display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 9px; background: {{accent}}; color: #FFFFFF"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 3.5l2 2L7 15l-3 1 1-3z"></path><path d="M12.5 5.5l2 2"></path></svg></span>
+<span style="font-size: 12.5px; font-weight: 600">Brush</span>
+</div>
+
+<section style="border-bottom: 1px solid rgba(27,29,33,0.12)">
+<h2 style="margin: 0; font-size: inherit; font-weight: inherit"><button type="button" aria-expanded="{{strokeOpen}}" onClick="{{strokeToggle}}" style="display: flex; align-items: center; gap: 6px; width: 100%; min-height: 44px; padding: 0 14px; border: 0; background: transparent; color: #1B1D21; font: inherit; font-weight: 600; text-align: left; cursor: pointer"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="transform: {{strokeChev}}"><path d="M7 4l6 6-6 6"></path></svg>Stroke</button></h2>
+<sc-if value="{{ strokeOpen }}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; gap: 12px; padding: 0 14px 14px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px"><label for="brush-size">Size</label><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px">4 px</span></div>
+<input id="brush-size" type="range" min="1" max="24" value="4" readonly style="width: 100%; margin: 0; accent-color: {{accent}}">
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px"><label for="brush-smoothing">Smoothing</label><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px">60%</span></div>
+<input id="brush-smoothing" type="range" min="0" max="100" value="60" readonly style="width: 100%; margin: 0; accent-color: {{accent}}">
+</div>
+</div>
+</sc-if>
+</section>
+
+<section style="border-bottom: 1px solid rgba(27,29,33,0.12)">
+<h2 style="margin: 0; font-size: inherit; font-weight: inherit"><button type="button" aria-expanded="{{modeOpen}}" onClick="{{modeToggle}}" style="display: flex; align-items: center; gap: 6px; width: 100%; min-height: 44px; padding: 0 14px; border: 0; background: transparent; color: #1B1D21; font: inherit; font-weight: 600; text-align: left; cursor: pointer"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="transform: {{modeChev}}"><path d="M7 4l6 6-6 6"></path></svg>Mode</button></h2>
+<sc-if value="{{ modeOpen }}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 0 14px 14px">
+<span style="color: #4A4F57; font-size: 11px">What the brush creates</span>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px">
+<button type="button" aria-pressed="true" style="grid-column: 1 / -1; min-height: 44px; padding: 0 10px; border: 0; border-radius: 10px; background: {{accent}}; color: #FFFFFF; font: inherit; font-weight: 600; cursor: pointer">Auto</button>
+<button type="button" style="min-height: 44px; padding: 0 10px; border: 0; border-radius: 10px; background: rgba(255,255,255,0.62); color: #1B1D21; font: inherit; font-weight: 500; cursor: pointer">Wall</button>
+<button type="button" style="min-height: 44px; padding: 0 10px; border: 0; border-radius: 10px; background: rgba(255,255,255,0.62); color: #1B1D21; font: inherit; font-weight: 500; cursor: pointer">Door</button>
+<button type="button" style="min-height: 44px; padding: 0 10px; border: 0; border-radius: 10px; background: rgba(255,255,255,0.62); color: #1B1D21; font: inherit; font-weight: 500; cursor: pointer">Furniture</button>
+<button type="button" style="min-height: 44px; padding: 0 10px; border: 0; border-radius: 10px; background: rgba(255,255,255,0.62); color: #1B1D21; font: inherit; font-weight: 500; cursor: pointer">Markup</button>
+</div>
+</div>
+</sc-if>
+</section>
+
+<section style="border-bottom: 1px solid rgba(27,29,33,0.12)">
+<h2 style="margin: 0; font-size: inherit; font-weight: inherit"><button type="button" aria-expanded="{{snapOpen}}" onClick="{{snapToggle}}" style="display: flex; align-items: center; gap: 6px; width: 100%; min-height: 44px; padding: 0 14px; border: 0; background: transparent; color: #1B1D21; font: inherit; font-weight: 600; text-align: left; cursor: pointer"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="transform: {{snapChev}}"><path d="M7 4l6 6-6 6"></path></svg>Snapping<span style="margin-left: auto; color: #4A4F57; font-size: 11px; font-weight: 400">2 on</span></button></h2>
+<sc-if value="{{ snapOpen }}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 0; padding: 0 14px 8px">
+<button type="button" aria-pressed="true" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 44px; padding: 0; border: 0; background: transparent; color: #1B1D21; font: inherit; text-align: left; cursor: pointer">Grid lines<span aria-hidden="true" style="width: 30px; height: 18px; border-radius: 9px; background: {{accent}}; display: flex; align-items: center; justify-content: flex-end; padding: 2px; box-sizing: border-box"><span style="width: 14px; height: 14px; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 2px rgba(24,30,46,0.3); display: block"></span></span></button>
+<button type="button" aria-pressed="true" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 44px; padding: 0; border: 0; background: transparent; color: #1B1D21; font: inherit; text-align: left; cursor: pointer">Wall ends<span aria-hidden="true" style="width: 30px; height: 18px; border-radius: 9px; background: {{accent}}; display: flex; align-items: center; justify-content: flex-end; padding: 2px; box-sizing: border-box"><span style="width: 14px; height: 14px; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 2px rgba(24,30,46,0.3); display: block"></span></span></button>
+<button type="button" aria-pressed="false" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 44px; padding: 0; border: 0; background: transparent; color: #1B1D21; font: inherit; text-align: left; cursor: pointer">45° angles<span aria-hidden="true" style="width: 30px; height: 18px; border-radius: 9px; background: rgba(27,29,33,0.28); display: flex; align-items: center; justify-content: flex-start; padding: 2px; box-sizing: border-box"><span style="width: 14px; height: 14px; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 2px rgba(24,30,46,0.3); display: block"></span></span></button>
+</div>
+</sc-if>
+</section>
+
+<section style="border-bottom: 1px solid rgba(27,29,33,0.12)">
+<h2 style="margin: 0; font-size: inherit; font-weight: inherit"><button type="button" aria-expanded="{{commitOpen}}" onClick="{{commitToggle}}" style="display: flex; align-items: center; gap: 6px; width: 100%; min-height: 44px; padding: 0 14px; border: 0; background: transparent; color: #1B1D21; font: inherit; font-weight: 600; text-align: left; cursor: pointer"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="transform: {{commitChev}}"><path d="M7 4l6 6-6 6"></path></svg>Commit<span style="margin-left: auto; color: #4A4F57; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 400">400 ms</span></button></h2>
+<sc-if value="{{ commitOpen }}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 0 14px 14px">
+<label for="brush-pause">Commit after pause</label>
+<input id="brush-pause" type="range" min="100" max="1500" value="400" readonly style="width: 100%; margin: 0; accent-color: {{accent}}">
+</div>
+</sc-if>
+</section>
+
+</aside>
+
+<main aria-label="Sheets canvas" style="position: relative; flex: 999 1 560px; min-width: 0; min-height: 600px; overflow: hidden; box-sizing: border-box">
+<div style="position: absolute; left: 50%; top: 46%; transform: translate(-1002px, -243px); display: grid; grid-template-columns: repeat(3, 620px); column-gap: 72px; row-gap: 80px">
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: baseline; gap: 8px; height: 16px; font-size: 11.5px; color: #4A4F57"><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; color: #1B1D21">A-101</span>Level 1 Floor Plan</div>
+<div style="width: 620px; background: #FDFDFB; border-radius: 2px; box-shadow: 0 1px 2px rgba(24,30,46,0.14), 0 10px 28px rgba(24,30,46,0.14)">
+<svg viewBox="0 0 1188 840" role="img" aria-label="Sheet A-101, Level 1 floor plan" fill="none" font-family="'IBM Plex Mono', ui-monospace, monospace" style="display: block; width: 100%; height: auto">
+<rect x="24" y="24" width="1140" height="792" stroke="#1B1D21" stroke-width="1.6"></rect>
+<path d="M964 24V816M964 120H1164M964 700H1164M964 760H1164" stroke="#1B1D21" stroke-width="1"></path>
+<path d="M110 104V712M300 104V712M640 104V712M880 104V712M74 140H916M74 330H916M74 520H916M74 680H916" stroke="#5A606A" stroke-width="0.6" stroke-dasharray="14 4 2 4"></path>
+<rect x="110" y="140" width="770" height="540" stroke="#1B1D21" stroke-width="8"></rect>
+<path d="M300 144V300M300 330V676M114 330H296M640 144V330M640 360V676M644 520H876" stroke="#1B1D21" stroke-width="4.5"></path>
+<rect x="380" y="300" width="180" height="60" rx="30" stroke="#1B1D21" stroke-width="0.9"></rect>
+<rect x="700" y="560" width="160" height="80" stroke="#1B1D21" stroke-width="0.9"></rect>
+<path d="M712 560V640M724 560V640M736 560V640M748 560V640M760 560V640M772 560V640M784 560V640M796 560V640M808 560V640M820 560V640M832 560V640M844 560V640" stroke="#1B1D21" stroke-width="0.6"></path>
+<g fill="#1B1D21" font-size="10" text-anchor="middle">
+<text x="470" y="250">LOBBY 101</text>
+<text x="470" y="334">RECEPTION</text>
+<text x="205" y="240">MAIL 102</text>
+<text x="205" y="500">BIKES 103</text>
+<text x="760" y="420">CAFE 104</text>
+<text x="780" y="662">STAIR 2</text>
+</g>
+<g fill="#1B1D21">
+<text x="976" y="744" font-size="13" font-weight="500">LEVEL 1 FLOOR PLAN</text>
+<text x="976" y="808" font-size="26" font-weight="500">A-101</text>
+</g>
+</svg>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: baseline; gap: 8px; height: 16px; font-size: 11.5px; color: #1B1D21; font-weight: 600"><span aria-hidden="true" style="width: 7px; height: 7px; border-radius: 50%; background: {{accent}}; display: block; align-self: center"></span><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500">A-201</span>Level 2 Floor Plan</div>
+<div style="position: relative; width: 620px; background: #FDFDFB; border-radius: 2px; box-shadow: 0 0 0 2px {{accent}}, 0 18px 48px rgba(24,30,46,0.22)">
+<svg viewBox="0 0 1188 840" role="img" aria-label="Printed sheet A-201, Level 2 floor plan. A red sketch stroke on grid C is being read as a new wall." fill="none" font-family="'IBM Plex Mono', ui-monospace, monospace" style="display: block; width: 100%; height: auto">
+
+<rect x="24" y="24" width="1140" height="792" stroke="#1B1D21" stroke-width="1.6"></rect>
+<path d="M964 24V816M964 120H1164M964 260H1164M964 560H1164M964 640H1164M964 700H1164M964 760H1164M1064 560V700" stroke="#1B1D21" stroke-width="1"></path>
+<path d="M964 284H1164M964 308H1164M964 332H1164M964 356H1164M1000 260V356M1060 260V356" stroke="#1B1D21" stroke-width="0.5"></path>
+<g fill="#1B1D21">
+<text x="1064" y="78" text-anchor="middle" font-size="13">[FIRM NAME]</text>
+<text x="976" y="166" font-size="13">[PROJECT NAME]</text>
+<text x="976" y="230" font-size="12">[CLIENT]</text>
+<text x="976" y="682" font-size="12">1 : 100</text>
+<text x="1076" y="682" font-size="11">14 NOV 2026</text>
+<text x="976" y="744" font-size="13" font-weight="500">LEVEL 2 FLOOR PLAN</text>
+<text x="976" y="808" font-size="26" font-weight="500">A-201</text>
+</g>
+<g fill="#4A4F57" font-size="9">
+<text x="976" y="142">PROJECT</text>
+<text x="976" y="208">CLIENT</text>
+<text x="972" y="276">NO.</text>
+<text x="1006" y="276">DATE</text>
+<text x="1066" y="276">DESCRIPTION</text>
+<text x="976" y="580">DRAWN</text>
+<text x="1076" y="580">CHECKED</text>
+<text x="976" y="658">SCALE</text>
+<text x="1076" y="658">DATE</text>
+<text x="976" y="718">SHEET TITLE</text>
+<text x="976" y="777">SHEET NO.</text>
+</g>
+
+<path d="M110 104V712M300 104V712M640 104V712M880 104V712M74 140H916M74 330H916M74 520H916M74 680H916" stroke="#5A606A" stroke-width="0.6" stroke-dasharray="14 4 2 4"></path>
+<g fill="#FDFDFB" stroke="#1B1D21" stroke-width="0.9">
+<circle cx="110" cy="92" r="12"></circle>
+<circle cx="300" cy="92" r="12"></circle>
+<circle cx="640" cy="92" r="12"></circle>
+<circle cx="880" cy="92" r="12"></circle>
+<circle cx="62" cy="140" r="12"></circle>
+<circle cx="62" cy="330" r="12"></circle>
+<circle cx="62" cy="520" r="12"></circle>
+<circle cx="62" cy="680" r="12"></circle>
+</g>
+<g fill="#1B1D21" font-size="11" text-anchor="middle">
+<text x="110" y="96">A</text>
+<text x="300" y="96">B</text>
+<text x="640" y="96">C</text>
+<text x="880" y="96">D</text>
+<text x="62" y="144">1</text>
+<text x="62" y="334">2</text>
+<text x="62" y="524">3</text>
+<text x="62" y="684">4</text>
+</g>
+
+<rect x="110" y="140" width="770" height="540" stroke="#1B1D21" stroke-width="8"></rect>
+<path d="M300 144V200M300 222V380M300 402V560M300 582V676M114 320H298M114 500H298M640 144V250M640 272V330M638 330H876M640 520V580M640 602V676M638 520H876" stroke="#1B1D21" stroke-width="4.5"></path>
+
+<g fill="#FDFDFB" stroke="#1B1D21" stroke-width="0.8">
+<rect x="150" y="136" width="110" height="8"></rect>
+<rect x="350" y="136" width="100" height="8"></rect>
+<rect x="480" y="136" width="100" height="8"></rect>
+<rect x="690" y="136" width="150" height="8"></rect>
+<rect x="150" y="676" width="110" height="8"></rect>
+<rect x="350" y="676" width="100" height="8"></rect>
+<rect x="480" y="676" width="100" height="8"></rect>
+<rect x="106" y="180" width="8" height="100"></rect>
+<rect x="106" y="360" width="8" height="100"></rect>
+<rect x="106" y="540" width="8" height="100"></rect>
+<rect x="876" y="180" width="8" height="110"></rect>
+<rect x="876" y="370" width="8" height="110"></rect>
+</g>
+<path d="M150 140H260M350 140H450M480 140H580M690 140H840M150 680H260M350 680H450M480 680H580M110 180V280M110 360V460M110 540V640M880 180V290M880 370V480" stroke="#1B1D21" stroke-width="0.8"></path>
+
+<path d="M300 200H278M278 200A22 22 0 0 0 300 222M300 380H278M278 380A22 22 0 0 0 300 402M300 560H278M278 560A22 22 0 0 0 300 582M640 272H662M662 272A22 22 0 0 0 640 250M640 580H662M662 580A22 22 0 0 1 640 602" stroke="#1B1D21" stroke-width="1"></path>
+
+<rect x="700" y="560" width="160" height="80" stroke="#1B1D21" stroke-width="0.9"></rect>
+<path d="M712 560V640M724 560V640M736 560V640M748 560V640M760 560V640M772 560V640M784 560V640M796 560V640M808 560V640M820 560V640M832 560V640M844 560V640" stroke="#1B1D21" stroke-width="0.6"></path>
+<path d="M706 600H850M842 594L850 600L842 606" stroke="#1B1D21" stroke-width="0.9"></path>
+
+<g fill="#FDFDFB" stroke="#1B1D21" stroke-width="0.9">
+<rect x="140" y="200" width="18" height="36"></rect>
+<circle cx="170" cy="218" r="6"></circle>
+<rect x="140" y="392" width="18" height="36"></rect>
+<circle cx="170" cy="410" r="6"></circle>
+<rect x="140" y="566" width="18" height="36"></rect>
+<circle cx="170" cy="584" r="6"></circle>
+<rect x="700" y="214" width="120" height="44" rx="5"></rect>
+<circle cx="722" cy="204" r="6"></circle>
+<circle cx="748" cy="204" r="6"></circle>
+<circle cx="774" cy="204" r="6"></circle>
+<circle cx="800" cy="204" r="6"></circle>
+<circle cx="722" cy="268" r="6"></circle>
+<circle cx="748" cy="268" r="6"></circle>
+<circle cx="774" cy="268" r="6"></circle>
+<circle cx="800" cy="268" r="6"></circle>
+<rect x="380" y="200" width="36" height="18"></rect>
+<rect x="416" y="200" width="36" height="18"></rect>
+<rect x="380" y="218" width="36" height="18"></rect>
+<rect x="416" y="218" width="36" height="18"></rect>
+<circle cx="398" cy="191" r="5.5"></circle>
+<circle cx="434" cy="191" r="5.5"></circle>
+<circle cx="398" cy="245" r="5.5"></circle>
+<circle cx="434" cy="245" r="5.5"></circle>
+</g>
+
+<g fill="{{accent}}" fill-opacity="0.16" stroke="#1B1D21" stroke-width="0.9">
+<rect x="380" y="420" width="36" height="18"></rect>
+<rect x="416" y="420" width="36" height="18"></rect>
+<rect x="380" y="438" width="36" height="18"></rect>
+<rect x="416" y="438" width="36" height="18"></rect>
+<circle cx="398" cy="411" r="5.5"></circle>
+<circle cx="434" cy="411" r="5.5"></circle>
+<circle cx="398" cy="465" r="5.5"></circle>
+<circle cx="434" cy="465" r="5.5"></circle>
+</g>
+<circle cx="462" cy="412" r="3.5" fill="{{accent}}"></circle>
+
+<g fill="#1B1D21" font-size="10" text-anchor="middle">
+<text x="215" y="270">OFFICE 201</text>
+<text x="215" y="456">OFFICE 202</text>
+<text x="215" y="640">OFFICE 203</text>
+<text x="760" y="306">MEETING 204</text>
+<text x="470" y="330">OPEN OFFICE 205</text>
+<text x="780" y="662">STAIR 2</text>
+</g>
+
+<circle cx="128" cy="762" r="13" stroke="#1B1D21" stroke-width="1"></circle>
+<path d="M150 766H420" stroke="#1B1D21" stroke-width="1"></path>
+<g fill="#1B1D21">
+<text x="128" y="766" font-size="12" text-anchor="middle">1</text>
+<text x="150" y="759" font-size="13" font-weight="500">LEVEL 2 FLOOR PLAN</text>
+<text x="150" y="781" font-size="9">1 : 100</text>
+<text x="890" y="740" font-size="9" text-anchor="middle">N</text>
+</g>
+<circle cx="890" cy="762" r="14" stroke="#1B1D21" stroke-width="0.9"></circle>
+<path d="M890 750L896 770L890 765L884 770Z" fill="#1B1D21"></path>
+
+<path d="M634 333C630 358 646 384 641 408" stroke="{{ink}}" stroke-width="4.2" stroke-linecap="round" stroke-opacity="0.35"></path>
+<rect x="637.75" y="330" width="4.5" height="145" fill="{{accent}}" fill-opacity="0.38" stroke="{{accent}}" stroke-width="0.9"></rect>
+<path d="M640 476V512" stroke="{{accent}}" stroke-width="1.2" stroke-dasharray="4 4"></path>
+<path d="M640 322l8 8-8 8-8-8z" fill="{{accent}}"></path>
+<circle cx="640" cy="520" r="7" fill="#FDFDFB" stroke="{{accent}}" stroke-width="1.6"></circle>
+<circle cx="640" cy="520" r="2.2" fill="{{accent}}"></circle>
+<path d="M641 408C636 432 648 450 643 475" stroke="{{ink}}" stroke-width="4.2" stroke-linecap="round" stroke-opacity="0.95"></path>
+<g transform="translate(643 475)">
+<path d="M0 0L4 -13L10 -11Z" fill="#1B1D21"></path>
+<path d="M4 -13L15 -45L21 -43L10 -11Z" fill="#FDFDFB" stroke="#1B1D21" stroke-width="1"></path>
+</g>
+</svg>
+
+<div style="position: absolute; left: 56.6%; top: 44.5%; display: flex; align-items: center; gap: 7px; padding: 6px 11px 6px 9px; border-radius: 999px; background: #FFFFFF; border: 1px solid rgba(27,29,33,0.12); box-shadow: 0 8px 22px rgba(24,30,46,0.16); font-size: 11.5px; white-space: nowrap">
+<span aria-hidden="true" style="width: 7px; height: 7px; border-radius: 50%; background: {{accent}}; display: block"></span>
+<span style="font-weight: 600">Wall</span>
+<span style="color: #4A4F57">Int. 135</span>
+<span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 500; font-size: 11px">94%</span>
+</div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: baseline; gap: 8px; height: 16px; font-size: 11.5px; color: #4A4F57"><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; color: #1B1D21">A-301</span>Level 3 Floor Plan</div>
+<div style="width: 620px; background: #FDFDFB; border-radius: 2px; box-shadow: 0 1px 2px rgba(24,30,46,0.14), 0 10px 28px rgba(24,30,46,0.14)">
+<svg viewBox="0 0 1188 840" role="img" aria-label="Sheet A-301, Level 3 floor plan" fill="none" font-family="'IBM Plex Mono', ui-monospace, monospace" style="display: block; width: 100%; height: auto">
+<rect x="24" y="24" width="1140" height="792" stroke="#1B1D21" stroke-width="1.6"></rect>
+<path d="M964 24V816M964 120H1164M964 700H1164M964 760H1164" stroke="#1B1D21" stroke-width="1"></path>
+<path d="M110 104V712M300 104V712M640 104V712M880 104V712M74 140H916M74 330H916M74 520H916M74 680H916" stroke="#5A606A" stroke-width="0.6" stroke-dasharray="14 4 2 4"></path>
+<rect x="110" y="140" width="770" height="540" stroke="#1B1D21" stroke-width="8"></rect>
+<path d="M300 144V676M114 410H296M470 144V330M300 330H636M640 144V676M644 520H876" stroke="#1B1D21" stroke-width="4.5"></path>
+<rect x="700" y="560" width="160" height="80" stroke="#1B1D21" stroke-width="0.9"></rect>
+<path d="M712 560V640M724 560V640M736 560V640M748 560V640M760 560V640M772 560V640M784 560V640M796 560V640M808 560V640M820 560V640M832 560V640M844 560V640" stroke="#1B1D21" stroke-width="0.6"></path>
+<g fill="#1B1D21" font-size="10" text-anchor="middle">
+<text x="205" y="280">OFFICE 301</text>
+<text x="205" y="550">OFFICE 302</text>
+<text x="385" y="240">QUIET 303</text>
+<text x="555" y="240">PHONE 304</text>
+<text x="470" y="500">OPEN OFFICE 305</text>
+<text x="760" y="420">PANTRY 306</text>
+<text x="780" y="662">STAIR 2</text>
+</g>
+<g fill="#1B1D21">
+<text x="976" y="744" font-size="13" font-weight="500">LEVEL 3 FLOOR PLAN</text>
+<text x="976" y="808" font-size="26" font-weight="500">A-301</text>
+</g>
+</svg>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: baseline; gap: 8px; height: 16px; font-size: 11.5px; color: #4A4F57"><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; color: #1B1D21">A-401</span>Roof Plan</div>
+<div style="width: 620px; background: #FDFDFB; border-radius: 2px; box-shadow: 0 1px 2px rgba(24,30,46,0.14), 0 10px 28px rgba(24,30,46,0.14)">
+<svg viewBox="0 0 1188 840" role="img" aria-label="Sheet A-401, roof plan" fill="none" font-family="'IBM Plex Mono', ui-monospace, monospace" style="display: block; width: 100%; height: auto">
+<rect x="24" y="24" width="1140" height="792" stroke="#1B1D21" stroke-width="1.6"></rect>
+<path d="M964 24V816M964 120H1164M964 700H1164M964 760H1164" stroke="#1B1D21" stroke-width="1"></path>
+<rect x="110" y="140" width="770" height="540" stroke="#1B1D21" stroke-width="3"></rect>
+<rect x="122" y="152" width="746" height="516" stroke="#1B1D21" stroke-width="0.8"></rect>
+<path d="M495 152V668M200 410H440M550 410H790" stroke="#1B1D21" stroke-width="0.8" stroke-dasharray="10 6"></path>
+<rect x="560" y="220" width="160" height="110" stroke="#1B1D21" stroke-width="1.2"></rect>
+<path d="M560 220L720 330M720 220L560 330" stroke="#1B1D21" stroke-width="0.6"></path>
+<rect x="700" y="560" width="160" height="80" stroke="#1B1D21" stroke-width="1.2"></rect>
+<g fill="#1B1D21" font-size="10" text-anchor="middle">
+<text x="640" y="352">PLANT</text>
+<text x="300" y="400">FALL 1:60</text>
+<text x="670" y="400">FALL 1:60</text>
+<text x="780" y="662">STAIR OVERRUN</text>
+</g>
+<g fill="#1B1D21">
+<text x="976" y="744" font-size="13" font-weight="500">ROOF PLAN</text>
+<text x="976" y="808" font-size="26" font-weight="500">A-401</text>
+</g>
+</svg>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: baseline; gap: 8px; height: 16px; font-size: 11.5px; color: #4A4F57"><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; color: #1B1D21">A-501</span>Building Sections</div>
+<div style="width: 620px; background: #FDFDFB; border-radius: 2px; box-shadow: 0 1px 2px rgba(24,30,46,0.14), 0 10px 28px rgba(24,30,46,0.14)">
+<svg viewBox="0 0 1188 840" role="img" aria-label="Sheet A-501, building sections" fill="none" font-family="'IBM Plex Mono', ui-monospace, monospace" style="display: block; width: 100%; height: auto">
+<rect x="24" y="24" width="1140" height="792" stroke="#1B1D21" stroke-width="1.6"></rect>
+<path d="M964 24V816M964 120H1164M964 700H1164M964 760H1164" stroke="#1B1D21" stroke-width="1"></path>
+<path d="M80 350H920M80 720H920" stroke="#1B1D21" stroke-width="1.6"></path>
+<g stroke="#1B1D21" stroke-width="4.5">
+<path d="M140 350V110H860V350M140 230H860"></path>
+<path d="M140 720V480H860V720M140 600H860"></path>
+</g>
+<g stroke="#1B1D21" stroke-width="1.2">
+<path d="M480 110V350M480 480V720M680 480V720"></path>
+</g>
+<g fill="#1B1D21" font-size="10">
+<text x="880" y="114">ROOF</text>
+<text x="880" y="234">LEVEL 2</text>
+<text x="880" y="354">LEVEL 1</text>
+<text x="140" y="384" font-size="12" font-weight="500">SECTION A-A</text>
+<text x="140" y="754" font-size="12" font-weight="500">SECTION B-B</text>
+</g>
+<g fill="#1B1D21">
+<text x="976" y="744" font-size="13" font-weight="500">BUILDING SECTIONS</text>
+<text x="976" y="808" font-size="26" font-weight="500">A-501</text>
+</g>
+</svg>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: baseline; gap: 8px; height: 16px; font-size: 11.5px; color: #4A4F57"><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; color: #1B1D21">A-601</span>Enlarged Plans</div>
+<div style="width: 620px; background: #FDFDFB; border-radius: 2px; box-shadow: 0 1px 2px rgba(24,30,46,0.14), 0 10px 28px rgba(24,30,46,0.14)">
+<svg viewBox="0 0 1188 840" role="img" aria-label="Sheet A-601, enlarged plans" fill="none" font-family="'IBM Plex Mono', ui-monospace, monospace" style="display: block; width: 100%; height: auto">
+<rect x="24" y="24" width="1140" height="792" stroke="#1B1D21" stroke-width="1.6"></rect>
+<path d="M964 24V816M964 120H1164M964 700H1164M964 760H1164" stroke="#1B1D21" stroke-width="1"></path>
+<rect x="100" y="120" width="360" height="500" stroke="#1B1D21" stroke-width="7"></rect>
+<g stroke="#1B1D21" stroke-width="0.9">
+<rect x="130" y="150" width="60" height="90" rx="20"></rect>
+<rect x="230" y="150" width="60" height="90" rx="20"></rect>
+<rect x="330" y="150" width="60" height="90" rx="20"></rect>
+<rect x="120" y="500" width="320" height="60"></rect>
+</g>
+<rect x="540" y="120" width="380" height="300" stroke="#1B1D21" stroke-width="7"></rect>
+<g stroke="#1B1D21" stroke-width="0.9">
+<rect x="560" y="140" width="200" height="40"></rect>
+<rect x="800" y="140" width="100" height="70"></rect>
+</g>
+<g fill="#1B1D21" font-size="12" font-weight="500">
+<text x="100" y="660">WC CORE, 1:50</text>
+<text x="540" y="460">PANTRY, 1:50</text>
+</g>
+<g fill="#1B1D21">
+<text x="976" y="744" font-size="13" font-weight="500">ENLARGED PLANS</text>
+<text x="976" y="808" font-size="26" font-weight="500">A-601</text>
+</g>
+</svg>
+</div>
+</div>
+
+</div>
+
+<nav aria-label="Tools" style="position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); max-width: calc(100% - 16px); box-sizing: border-box; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px; padding: 6px; border-radius: 22px; background: #F9FAFB; border: 1px solid rgba(27,29,33,0.12); box-shadow: 0 12px 32px rgba(24,30,46,0.18), 0 1px 2px rgba(24,30,46,0.1)">
+<button type="button" aria-label="Select" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; border-radius: 16px; background: transparent; color: #1B1D21; cursor: pointer"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l11 6.5-5 1.5-1.5 5z"></path></svg></button>
+<button type="button" aria-label="Brush, selected" aria-pressed="true" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; border-radius: 16px; background: {{accent}}; color: #FFFFFF; box-shadow: 0 4px 12px rgba(24,30,46,0.22); cursor: pointer"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 3.5l2 2L7 15l-3 1 1-3z"></path><path d="M12.5 5.5l2 2"></path></svg></button>
+<button type="button" aria-label="Eraser" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; border-radius: 16px; background: transparent; color: #1B1D21; cursor: pointer"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 16h7"></path><path d="M4.5 12.5l7-7a1.5 1.5 0 0 1 2 0l2 2a1.5 1.5 0 0 1 0 2L10 15H7z"></path></svg></button>
+<button type="button" aria-label="Pan" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; border-radius: 16px; background: transparent; color: #1B1D21; cursor: pointer"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v14M3 10h14M8 5l2-2 2 2M8 15l2 2 2-2M5 8l-2 2 2 2M15 8l2 2-2 2"></path></svg></button>
+<span aria-hidden="true" style="width: 1px; height: 24px; margin: 0 6px; background: rgba(27,29,33,0.18); display: block"></span>
+<button type="button" aria-label="Ink colour, red" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; border-radius: 16px; background: transparent; cursor: pointer"><span style="width: 20px; height: 20px; border-radius: 50%; background: {{ink}}; box-shadow: 0 0 0 2px rgba(255,255,255,0.9), 0 0 0 3px rgba(27,29,33,0.25); display: block"></span></button>
+<span aria-hidden="true" style="width: 1px; height: 24px; margin: 0 6px; background: rgba(27,29,33,0.18); display: block"></span>
+<button type="button" aria-label="Live reading, on" aria-pressed="true" style="display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px 0 10px; border: 0; border-radius: 16px; background: transparent; color: #1B1D21; font: inherit; font-weight: 500; cursor: pointer"><span aria-hidden="true" style="width: 30px; height: 18px; border-radius: 9px; background: {{accent}}; display: flex; align-items: center; justify-content: flex-end; padding: 2px; box-sizing: border-box"><span style="width: 14px; height: 14px; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 2px rgba(24,30,46,0.3); display: block"></span></span>Live</button>
+</nav>
+</main>
+
+<aside aria-label="Inspector" style="flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 0; background: #F4F5F7; border-left: 1px solid rgba(27,29,33,0.16)">
+
+<section style="border-bottom: 1px solid rgba(27,29,33,0.12)">
+<h2 style="margin: 0; font-size: inherit; font-weight: inherit"><button type="button" aria-expanded="{{readingOpen}}" onClick="{{readingToggle}}" style="display: flex; align-items: center; gap: 6px; width: 100%; min-height: 44px; padding: 0 14px; border: 0; background: transparent; color: #1B1D21; font: inherit; font-weight: 600; text-align: left; cursor: pointer"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="transform: {{readingChev}}"><path d="M7 4l6 6-6 6"></path></svg>Reading your stroke<span style="margin-left: auto; display: flex; align-items: center; gap: 5px; color: {{accent}}; font-size: 11px; font-weight: 500"><span aria-hidden="true" style="width: 6px; height: 6px; border-radius: 50%; background: {{accent}}; display: block"></span>Live</span></button></h2>
+<sc-if value="{{ readingOpen }}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; gap: 10px; padding: 0 14px 14px">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<button type="button" aria-pressed="true" style="display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 0 10px; border: 0; border-radius: 10px; background: rgba(255,255,255,0.72); font: inherit; color: #1B1D21; text-align: left; cursor: pointer">
+<span style="flex: 1; font-weight: 600">Wall</span>
+<span aria-hidden="true" style="width: 64px; height: 5px; border-radius: 3px; background: rgba(27,29,33,0.12); display: block; overflow: hidden"><span style="display: block; width: 94%; height: 100%; border-radius: 3px; background: {{accent}}"></span></span>
+<span style="width: 30px; text-align: right; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px">94%</span>
+</button>
+<button type="button" style="display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; font: inherit; color: #1B1D21; text-align: left; cursor: pointer">
+<span style="flex: 1">Room separation line</span>
+<span aria-hidden="true" style="width: 64px; height: 5px; border-radius: 3px; background: rgba(27,29,33,0.12); display: block; overflow: hidden"><span style="display: block; width: 4%; height: 100%; border-radius: 3px; background: #5A606A"></span></span>
+<span style="width: 30px; text-align: right; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px">4%</span>
+</button>
+<button type="button" style="display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; font: inherit; color: #1B1D21; text-align: left; cursor: pointer">
+<span style="flex: 1">Detail line</span>
+<span aria-hidden="true" style="width: 64px; height: 5px; border-radius: 3px; background: rgba(27,29,33,0.12); display: block; overflow: hidden"><span style="display: block; width: 2%; height: 100%; border-radius: 3px; background: #5A606A"></span></span>
+<span style="width: 30px; text-align: right; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px">2%</span>
+</button>
+</div>
+<div style="height: 1px; background: rgba(27,29,33,0.12)"></div>
+<div style="display: flex; flex-direction: column; gap: 7px">
+<div style="display: flex; justify-content: space-between; gap: 12px"><span style="color: #4A4F57">Type</span><span style="font-weight: 500; text-align: right">Interior 135 Partition</span></div>
+<div style="display: flex; justify-content: space-between; gap: 12px"><span style="color: #4A4F57">Level</span><span style="font-weight: 500; text-align: right">Level 2, to Level 3</span></div>
+<div style="display: flex; justify-content: space-between; gap: 12px"><span style="color: #4A4F57">Length</span><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; text-align: right">8.55 m</span></div>
+<div style="display: flex; justify-content: space-between; gap: 12px"><span style="color: #4A4F57">Snaps</span><span style="font-weight: 500; text-align: right">Grid C, 2 wall ends</span></div>
+</div>
+<div style="display: flex; align-items: center; gap: 7px; padding-top: 2px; color: #4A4F57; font-size: 11px">
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 20 20" fill="none" stroke-width="2.2" stroke-linecap="round"><circle cx="10" cy="10" r="7" stroke="rgba(27,29,33,0.18)"></circle><path d="M10 3a7 7 0 0 1 6.6 4.7" stroke="{{accent}}"></path></svg>
+Commits to Revit when you pause
+</div>
+</div>
+</sc-if>
+</section>
+
+<section style="border-bottom: 1px solid rgba(27,29,33,0.12)">
+<h2 style="margin: 0; font-size: inherit; font-weight: inherit"><button type="button" aria-expanded="{{sessionOpen}}" onClick="{{sessionToggle}}" style="display: flex; align-items: center; gap: 6px; width: 100%; min-height: 44px; padding: 0 14px; border: 0; background: transparent; color: #1B1D21; font: inherit; font-weight: 600; text-align: left; cursor: pointer"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="transform: {{sessionChev}}"><path d="M7 4l6 6-6 6"></path></svg>This session<span style="margin-left: auto; color: #4A4F57; font-size: 11px; font-weight: 400">2 changes</span></button></h2>
+<sc-if value="{{ sessionOpen }}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; gap: 4px; padding: 0 14px 10px">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px">
+<div style="display: flex; flex-direction: column"><span style="font-weight: 500">1 wall</span><span style="color: #4A4F57; font-size: 11px">Interior 135 Partition</span></div>
+<span style="color: {{accent}}; font-size: 11px; font-weight: 500">Reading</span>
+</div>
+<div style="height: 1px; background: rgba(27,29,33,0.12)"></div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px">
+<div style="display: flex; flex-direction: column"><span style="font-weight: 500">4 desks</span><span style="color: #4A4F57; font-size: 11px">Desk 1600 × 800</span></div>
+<span style="display: flex; align-items: center; gap: 5px; color: #17703D; font-size: 11px; font-weight: 500"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 10.5l3.5 3.5 7.5-8"></path></svg>In Revit</span>
+</div>
+</div>
+</sc-if>
+</section>
+
+</aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#1E55D9","options":["#1E55D9","#0B6E78","#6B4BD8"]},"ink":{"editor":"color","default":"#E2452F","options":["#E2452F","#D12E7A","#1B1D21"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+renderVals() {
+var self = this;
+var s = this.state || {};
+var defaults = { stroke: true, mode: true, snap: false, commit: false, reading: true, session: true };
+var out = {
+accent: this.props.accent ?? '#1E55D9',
+ink: this.props.ink ?? '#E2452F'
+};
+Object.keys(defaults).forEach(function (k) {
+var isOpen = s[k] === undefined ? defaults[k] : s[k];
+out[k + 'Open'] = isOpen;
+out[k + 'Chev'] = isOpen ? 'rotate(90deg)' : 'rotate(0deg)';
+out[k + 'Toggle'] = function () {
+var next = {};
+next[k] = !isOpen;
+self.setState(next);
+};
+});
+return out;
+}
+}
+</script>
+</body>
+</html>

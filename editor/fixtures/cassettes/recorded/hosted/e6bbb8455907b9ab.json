@@ -1,0 +1,210 @@
+{
+ "schema": "brush.cassette/v1",
+ "adapter": "hosted",
+ "model": "anthropic/claude-haiku-5.5",
+ "requestHash": "e6bbb8455907b9ab",
+ "requestSummary": {
+  "source": "fixtures/strokes/markup/markup-024.json",
+  "corpus": "strokes",
+  "split": "heldout",
+  "label": "markup",
+  "firstPass": [
+   [
+    "furniture",
+    0.796
+   ],
+   [
+    "markup",
+    0.204
+   ]
+  ],
+  "note": "ambiguous: small circle, could be furniture",
+  "room": "OFFICE 208"
+ },
+ "request": {
+  "model": "anthropic/claude-haiku-5.5",
+  "max_tokens": 256,
+  "thinking": {
+   "type": "disabled"
+  },
+  "output_config": {
+   "effort": "low"
+  },
+  "system": "You read a pen stroke drawn on an architectural floor plan PDF and decide what the user meant. Use the stroke shape, its size in metres, nearby drawing elements, the room and recent decisions. The first-pass guess comes from fast rules and is often right; disagree only with a reason.\nAlways answer by calling the decide tool once, with calibrated probabilities for all five options.",
+  "tools": [
+   {
+    "name": "decide",
+    "description": "Report what the stroke most likely means as a probability for EACH option (0..1, summing to 1). wall: create a wall along the stroke. door: place a door in a wall the stroke crosses. furniture: place a furniture/fixture instance in the outlined area. delete: delete the element(s) the stroke scribbles over. markup: keep as plain ink (annotation, no model change).",
+    "strict": true,
+    "input_schema": {
+     "type": "object",
+     "properties": {
+      "probabilities": {
+       "type": "object",
+       "properties": {
+        "wall": {
+         "type": "number",
+         "description": "P(wall)"
+        },
+        "door": {
+         "type": "number",
+         "description": "P(door)"
+        },
+        "furniture": {
+         "type": "number",
+         "description": "P(furniture)"
+        },
+        "delete": {
+         "type": "number",
+         "description": "P(delete)"
+        },
+        "markup": {
+         "type": "number",
+         "description": "P(markup)"
+        }
+       },
+       "required": [
+        "wall",
+        "door",
+        "furniture",
+        "delete",
+        "markup"
+       ],
+       "additionalProperties": false
+      },
+      "reason": {
+       "type": "string",
+       "description": "One short sentence: the deciding evidence."
+      }
+     },
+     "required": [
+      "probabilities",
+      "reason"
+     ],
+     "additionalProperties": false
+    }
+   }
+  ],
+  "tool_choice": {
+   "type": "any"
+  },
+  "messages": [
+   {
+    "role": "user",
+    "content": "stroke: best fit arc; fits arc=0.99, blob=0.37, rectangle=0.17\nsize: length 71 pt (2.51 m), bbox 21x21 pt (0.73x0.74 m)\nshape: closed=true closure=0.08 corners=1 self-intersections=1 reversal-density=0\nmotion: 150 ms, mean speed 0.46 pt/ms\nnearby: label \"OFFICE 208\" @27pt; unknown @36pt; wall @40pt; unknown @42pt; fixture @45pt; grid \"B\" @51pt; grid \"3\" @77pt; wall @77pt\nroom: OFFICE 208; scale: 1:100\nrecent decisions: none\nfirst-pass guess: furniture 0.8, markup 0.2\n\nOptions:\nA) wall: create a wall along the stroke\nB) door: place a door in a wall the stroke crosses\nC) furniture: place a furniture/fixture instance in the outlined area\nD) delete: delete the element(s) the stroke scribbles over\nE) markup: keep as plain ink (annotation, no model change)"
+   }
+  ]
+ },
+ "response": {
+  "id": "gen_01M7DQ7T5ZZ384ES4TNSF1PCH9",
+  "type": "message",
+  "role": "assistant",
+  "content": [
+   {
+    "type": "tool_use",
+    "id": "toolu_01JNPxUgs96WWjdMXSNMY5aG",
+    "name": "decide",
+    "input": {
+     "probabilities": {
+      "wall": 0.05,
+      "door": 0.08,
+      "furniture": 0.6,
+      "delete": 0.12,
+      "markup": 0.15
+     },
+     "reason": "A closed, arc-fitting loop about 0.73 m across inside OFFICE 208 looks like a furniture symbol (e.g. a round table or chair), not a wall or door; the first-pass furniture guess is plausible, though markup or delete remain possible given the self-intersection."
+    }
+   }
+  ],
+  "model": "anthropic/claude-haiku-5.5",
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "usage": {
+   "input_tokens": 1287,
+   "output_tokens": 197,
+   "cache_creation_input_tokens": 0,
+   "cache_read_input_tokens": 0,
+   "cache_creation": {
+    "ephemeral_5m_input_tokens": 0,
+    "ephemeral_1h_input_tokens": 0
+   },
+   "speed": "standard",
+   "service_tier": "standard",
+   "output_tokens_details": {
+    "thinking_tokens": 0
+   }
+  },
+  "provider_metadata": {
+   "anthropic": {
+    "usage": {
+     "input_tokens": 1287,
+     "output_tokens": 197,
+     "output_tokens_details": {
+      "thinking_tokens": 0
+     },
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 0
+     },
+     "service_tier": "standard",
+     "inference_geo": "global",
+     "speed": "standard"
+    },
+    "cacheCreationInputTokens": 0,
+    "stopSequence": null,
+    "iterations": null,
+    "container": null,
+    "contextManagement": null
+   },
+   "gateway": {
+    "routing": {
+     "originalModelId": "anthropic/claude-haiku-5.5",
+     "resolvedProvider": "anthropic",
+     "fallbacksAvailable": [
+      "bedrock",
+      "claudeaws",
+      "vertexAnthropic"
+     ],
+     "canonicalSlug": "anthropic/claude-haiku-5.5",
+     "finalProvider": "anthropic",
+     "modelAttemptCount": 1,
+     "modelAttempts": [
+      {
+       "canonicalSlug": "anthropic/claude-haiku-5.5",
+       "success": true,
+       "providerAttemptCount": 1,
+       "providerAttempts": [
+        {
+         "provider": "anthropic",
+         "credentialType": "system",
+         "success": true,
+         "startTime": 1794683168976,
+         "endTime": 1794683170522,
+         "providerRequestId": "req_011Ch3Lsg7eYCHVVNkRkDJt6",
+         "statusCode": 200,
+         "providerResponseId": "msg_011Ch3LsgTVSicx8RfBHxjDU"
+        }
+       ]
+      }
+     ],
+     "totalProviderAttemptCount": 1,
+     "clientSessionId": "003a3e7914026acc06b654b71c21f75c",
+     "clientSessionIdSource": "fingerprint"
+    },
+    "cost": "0.0002272",
+    "marketCost": "0.0002272",
+    "surchargeCost": "0",
+    "gatewayCost": "0.0002272",
+    "inferenceCost": "0.0002272",
+    "inputInferenceCost": "0.0001287",
+    "outputInferenceCost": "0.0000985",
+    "generationId": "gen_01M7DQ7T5ZZ384ES4TNSF1PCH9"
+   }
+  }
+ },
+ "latencyMs": 1679,
+ "recordedAt": "2026-11-14T19:06:10.553Z",
+ "synthetic": false
+}

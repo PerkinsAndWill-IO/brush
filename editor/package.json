@@ -1,0 +1,46 @@
+{
+  "name": "brush",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@12.4.1",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint .",
+    "test:unit": "vitest run",
+    "check": "pnpm typecheck && pnpm lint && pnpm test:unit",
+    "e2e": "playwright test",
+    "eval": "tsx tests/eval/run-eval.ts",
+    "budgets": "tsx scripts/verify.ts",
+    "verify": "pnpm check && pnpm e2e && pnpm eval && pnpm budgets",
+    "app": "tauri dev",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.65.1",
+    "@tauri-apps/cli": "2.12.4",
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.3.0",
+    "eslint": "10.15.0",
+    "globals": "17.14.0",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.72.2",
+    "vite": "8.3.8",
+    "vitest": "5.1.0"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/plugin-dialog": "2.8.4",
+    "@tauri-apps/plugin-fs": "2.7.1",
+    "pdfjs-dist": "6.5.438",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "tldraw": "5.6.0"
+  }
+}
