@@ -105,7 +105,6 @@ test.describe('P1 photo import', () => {
     await openWith(page, PDF)
     const photo = await makePhoto(page, { pageIndex: PAGE, markup: true })
 
-    await page.getByTestId('app-menu-button').click()
     await page.getByTestId('import-photo').click()
     await expect(page.getByTestId('photo-import')).toBeVisible()
     await expect(page.getByTestId('photo-run')).toBeDisabled()
@@ -187,7 +186,6 @@ test.describe('P1 photo import', () => {
       for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
       return btoa(bin)
     })
-    await page.getByTestId('app-menu-button').click()
     await page.getByTestId('import-photo').click()
     await page.getByTestId('photo-file').setInputFiles({ name: 'desk.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(b64, 'base64') })
     await page.getByTestId('photo-run').click()
@@ -214,12 +212,10 @@ test.describe('P1 photo import', () => {
 
   test('P1-01: a sheet chosen for one drawing is not carried to the next one', async ({ page }) => {
     await openWith(page, PDF)
-    await page.getByTestId('app-menu-button').click()
     await page.getByTestId('import-photo').click()
     await page.getByTestId('photo-sheet').selectOption('sheet-4')
     await page.keyboard.press('Escape')
     // reopened on the same drawing, the choice is still there
-    await page.getByTestId('app-menu-button').click()
     await page.getByTestId('import-photo').click()
     await expect(page.getByTestId('photo-sheet')).toHaveValue('sheet-4')
     await page.keyboard.press('Escape')
@@ -228,7 +224,6 @@ test.describe('P1 photo import', () => {
     await page.evaluate((u) => window.__brush!.loadPdf(u), '/fixtures/pdfs/office-1-sheet.pdf')
     await expect(page.getByTestId('sheet-count')).toHaveText('1 sheet')
     const photo = await makePhoto(page, { pageIndex: 0, markup: true })
-    await page.getByTestId('app-menu-button').click()
     await page.getByTestId('import-photo').click()
     await expect(page.getByTestId('photo-sheet')).toHaveValue('')
     await page.getByTestId('photo-file').setInputFiles({ name: 'markup.jpg', mimeType: 'image/jpeg', buffer: photo })

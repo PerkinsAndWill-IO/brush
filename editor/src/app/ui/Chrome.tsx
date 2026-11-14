@@ -19,7 +19,7 @@ import { getDocState, openFile, useDocState } from '../store'
 import { DrawingFileSource, buildCommandFile, commandFileName, serializeCommandFile, writeCommandFile } from '../source'
 import { ITEM_KINDS, categoriesOf, filters, isAnnotationCategory, useFilters } from '../drawing/filters'
 import { useContexts } from '../brain/contextStore'
-import { BrushIcon, ChevronDown, ChevronRight, EraserIcon, MeasureIcon, MenuIcon, PanIcon, RedoIcon, SelectIcon, UndoIcon } from './icons'
+import { BrushIcon, ChevronDown, ChevronRight, EraserIcon, MeasureIcon, MenuIcon, PanIcon, PhotoIcon, RedoIcon, SelectIcon, UndoIcon } from './icons'
 import brushLogo from './assets/brush-logo.png'
 import selectToolIcon from './assets/tool-select.png'
 import brushToolIcon from './assets/tool-brush.png'
@@ -178,9 +178,6 @@ function AppMenu() {
           </button>
           {ready && (
             <>
-              <button type="button" role="menuitem" data-testid="import-photo" title="Trace pen and marker markup from a photo of the printed sheet and add it as brush strokes" onClick={() => run(() => photoImport.open())}>
-                Import photo…
-              </button>
               <div className="menu-sep" role="separator" />
               <button
                 type="button"
@@ -407,6 +404,17 @@ export function ToolCapsule({ disabled = false }: { disabled?: boolean }) {
       ))}
       <span className="divider" aria-hidden="true" />
       <ColorButton disabled={disabled} />
+      <button
+        type="button"
+        className="tool photo"
+        aria-label="Import photo"
+        title="Import markup from a photo: trace pen and marker on a photo of the printed sheet and add it as brush strokes"
+        disabled={disabled}
+        data-testid="import-photo"
+        onClick={() => photoImport.open()}
+      >
+        <PhotoIcon size={28} />
+      </button>
       {!disabled && (
         <>
           <span className="divider" aria-hidden="true" />
