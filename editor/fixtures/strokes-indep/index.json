@@ -1,0 +1,1502 @@
+[
+ {
+  "id": "wall-indep-001",
+  "kind": "wall",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 2,
+  "points": 65,
+  "durationMs": 448.1,
+  "note": "w2-12 traced with overshoot"
+ },
+ {
+  "id": "wall-indep-002",
+  "kind": "wall",
+  "author": "indep-2",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 52,
+  "durationMs": 855.1,
+  "note": "polyline tracing 3 connected walls around MEETING 202"
+ },
+ {
+  "id": "wall-indep-003",
+  "kind": "wall",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 1,
+  "points": 126,
+  "durationMs": 517,
+  "note": "w1-0 drawn as a bowed, wobbly long wall"
+ },
+ {
+  "id": "wall-indep-004",
+  "kind": "wall",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 1,
+  "points": 12,
+  "durationMs": 185,
+  "note": "w1-13 drawn fast with a flick tail"
+ },
+ {
+  "id": "wall-indep-005",
+  "kind": "wall",
+  "author": "indep-1",
+  "pdf": "office-1-sheet.pdf",
+  "sheet": 0,
+  "points": 65,
+  "durationMs": 442.1,
+  "note": "wall across open space along grid D"
+ },
+ {
+  "id": "wall-indep-006",
+  "kind": "wall",
+  "author": "indep-2",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 15,
+  "durationMs": 233.5,
+  "note": "diagonal wall inside MEETING 202"
+ },
+ {
+  "id": "wall-indep-007",
+  "kind": "wall",
+  "author": "indep-3",
+  "pdf": "office-1-sheet.pdf",
+  "sheet": 0,
+  "points": 20,
+  "durationMs": 159.2,
+  "note": "w0-5 traced with overshoot"
+ },
+ {
+  "id": "wall-indep-008",
+  "kind": "wall",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 0,
+  "points": 101,
+  "durationMs": 690.1,
+  "note": "polyline tracing 3 connected walls around MEETING 102"
+ },
+ {
+  "id": "wall-indep-009",
+  "kind": "wall",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 0,
+  "points": 43,
+  "durationMs": 361.5,
+  "note": "w0-9 drawn as a bowed, wobbly long wall"
+ },
+ {
+  "id": "wall-indep-010",
+  "kind": "wall",
+  "author": "indep-2",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 1,
+  "points": 17,
+  "durationMs": 267.2,
+  "note": "w1-5 drawn fast with a flick tail"
+ },
+ {
+  "id": "wall-indep-011",
+  "kind": "wall",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 0,
+  "points": 60,
+  "durationMs": 484.2,
+  "note": "wall across open space along grid C"
+ },
+ {
+  "id": "wall-indep-012",
+  "kind": "wall",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 5,
+  "points": 15,
+  "durationMs": 96.5,
+  "note": "diagonal wall inside CORRIDOR"
+ },
+ {
+  "id": "wall-indep-013",
+  "kind": "wall",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 3,
+  "points": 53,
+  "durationMs": 439.3,
+  "note": "w3-9 traced with overshoot"
+ },
+ {
+  "id": "wall-indep-014",
+  "kind": "wall",
+  "author": "indep-2",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 3,
+  "points": 221,
+  "durationMs": 2426.6,
+  "note": "polyline tracing 3 connected walls around OFFICE 404"
+ },
+ {
+  "id": "wall-indep-015",
+  "kind": "wall",
+  "author": "indep-3",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 117,
+  "durationMs": 969.6,
+  "note": "w0-0 drawn as a bowed, wobbly long wall"
+ },
+ {
+  "id": "wall-indep-016",
+  "kind": "wall",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 0,
+  "points": 41,
+  "durationMs": 272.5,
+  "note": "w0-2 drawn fast with a flick tail"
+ },
+ {
+  "id": "wall-indep-017",
+  "kind": "wall",
+  "author": "indep-1",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 32,
+  "durationMs": 214.9,
+  "note": "wall across open space along grid A"
+ },
+ {
+  "id": "wall-indep-018",
+  "kind": "wall",
+  "author": "indep-2",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 0,
+  "points": 22,
+  "durationMs": 231.7,
+  "note": "diagonal wall inside OFFICE 104"
+ },
+ {
+  "id": "wall-indep-019",
+  "kind": "wall",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 5,
+  "points": 30,
+  "durationMs": 119.3,
+  "note": "w5-5 traced with overshoot"
+ },
+ {
+  "id": "wall-indep-020",
+  "kind": "wall",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 3,
+  "points": 53,
+  "durationMs": 581.9,
+  "note": "polyline tracing 2 connected walls around STAIR 4"
+ },
+ {
+  "id": "wall-indep-021",
+  "kind": "wall",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 4,
+  "points": 138,
+  "durationMs": 1136,
+  "note": "w4-4 drawn as a bowed, wobbly long wall"
+ },
+ {
+  "id": "wall-indep-022",
+  "kind": "wall",
+  "author": "indep-2",
+  "pdf": "office-1-sheet.pdf",
+  "sheet": 0,
+  "points": 58,
+  "durationMs": 628.2,
+  "note": "w0-1 drawn fast with a flick tail"
+ },
+ {
+  "id": "wall-indep-023",
+  "kind": "wall",
+  "author": "indep-3",
+  "pdf": "office-1-sheet.pdf",
+  "sheet": 0,
+  "points": 38,
+  "durationMs": 150.9,
+  "note": "wall across open space along grid 4"
+ },
+ {
+  "id": "wall-indep-024",
+  "kind": "wall",
+  "author": "indep-4",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 15,
+  "durationMs": 233,
+  "note": "diagonal wall inside CORRIDOR"
+ },
+ {
+  "id": "wall-indep-025",
+  "kind": "wall",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 2,
+  "points": 87,
+  "durationMs": 602.6,
+  "note": "w2-10 traced with overshoot"
+ },
+ {
+  "id": "wall-indep-026",
+  "kind": "wall",
+  "author": "indep-2",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 4,
+  "points": 87,
+  "durationMs": 950.9,
+  "note": "polyline tracing 2 connected walls around OFFICE 503"
+ },
+ {
+  "id": "wall-indep-027",
+  "kind": "wall",
+  "author": "indep-3",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 37,
+  "durationMs": 298.9,
+  "note": "w0-9 drawn as a bowed, wobbly long wall"
+ },
+ {
+  "id": "wall-indep-028",
+  "kind": "wall",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 4,
+  "points": 13,
+  "durationMs": 131.8,
+  "note": "w4-14 drawn fast with a flick tail"
+ },
+ {
+  "id": "wall-indep-029",
+  "kind": "wall",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 0,
+  "points": 102,
+  "durationMs": 694.9,
+  "note": "wall across open space along grid 1"
+ },
+ {
+  "id": "wall-indep-030",
+  "kind": "wall",
+  "author": "indep-2",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 5,
+  "points": 21,
+  "durationMs": 327.5,
+  "note": "diagonal wall inside MEETING 602"
+ },
+ {
+  "id": "door-indep-001",
+  "kind": "door",
+  "author": "indep-2",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 0,
+  "points": 14,
+  "durationMs": 219.2,
+  "note": "short tick across w0-6, -7 deg off normal"
+ },
+ {
+  "id": "door-indep-002",
+  "kind": "door",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 4,
+  "points": 31,
+  "durationMs": 123.4,
+  "note": "door tick drawn back and forth across w4-6"
+ },
+ {
+  "id": "door-indep-003",
+  "kind": "door",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 2,
+  "points": 16,
+  "durationMs": 167.8,
+  "note": "quarter-arc door with leaf, 1.01 m, beside w2-4"
+ },
+ {
+  "id": "door-indep-004",
+  "kind": "door",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 2,
+  "points": 15,
+  "durationMs": 100.2,
+  "note": "quarter arc only (swing) for a 0.78 m door at w2-6"
+ },
+ {
+  "id": "door-indep-005",
+  "kind": "door",
+  "author": "indep-2",
+  "pdf": "office-1-sheet.pdf",
+  "sheet": 0,
+  "points": 14,
+  "durationMs": 143,
+  "note": "door-width (0.91 m) slash through w0-6"
+ },
+ {
+  "id": "door-indep-006",
+  "kind": "door",
+  "author": "indep-3",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 17,
+  "durationMs": 67.9,
+  "note": "tick over w0-7 with a small retrace"
+ },
+ {
+  "id": "door-indep-007",
+  "kind": "door",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 2,
+  "points": 15,
+  "durationMs": 95.4,
+  "note": "short tick across w2-7, 22 deg off normal"
+ },
+ {
+  "id": "door-indep-008",
+  "kind": "door",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 5,
+  "points": 15,
+  "durationMs": 119.9,
+  "note": "door tick drawn back and forth across w5-6"
+ },
+ {
+  "id": "door-indep-009",
+  "kind": "door",
+  "author": "indep-2",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 15,
+  "durationMs": 157.9,
+  "note": "quarter-arc door with leaf, 1.10 m, beside w0-4"
+ },
+ {
+  "id": "door-indep-010",
+  "kind": "door",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 2,
+  "points": 16,
+  "durationMs": 121.2,
+  "note": "quarter arc only (swing) for a 0.75 m door at w2-6"
+ },
+ {
+  "id": "door-indep-011",
+  "kind": "door",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 2,
+  "points": 14,
+  "durationMs": 215.8,
+  "note": "door-width (0.79 m) slash through w2-6"
+ },
+ {
+  "id": "door-indep-012",
+  "kind": "door",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 1,
+  "points": 16,
+  "durationMs": 124.1,
+  "note": "tick over w1-6 with a small retrace"
+ },
+ {
+  "id": "door-indep-013",
+  "kind": "door",
+  "author": "indep-2",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 0,
+  "points": 15,
+  "durationMs": 150.5,
+  "note": "short tick across w0-7, 25 deg off normal"
+ },
+ {
+  "id": "door-indep-014",
+  "kind": "door",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 2,
+  "points": 15,
+  "durationMs": 59.5,
+  "note": "door tick drawn back and forth across w2-6"
+ },
+ {
+  "id": "door-indep-015",
+  "kind": "door",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 2,
+  "points": 18,
+  "durationMs": 188.7,
+  "note": "quarter-arc door with leaf, 1.07 m, beside w2-4"
+ },
+ {
+  "id": "door-indep-016",
+  "kind": "door",
+  "author": "indep-1",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 16,
+  "durationMs": 122,
+  "note": "quarter arc only (swing) for a 1.14 m door at w0-4"
+ },
+ {
+  "id": "door-indep-017",
+  "kind": "door",
+  "author": "indep-2",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 14,
+  "durationMs": 221.8,
+  "note": "door-width (0.71 m) slash through w0-1"
+ },
+ {
+  "id": "door-indep-018",
+  "kind": "door",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 2,
+  "points": 18,
+  "durationMs": 141.2,
+  "note": "tick over w2-7 with a small retrace"
+ },
+ {
+  "id": "door-indep-019",
+  "kind": "door",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 3,
+  "points": 14,
+  "durationMs": 90.5,
+  "note": "short tick across w3-7, 10 deg off normal"
+ },
+ {
+  "id": "door-indep-020",
+  "kind": "door",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 1,
+  "points": 19,
+  "durationMs": 126.5,
+  "note": "door tick drawn back and forth across w1-4"
+ },
+ {
+  "id": "door-indep-021",
+  "kind": "door",
+  "author": "indep-2",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 0,
+  "points": 23,
+  "durationMs": 247.7,
+  "note": "quarter-arc door with leaf, 0.92 m, beside w0-1"
+ },
+ {
+  "id": "door-indep-022",
+  "kind": "door",
+  "author": "indep-3",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 15,
+  "durationMs": 60.1,
+  "note": "quarter arc only (swing) for a 0.97 m door at w0-7"
+ },
+ {
+  "id": "door-indep-023",
+  "kind": "door",
+  "author": "indep-4",
+  "pdf": "office-1-sheet.pdf",
+  "sheet": 0,
+  "points": 14,
+  "durationMs": 146.7,
+  "note": "door-width (0.89 m) slash through w0-6"
+ },
+ {
+  "id": "door-indep-024",
+  "kind": "door",
+  "author": "indep-1",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 16,
+  "durationMs": 126.6,
+  "note": "tick over w0-7 with a small retrace"
+ },
+ {
+  "id": "door-indep-025",
+  "kind": "door",
+  "author": "indep-2",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 1,
+  "points": 15,
+  "durationMs": 153,
+  "note": "short tick across w1-7, -21 deg off normal"
+ },
+ {
+  "id": "door-indep-026",
+  "kind": "door",
+  "author": "indep-3",
+  "pdf": "office-1-sheet.pdf",
+  "sheet": 0,
+  "points": 20,
+  "durationMs": 81.5,
+  "note": "door tick drawn back and forth across w0-7"
+ },
+ {
+  "id": "door-indep-027",
+  "kind": "door",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 1,
+  "points": 15,
+  "durationMs": 231.5,
+  "note": "quarter-arc door with leaf, 1.12 m, beside w1-1"
+ },
+ {
+  "id": "door-indep-028",
+  "kind": "door",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 5,
+  "points": 15,
+  "durationMs": 117.7,
+  "note": "quarter arc only (swing) for a 1.17 m door at w5-6"
+ },
+ {
+  "id": "door-indep-029",
+  "kind": "door",
+  "author": "indep-2",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 5,
+  "points": 15,
+  "durationMs": 154.3,
+  "note": "door-width (0.97 m) slash through w5-6"
+ },
+ {
+  "id": "door-indep-030",
+  "kind": "door",
+  "author": "indep-3",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 16,
+  "durationMs": 63.6,
+  "note": "tick over w0-6 with a small retrace"
+ },
+ {
+  "id": "furniture-indep-001",
+  "kind": "furniture",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 3,
+  "points": 15,
+  "durationMs": 116.5,
+  "note": "chair as a rectangle with rounded corners"
+ },
+ {
+  "id": "furniture-indep-002",
+  "kind": "furniture",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 4,
+  "points": 19,
+  "durationMs": 203.4,
+  "note": "chair rectangle, corners overshoot and the stroke overlaps its start"
+ },
+ {
+  "id": "furniture-indep-003",
+  "kind": "furniture",
+  "author": "indep-1",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 21,
+  "durationMs": 168.9,
+  "note": "shelf as an open (unclosed) rectangle"
+ },
+ {
+  "id": "furniture-indep-004",
+  "kind": "furniture",
+  "author": "indep-2",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 5,
+  "points": 17,
+  "durationMs": 176.9,
+  "note": "oval table"
+ },
+ {
+  "id": "furniture-indep-005",
+  "kind": "furniture",
+  "author": "indep-3",
+  "pdf": "office-1-sheet.pdf",
+  "sheet": 0,
+  "points": 60,
+  "durationMs": 248.6,
+  "note": "L-shaped desk"
+ },
+ {
+  "id": "furniture-indep-006",
+  "kind": "furniture",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 3,
+  "points": 16,
+  "durationMs": 169.5,
+  "note": "small chair rectangle drawn twice over"
+ },
+ {
+  "id": "furniture-indep-007",
+  "kind": "furniture",
+  "author": "indep-1",
+  "pdf": "office-1-sheet.pdf",
+  "sheet": 0,
+  "points": 15,
+  "durationMs": 113.4,
+  "note": "chair as a rectangle with rounded corners"
+ },
+ {
+  "id": "furniture-indep-008",
+  "kind": "furniture",
+  "author": "indep-2",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 3,
+  "points": 24,
+  "durationMs": 374.2,
+  "note": "chair rectangle, corners overshoot and the stroke overlaps its start"
+ },
+ {
+  "id": "furniture-indep-009",
+  "kind": "furniture",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 0,
+  "points": 17,
+  "durationMs": 133.4,
+  "note": "cabinet as an open (unclosed) rectangle"
+ },
+ {
+  "id": "furniture-indep-010",
+  "kind": "furniture",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 5,
+  "points": 16,
+  "durationMs": 167,
+  "note": "oval table"
+ },
+ {
+  "id": "furniture-indep-011",
+  "kind": "furniture",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 4,
+  "points": 19,
+  "durationMs": 144.8,
+  "note": "L-shaped desk"
+ },
+ {
+  "id": "furniture-indep-012",
+  "kind": "furniture",
+  "author": "indep-2",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 0,
+  "points": 26,
+  "durationMs": 405.5,
+  "note": "small table rectangle drawn twice over"
+ },
+ {
+  "id": "furniture-indep-013",
+  "kind": "furniture",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 1,
+  "points": 16,
+  "durationMs": 61.9,
+  "note": "chair as a rectangle with rounded corners"
+ },
+ {
+  "id": "furniture-indep-014",
+  "kind": "furniture",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 1,
+  "points": 19,
+  "durationMs": 296.2,
+  "note": "chair rectangle, corners overshoot and the stroke overlaps its start"
+ },
+ {
+  "id": "furniture-indep-015",
+  "kind": "furniture",
+  "author": "indep-1",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 65,
+  "durationMs": 445,
+  "note": "desk as an open (unclosed) rectangle"
+ },
+ {
+  "id": "furniture-indep-016",
+  "kind": "furniture",
+  "author": "indep-2",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 1,
+  "points": 50,
+  "durationMs": 551.2,
+  "note": "oval table"
+ },
+ {
+  "id": "furniture-indep-017",
+  "kind": "furniture",
+  "author": "indep-3",
+  "pdf": "office-1-sheet.pdf",
+  "sheet": 0,
+  "points": 16,
+  "durationMs": 123.6,
+  "note": "L-shaped desk"
+ },
+ {
+  "id": "furniture-indep-018",
+  "kind": "furniture",
+  "author": "indep-4",
+  "pdf": "office-1-sheet.pdf",
+  "sheet": 0,
+  "points": 20,
+  "durationMs": 314.9,
+  "note": "small table rectangle drawn twice over"
+ },
+ {
+  "id": "furniture-indep-019",
+  "kind": "furniture",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 5,
+  "points": 15,
+  "durationMs": 122.4,
+  "note": "chair as a rectangle with rounded corners"
+ },
+ {
+  "id": "furniture-indep-020",
+  "kind": "furniture",
+  "author": "indep-2",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 35,
+  "durationMs": 366.4,
+  "note": "shelf rectangle, corners overshoot and the stroke overlaps its start"
+ },
+ {
+  "id": "furniture-indep-021",
+  "kind": "furniture",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 2,
+  "points": 18,
+  "durationMs": 70.9,
+  "note": "chair as an open (unclosed) rectangle"
+ },
+ {
+  "id": "furniture-indep-022",
+  "kind": "furniture",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 3,
+  "points": 23,
+  "durationMs": 156.1,
+  "note": "oval table"
+ },
+ {
+  "id": "furniture-indep-023",
+  "kind": "furniture",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 2,
+  "points": 45,
+  "durationMs": 303.5,
+  "note": "L-shaped desk"
+ },
+ {
+  "id": "furniture-indep-024",
+  "kind": "furniture",
+  "author": "indep-2",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 21,
+  "durationMs": 340.6,
+  "note": "small chair rectangle drawn twice over"
+ },
+ {
+  "id": "furniture-indep-025",
+  "kind": "furniture",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 1,
+  "points": 15,
+  "durationMs": 116.1,
+  "note": "chair as a rectangle with rounded corners"
+ },
+ {
+  "id": "furniture-indep-026",
+  "kind": "furniture",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 4,
+  "points": 31,
+  "durationMs": 209.4,
+  "note": "table rectangle, corners overshoot and the stroke overlaps its start"
+ },
+ {
+  "id": "furniture-indep-027",
+  "kind": "furniture",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 0,
+  "points": 25,
+  "durationMs": 165.6,
+  "note": "chair as an open (unclosed) rectangle"
+ },
+ {
+  "id": "furniture-indep-028",
+  "kind": "furniture",
+  "author": "indep-2",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 17,
+  "durationMs": 264.6,
+  "note": "round table, circle drawn in one go"
+ },
+ {
+  "id": "furniture-indep-029",
+  "kind": "furniture",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 4,
+  "points": 37,
+  "durationMs": 150.2,
+  "note": "L-shaped desk"
+ },
+ {
+  "id": "furniture-indep-030",
+  "kind": "furniture",
+  "author": "indep-4",
+  "pdf": "office-1-sheet.pdf",
+  "sheet": 0,
+  "points": 109,
+  "durationMs": 757.3,
+  "note": "small wc rectangle drawn twice over"
+ },
+ {
+  "id": "delete-indep-001",
+  "kind": "delete",
+  "author": "indep-4",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 30,
+  "durationMs": 497.1,
+  "note": "zigzag scribble over f0-1; target:f0-1"
+ },
+ {
+  "id": "delete-indep-002",
+  "kind": "delete",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 2,
+  "points": 182,
+  "durationMs": 1495,
+  "note": "looping scribble over f2-28; target:f2-28"
+ },
+ {
+  "id": "delete-indep-003",
+  "kind": "delete",
+  "author": "indep-2",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 44,
+  "durationMs": 726.7,
+  "note": "cross-hatching scribble over w0-0; target:w0-0"
+ },
+ {
+  "id": "delete-indep-004",
+  "kind": "delete",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 4,
+  "points": 71,
+  "durationMs": 580.4,
+  "note": "eraser rubbing back and forth over f4-39; target:f4-39"
+ },
+ {
+  "id": "delete-indep-005",
+  "kind": "delete",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 3,
+  "points": 17,
+  "durationMs": 169.8,
+  "note": "zigzag scribble over w3-0; target:w3-0"
+ },
+ {
+  "id": "delete-indep-006",
+  "kind": "delete",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 1,
+  "points": 109,
+  "durationMs": 743,
+  "note": "looping scribble over f1-15; target:f1-15"
+ },
+ {
+  "id": "delete-indep-007",
+  "kind": "delete",
+  "author": "indep-2",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 122,
+  "durationMs": 1349.5,
+  "note": "cross-hatching scribble over f0-40; target:f0-40"
+ },
+ {
+  "id": "delete-indep-008",
+  "kind": "delete",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 2,
+  "points": 29,
+  "durationMs": 228.4,
+  "note": "eraser rubbing back and forth over f2-40; target:f2-40"
+ },
+ {
+  "id": "delete-indep-009",
+  "kind": "delete",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 4,
+  "points": 21,
+  "durationMs": 331.3,
+  "note": "zigzag scribble over f4-20; target:f4-20"
+ },
+ {
+  "id": "delete-indep-010",
+  "kind": "delete",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 2,
+  "points": 46,
+  "durationMs": 314.7,
+  "note": "looping scribble over w2-2; target:w2-2"
+ },
+ {
+  "id": "delete-indep-011",
+  "kind": "delete",
+  "author": "indep-2",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 1,
+  "points": 22,
+  "durationMs": 352.1,
+  "note": "cross-hatching scribble over w1-14; target:w1-14"
+ },
+ {
+  "id": "delete-indep-012",
+  "kind": "delete",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 5,
+  "points": 79,
+  "durationMs": 649.6,
+  "note": "eraser rubbing back and forth over w5-7; target:w5-7"
+ },
+ {
+  "id": "delete-indep-013",
+  "kind": "delete",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 5,
+  "points": 19,
+  "durationMs": 203.2,
+  "note": "zigzag scribble over f5-11; target:f5-11"
+ },
+ {
+  "id": "delete-indep-014",
+  "kind": "delete",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 5,
+  "points": 27,
+  "durationMs": 220.2,
+  "note": "looping scribble over f5-5; target:f5-5"
+ },
+ {
+  "id": "delete-indep-015",
+  "kind": "delete",
+  "author": "indep-2",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 5,
+  "points": 81,
+  "durationMs": 891.9,
+  "note": "cross-hatching scribble over f5-32; target:f5-32"
+ },
+ {
+  "id": "delete-indep-016",
+  "kind": "delete",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 5,
+  "points": 108,
+  "durationMs": 449.4,
+  "note": "eraser rubbing back and forth over w5-10; target:w5-10"
+ },
+ {
+  "id": "delete-indep-017",
+  "kind": "delete",
+  "author": "indep-4",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 17,
+  "durationMs": 109.6,
+  "note": "zigzag scribble over w0-4; target:w0-4"
+ },
+ {
+  "id": "delete-indep-018",
+  "kind": "delete",
+  "author": "indep-1",
+  "pdf": "office-1-sheet.pdf",
+  "sheet": 0,
+  "points": 77,
+  "durationMs": 529.9,
+  "note": "looping scribble over w0-7; target:w0-7"
+ },
+ {
+  "id": "delete-indep-019",
+  "kind": "delete",
+  "author": "indep-2",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 38,
+  "durationMs": 614.3,
+  "note": "cross-hatching scribble over f0-26; target:f0-26"
+ },
+ {
+  "id": "delete-indep-020",
+  "kind": "delete",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 5,
+  "points": 17,
+  "durationMs": 133.1,
+  "note": "eraser rubbing back and forth over f5-5; target:f5-5"
+ },
+ {
+  "id": "delete-indep-021",
+  "kind": "delete",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 5,
+  "points": 19,
+  "durationMs": 295.1,
+  "note": "zigzag scribble over w5-0; target:w5-0"
+ },
+ {
+  "id": "delete-indep-022",
+  "kind": "delete",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 1,
+  "points": 130,
+  "durationMs": 900.2,
+  "note": "looping scribble over f1-17; target:f1-17"
+ },
+ {
+  "id": "delete-indep-023",
+  "kind": "delete",
+  "author": "indep-2",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 3,
+  "points": 40,
+  "durationMs": 659.2,
+  "note": "cross-hatching scribble over f3-13; target:f3-13"
+ },
+ {
+  "id": "delete-indep-024",
+  "kind": "delete",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 4,
+  "points": 40,
+  "durationMs": 164.8,
+  "note": "eraser rubbing back and forth over f4-4; target:f4-4"
+ },
+ {
+  "id": "delete-indep-025",
+  "kind": "delete",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 4,
+  "points": 18,
+  "durationMs": 290.2,
+  "note": "zigzag scribble over f4-2; target:f4-2"
+ },
+ {
+  "id": "delete-indep-026",
+  "kind": "delete",
+  "author": "indep-1",
+  "pdf": "office-1-sheet.pdf",
+  "sheet": 0,
+  "points": 137,
+  "durationMs": 937.6,
+  "note": "looping scribble over f0-19; target:f0-19"
+ },
+ {
+  "id": "delete-indep-027",
+  "kind": "delete",
+  "author": "indep-2",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 2,
+  "points": 32,
+  "durationMs": 515.2,
+  "note": "cross-hatching scribble over f2-14; target:f2-14"
+ },
+ {
+  "id": "delete-indep-028",
+  "kind": "delete",
+  "author": "indep-3",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 32,
+  "durationMs": 262.1,
+  "note": "eraser rubbing back and forth over f0-27; target:f0-27"
+ },
+ {
+  "id": "delete-indep-029",
+  "kind": "delete",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 2,
+  "points": 16,
+  "durationMs": 250.1,
+  "note": "zigzag scribble over w2-1; target:w2-1"
+ },
+ {
+  "id": "delete-indep-030",
+  "kind": "delete",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 1,
+  "points": 33,
+  "durationMs": 265.4,
+  "note": "looping scribble over f1-30; target:f1-30"
+ },
+ {
+  "id": "markup-indep-001",
+  "kind": "markup",
+  "author": "indep-1",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 84,
+  "durationMs": 683.5,
+  "note": "cursive handwritten word (~9 letters) near wall"
+ },
+ {
+  "id": "markup-indep-002",
+  "kind": "markup",
+  "author": "indep-2",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 17,
+  "durationMs": 270.1,
+  "note": "arrow with open head pointing at furn"
+ },
+ {
+  "id": "markup-indep-003",
+  "kind": "markup",
+  "author": "indep-3",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 27,
+  "durationMs": 215.7,
+  "note": "dimension-like line with end ticks parallel to w0-11"
+ },
+ {
+  "id": "markup-indep-004",
+  "kind": "markup",
+  "author": "indep-4",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 60,
+  "durationMs": 973.4,
+  "note": "revision cloud around label"
+ },
+ {
+  "id": "markup-indep-005",
+  "kind": "markup",
+  "author": "indep-1",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 83,
+  "durationMs": 688,
+  "note": "circling room label \"OPEN OFFICE 207\""
+ },
+ {
+  "id": "markup-indep-006",
+  "kind": "markup",
+  "author": "indep-2",
+  "pdf": "office-1-sheet.pdf",
+  "sheet": 0,
+  "points": 17,
+  "durationMs": 280.5,
+  "note": "check mark near furn"
+ },
+ {
+  "id": "markup-indep-007",
+  "kind": "markup",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 2,
+  "points": 14,
+  "durationMs": 55.4,
+  "note": "underline beneath \"MEETING 302\""
+ },
+ {
+  "id": "markup-indep-008",
+  "kind": "markup",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 5,
+  "points": 24,
+  "durationMs": 254.5,
+  "note": "question mark next to wall"
+ },
+ {
+  "id": "markup-indep-009",
+  "kind": "markup",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 1,
+  "points": 52,
+  "durationMs": 351.1,
+  "note": "cursive handwritten word (~4 letters) near furn"
+ },
+ {
+  "id": "markup-indep-010",
+  "kind": "markup",
+  "author": "indep-2",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 0,
+  "points": 15,
+  "durationMs": 229.9,
+  "note": "arrow with open head pointing at furn"
+ },
+ {
+  "id": "markup-indep-011",
+  "kind": "markup",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 5,
+  "points": 40,
+  "durationMs": 319.8,
+  "note": "dimension-like line with end ticks parallel to w5-0"
+ },
+ {
+  "id": "markup-indep-012",
+  "kind": "markup",
+  "author": "indep-4",
+  "pdf": "office-1-sheet.pdf",
+  "sheet": 0,
+  "points": 71,
+  "durationMs": 784.8,
+  "note": "revision cloud around furn"
+ },
+ {
+  "id": "markup-indep-013",
+  "kind": "markup",
+  "author": "indep-1",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 63,
+  "durationMs": 512.2,
+  "note": "circling room label \"CORRIDOR\""
+ },
+ {
+  "id": "markup-indep-014",
+  "kind": "markup",
+  "author": "indep-2",
+  "pdf": "office-1-sheet.pdf",
+  "sheet": 0,
+  "points": 17,
+  "durationMs": 264,
+  "note": "check mark near furn"
+ },
+ {
+  "id": "markup-indep-015",
+  "kind": "markup",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 0,
+  "points": 17,
+  "durationMs": 64.7,
+  "note": "underline beneath \"WC\""
+ },
+ {
+  "id": "markup-indep-016",
+  "kind": "markup",
+  "author": "indep-4",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 19,
+  "durationMs": 294.2,
+  "note": "question mark next to furn"
+ },
+ {
+  "id": "markup-indep-017",
+  "kind": "markup",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 1,
+  "points": 87,
+  "durationMs": 599.2,
+  "note": "cursive handwritten word (~7 letters) near label"
+ },
+ {
+  "id": "markup-indep-018",
+  "kind": "markup",
+  "author": "indep-2",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 5,
+  "points": 18,
+  "durationMs": 279.5,
+  "note": "arrow with open head pointing at wall"
+ },
+ {
+  "id": "markup-indep-019",
+  "kind": "markup",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 5,
+  "points": 27,
+  "durationMs": 110.2,
+  "note": "dimension-like line with end ticks parallel to w5-13"
+ },
+ {
+  "id": "markup-indep-020",
+  "kind": "markup",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 0,
+  "points": 203,
+  "durationMs": 3387.1,
+  "note": "revision cloud around furn"
+ },
+ {
+  "id": "markup-indep-021",
+  "kind": "markup",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 3,
+  "points": 42,
+  "durationMs": 279.9,
+  "note": "circling room label \"STAIR 4\""
+ },
+ {
+  "id": "markup-indep-022",
+  "kind": "markup",
+  "author": "indep-2",
+  "pdf": "office-1-sheet.pdf",
+  "sheet": 0,
+  "points": 17,
+  "durationMs": 273.2,
+  "note": "check mark near label"
+ },
+ {
+  "id": "markup-indep-023",
+  "kind": "markup",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 5,
+  "points": 15,
+  "durationMs": 58.2,
+  "note": "underline beneath \"CORRIDOR\""
+ },
+ {
+  "id": "markup-indep-024",
+  "kind": "markup",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 0,
+  "points": 18,
+  "durationMs": 191.4,
+  "note": "question mark next to furn"
+ },
+ {
+  "id": "markup-indep-025",
+  "kind": "markup",
+  "author": "indep-1",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 1,
+  "points": 22,
+  "durationMs": 147.2,
+  "note": "cursive handwritten word (~5 letters) near wall"
+ },
+ {
+  "id": "markup-indep-026",
+  "kind": "markup",
+  "author": "indep-2",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 3,
+  "points": 16,
+  "durationMs": 245,
+  "note": "arrow with open head pointing at furn"
+ },
+ {
+  "id": "markup-indep-027",
+  "kind": "markup",
+  "author": "indep-3",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 2,
+  "points": 61,
+  "durationMs": 247.9,
+  "note": "dimension-like line with end ticks parallel to w2-6"
+ },
+ {
+  "id": "markup-indep-028",
+  "kind": "markup",
+  "author": "indep-4",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 5,
+  "points": 73,
+  "durationMs": 1209,
+  "note": "revision cloud around furn"
+ },
+ {
+  "id": "markup-indep-029",
+  "kind": "markup",
+  "author": "indep-1",
+  "pdf": "scanned-1-sheet.pdf",
+  "sheet": 0,
+  "points": 44,
+  "durationMs": 297.7,
+  "note": "circling room label \"STAIR 2\""
+ },
+ {
+  "id": "markup-indep-030",
+  "kind": "markup",
+  "author": "indep-2",
+  "pdf": "office-6-sheets.pdf",
+  "sheet": 4,
+  "points": 17,
+  "durationMs": 181.9,
+  "note": "check mark near door"
+ }
+]
