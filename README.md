@@ -23,11 +23,18 @@ Wheel zooms about the cursor, drag pans, **Fit** fits the page, **1:1** is true 
 shows the element card; click pins it, Esc or a click on empty paper releases it. Items without an element (`el: null`)
 show no card.
 
+Real scenes: scenes come from an external extractor that writes the contract below ([`schema/scene.schema.json`](schema/scene.schema.json),
+JSON Schema draft 2020-12; `npm test` validates the fixture against it). Put them in `public/scenes/real/` (git-ignored: large, and
+derived from sample data under its own licence) and list them in `public/scenes/index.json`; a listed file that is missing shows an
+error in the status bar. Example: `<extractor> sheets <model> --format json --out public/scenes/real`.
+
 Test scenes: `npm run gen:fixture` rewrites `public/scenes/fixture.json`. `npm run gen:synthetic` writes a 300,000-segment
 scene to `public/scenes/synthetic-300k.json` (git-ignored; `-- --segs N --out file` to change); open it with
 `?scene=/scenes/synthetic-300k.json`. The status bar shows load time, and `window.__brush` holds draw and hover timings.
 
 ## Scene contract (format 1)
+
+Machine-readable: [`schema/scene.schema.json`](schema/scene.schema.json).
 
 Coordinates are paper feet, x right, y up. The page is the white rectangle `min`..`max`. Items are in draw order.
 
@@ -54,6 +61,8 @@ Coordinates are paper feet, x right, y up. The page is the white rectangle `min`
 - `segs` is a flat array of independent segments. `fill` is even-odd over all rings.
 - `text.at` is the point of the text box named by `anchor` (horizontal `l|c|r`, then vertical `t|m|b`). `size` is the
   capital height, `dir` the unit baseline direction, `maxWidth` wraps at word breaks, `\n` breaks lines. Arial or sans-serif.
+- An element may carry `tagged: <id>`, a reference to another element (a label or tag). Hovering it shows the referenced element's
+  card, titled `<class> → <name>`, and highlights the items of both. `category` may be null: the card shows `class`.
 - `sheet` may be `null` for a single view, with an optional `viewInfo: {id, name, scale}`. `el` and `view` may be null.
 - Unknown item types are skipped. A scene that breaks the contract (wrong `format`, odd-length `segs`, non-numbers) is
   rejected with a message naming the item.
