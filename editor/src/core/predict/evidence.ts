@@ -5,6 +5,7 @@ import {
   bbox,
   dist,
   inflateRect,
+  minAreaRect,
   polygonContains,
   rectsIntersect,
   resampleByCount,
@@ -41,6 +42,16 @@ export interface Crossing {
   u: number
 }
 
+/** Where a door-sized stroke meets a wall: through it, through a gap/opening in it, or touching it. */
+export interface DoorHost {
+  itemId: string
+  point: Point
+  /** Angle between the stroke's major axis and the wall, 0..pi/2. */
+  incidence: number
+  /** 0 when the stroke's span crosses the wall itself; > 0 (pt) when it crosses the wall's line in a gap beyond its end. */
+  gapPt: number
+}
+
 /** Everything the rules look at for one snapshot of a stroke. */
 export interface Evidence {
   stroke: Stroke
@@ -48,8 +59,38 @@ export interface Evidence {
   fit: Partial<Record<PrimitiveKind, PrimitiveFit>>
   best?: PrimitiveFit
   samples: Point[]
+  /**
+   * Hairpin turns (> 120 degrees) between consecutive segments of the polyline fit:
+   * the zig-zags of a scribble show up here from the first reversal on, while
+   * rectangle and L-wall corners (~90 degrees) do not.
+   */
+  hairpins: number
   /** chord / length, 1 = perfectly straight. */
   straightness: number
+  /** Oriented (minimum-area) box of the ink: major side, minor side (pt) and centre. */
+  spanPt: number
+  thinPt: number
+  obbCenter: Point
+  obbAngle: number
+  /** minor / major side of the oriented box: ~0 for a line (even retraced), ~1 for a square or circle. */
+  aspect: number
+  /** Ink length / (box w + h): ~2 for a single outline, high for scribbles and loops. */
+  inkDensity: number
+  /** Self-intersections per metre of ink (looping scribbles). */
+  loopsPerM: number
+  /** Shortest segment of the polyline fit except the last one (pt), and how many short perpendicular end ticks it has (dimension line). */
+  minSegPt: number
+  endTicks: number
+  /**
+   * 0..1, how much the ink sits on a ring around its centre (small spread of the distance to
+   * the centre): high for circles and revision clouds that enclose something, low for
+   * scribbles that cover an area.
+   */
+  ringness: number
+  /** Door-sized stroke's span crossing a wall line (through the wall, or through a gap / opening in it). */
+  doorCross?: DoorHost
+  /** Wall touched by an endpoint or a corner of the ink's box (door swing hinge). */
+  touchWall?: DoorHost
   ptPerM: number
   scaleKnown: boolean
   lengthM: number
@@ -93,7 +134,96 @@ function rectOverlapFrac(a: Rect, b: Rect): number {
   return ((x1 - x0) * (y1 - y0)) / area
 }
 
+const HAIRPIN = (120 * Math.PI) / 180
+
+function countHairpins(v: readonly Point[]): number {
+  let n = 0
+  for (let i = 1; i + 1 < v.length; i++) {
+    const a = angle(sub(v[i], v[i - 1]))
+    const b = angle(sub(v[i + 1], v[i]))
+    let d = Math.abs(a - b) % (2 * Math.PI)
+    if (d > Math.PI) d = 2 * Math.PI - d
+    if (d > HAIRPIN) n++
+  }
+  return n
+}
+
 const center = (r: Rect): Point => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 })
+
+/** Shortest segment and perpendicular end ticks of a polyline fit. */
+function segmentStats(v: readonly Point[]): { minSeg: number; endTicks: number } {
+  if (v.length < 2) return { minSeg: 0, endTicks: 0 }
+  const segs: number[] = []
+  for (let i = 1; i < v.length; i++) segs.push(dist(v[i - 1], v[i]))
+  const total = segs.reduce((a, b) => a + b, 0)
+  let ticks = 0
+  if (v.length >= 3) {
+    const turn = (a: Point, b: Point, c: Point) => angleDiffMod(angle(sub(b, a)), angle(sub(c, b)))
+    // a short first/last segment (< 15% of the ink) at roughly right angles to its neighbour
+    if (segs[0] < 0.15 * total && turn(v[0], v[1], v[2]) > (55 * Math.PI) / 180) ticks++
+    const n = v.length - 1
+    if (segs[n - 1] < 0.15 * total && turn(v[n - 2], v[n - 1], v[n]) > (55 * Math.PI) / 180) ticks++
+  }
+  // the last segment is still being drawn, so it does not count as "short"
+  return { minSeg: Math.min(...(segs.length >= 2 ? segs.slice(0, -1) : segs)), endTicks: ticks }
+}
+
+const GAP_M = 1.3
+
+/**
+ * The door-sized stroke's major axis against wall centrelines: a crossing through the wall,
+ * or through the wall's line within GAP_M beyond one of its ends (an opening between wall
+ * pieces), or through an `opening` item. Prefers real crossings, then steeper incidence.
+ */
+function findDoorHost(ev: Evidence, pc: PreparedContext): { cross?: DoorHost; touch?: DoorHost } {
+  const c = ev.obbCenter
+  const dir = { x: Math.cos(ev.obbAngle), y: Math.sin(ev.obbAngle) }
+  const half = ev.spanPt / 2
+  const a = { x: c.x - dir.x * half * 1.1, y: c.y - dir.y * half * 1.1 }
+  const b = { x: c.x + dir.x * half * 1.1, y: c.y + dir.y * half * 1.1 }
+  const gap = GAP_M * ev.ptPerM
+  const radius = half + gap + 10
+  let cross: DoorHost | undefined
+  let touch: DoorHost | undefined
+  const better = (x: DoorHost, y?: DoorHost) => !y || x.gapPt < y.gapPt - 1e-9 || (Math.abs(x.gapPt - y.gapPt) <= 1e-9 && x.incidence > y.incidence)
+  const pts = ev.stroke.points
+  const probes: Point[] = pts.length ? [pts[0], pts[pts.length - 1]] : []
+  for (const h of pc.all.itemsNear(c, radius, (i) => i.kind === 'wall' || i.kind === 'opening')) {
+    const it = h.item
+    const gp = it.geometry.points
+    const thick = Number(it.props?.thicknessPt ?? 0) || 4
+    for (let k = 0; k + 1 < gp.length; k++) {
+      const p0 = gp[k]
+      const p1 = gp[k + 1]
+      const L = dist(p0, p1)
+      if (L < 1e-6) continue
+      const u = { x: (p1.x - p0.x) / L, y: (p1.y - p0.y) / L }
+      const ext = it.kind === 'opening' ? 0.2 * ev.ptPerM : gap
+      const q0 = { x: p0.x - u.x * ext, y: p0.y - u.y * ext }
+      const q1 = { x: p1.x + u.x * ext, y: p1.y + u.y * ext }
+      const wallAngle = angle(u)
+      const x = segmentIntersection(a, b, q0, q1)
+      if (x && x.t > 0.12 && x.t < 0.88) {
+        const along = x.u * (L + 2 * ext) - ext // position along the real segment
+        const gapPt = it.kind === 'opening' ? 0 : along < 0 ? -along : along > L ? along - L : 0
+        const cand: DoorHost = { itemId: it.id, point: x.point, incidence: angleDiffMod(ev.obbAngle, wallAngle), gapPt }
+        if (better(cand, cross)) cross = cand
+      }
+      // touching: an endpoint of the ink on the wall's line (within its thickness), inside the extended segment
+      for (const p of probes) {
+        const w = { x: p.x - q0.x, y: p.y - q0.y }
+        const along = w.x * u.x + w.y * u.y
+        const off = Math.abs(w.x * -u.y + w.y * u.x)
+        if (along < 0 || along > L + 2 * ext || off > thick / 2 + 6) continue
+        const real = along - ext
+        const gapPt = it.kind === 'opening' ? 0 : real < 0 ? -real : real > L ? real - L : 0
+        const cand: DoorHost = { itemId: it.id, point: p, incidence: angleDiffMod(ev.obbAngle, wallAngle), gapPt }
+        if (better(cand, touch)) touch = cand
+      }
+    }
+  }
+  return { cross, touch }
+}
 
 /** Compute features and context relations for the current stroke snapshot. */
 export function gatherEvidence(stroke: Stroke, ctx: SheetContext, opts: { snapRadiusPt?: number } = {}): Evidence {
@@ -116,6 +246,17 @@ export function gatherEvidence(stroke: Stroke, ctx: SheetContext, opts: { snapRa
     best: f.fits[0],
     samples,
     straightness,
+    hairpins: countHairpins(fit.polyline?.path.points ?? []),
+    spanPt: 0,
+    thinPt: 0,
+    obbCenter: first,
+    obbAngle: 0,
+    aspect: 0,
+    inkDensity: 0,
+    loopsPerM: 0,
+    minSegPt: 0,
+    endTicks: 0,
+    ringness: 0,
     ptPerM,
     scaleKnown,
     lengthM: f.lengthPt / ptPerM,
@@ -135,7 +276,50 @@ export function gatherEvidence(stroke: Stroke, ctx: SheetContext, opts: { snapRa
     fixturesOver: [],
     wallsOver: [],
   }
+  if (pts.length >= 3) {
+    const r = minAreaRect(pts)
+    if (r) {
+      const major = Math.max(r.w, r.h)
+      const minor = Math.min(r.w, r.h)
+      ev.spanPt = major
+      ev.thinPt = minor
+      ev.aspect = major > 1e-9 ? minor / major : 0
+      ev.obbCenter = { x: (r.corners[0].x + r.corners[2].x) / 2, y: (r.corners[0].y + r.corners[2].y) / 2 }
+      ev.obbAngle = r.w >= r.h ? r.angle : r.angle + Math.PI / 2
+    }
+  } else if (pts.length === 2) {
+    ev.spanPt = dist(pts[0], pts[1])
+    ev.obbCenter = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 }
+    ev.obbAngle = angle(sub(pts[1], pts[0]))
+  }
+  ev.inkDensity = f.bbox.w + f.bbox.h > 1e-9 ? f.lengthPt / (f.bbox.w + f.bbox.h) : 0
+  ev.loopsPerM = ev.lengthM > 1e-9 ? f.selfIntersections / ev.lengthM : 0
+  const st = segmentStats(fit.polyline?.path.points ?? [])
+  ev.minSegPt = st.minSeg
+  ev.endTicks = st.endTicks
+  if (samples.length >= 8 && ev.aspect >= 0.3) {
+    const c0 = ev.obbCenter
+    // distances normalised per axis so an oval counts as a ring too
+    const ux = { x: Math.cos(ev.obbAngle), y: Math.sin(ev.obbAngle) }
+    const a = Math.max(ev.spanPt / 2, 1e-6)
+    const b = Math.max(ev.thinPt / 2, 1e-6)
+    const ds = samples.map((p) => {
+      const dx = p.x - c0.x
+      const dy = p.y - c0.y
+      const u = (dx * ux.x + dy * ux.y) / a
+      const v = (-dx * ux.y + dy * ux.x) / b
+      return Math.hypot(u, v)
+    })
+    const mean = ds.reduce((x, y) => x + y, 0) / ds.length
+    const sd = Math.sqrt(ds.reduce((x, y) => x + (y - mean) * (y - mean), 0) / ds.length)
+    ev.ringness = mean > 1e-9 ? 1 - Math.max(0, Math.min(1, (sd / mean - 0.12) / 0.15)) : 0
+  }
+
   if (pc.shapeOnly || pts.length === 0) return ev
+
+  const dh = findDoorHost(ev, pc)
+  ev.doorCross = dh.cross
+  ev.touchWall = dh.touch
 
   // along walls / grids
   const counts = new Map<string, number>()

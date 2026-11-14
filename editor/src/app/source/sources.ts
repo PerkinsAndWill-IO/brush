@@ -102,7 +102,8 @@ export class PackageDrawingSource implements DrawingSource {
     const r = this.pdfRef
     if (!r) return null
     if (r.bytes) return r.bytes
-    if (r.href) return this.opts.resolveHref ? this.opts.resolveHref(r.href) : r.href
+    // A package from a File/bytes has no base: never follow its href (it could point anywhere).
+    if (r.href && this.opts.resolveHref && isSafeRelativeHref(r.href)) return this.opts.resolveHref(r.href)
     return null
   }
 
@@ -130,6 +131,12 @@ export class PackageDrawingSource implements DrawingSource {
   }
 }
 
+/** Only plain relative paths: no scheme, no absolute path, no `..` segments, no backslashes. */
+export function isSafeRelativeHref(href: string): boolean {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('/') || href.includes('\\')) return false
+  return !href.split(/[/?#]/).some((seg) => seg === '..')
+}
+
 export type SourceInput = string | File | { name: string; bytes: ArrayBuffer | Uint8Array }
 
 /**
@@ -146,7 +153,16 @@ export async function openSource(input: SourceInput, opts: PackageDrawingSourceO
     if (!res.ok) throw new SourceError(`could not fetch ${input}: ${res.status}`)
     bytes = new Uint8Array(await res.arrayBuffer())
     const base = input.slice(0, input.split(/[?#]/)[0].lastIndexOf('/') + 1)
-    opts = { resolveHref: (h) => new URL(h, new URL(base, globalThis.location?.href ?? 'http://localhost/')).href, ...opts }
+    const baseUrl = new URL(base, globalThis.location?.href ?? 'http://localhost/')
+    opts = {
+      resolveHref: (h) => {
+        const u = new URL(h, baseUrl)
+        // Must stay on the package's origin and under its directory.
+        if (u.origin !== baseUrl.origin || !u.pathname.startsWith(baseUrl.pathname)) throw new SourceError(`package PDF href escapes the package folder: ${h}`)
+        return u.href
+      },
+      ...opts,
+    }
   } else if (typeof File !== 'undefined' && input instanceof File) {
     name = input.name
     bytes = new Uint8Array(await input.arrayBuffer())

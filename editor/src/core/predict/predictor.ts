@@ -11,7 +11,7 @@ import {
 } from '../types'
 import { DEFAULT_PALETTE, type TypePalette } from '../context'
 import { gatherEvidence, type Evidence } from './evidence'
-import { KINDS_FOR_COARSE, coarseOf, scoreKinds, type Coarse } from './score'
+import { KINDS_FOR_COARSE, RULES, coarseOf, scoreKinds, type Coarse } from './score'
 import { initialStability, stabilityStep, type StabilityState } from './stability'
 import { shapeFor } from './shape'
 import { defaultSequencePrior, type SequencePrior } from './history'
@@ -69,6 +69,8 @@ export class StreamingPredictor implements Predictor {
   private last?: RunTrace
   private frozen?: { hypothesis: Hypothesis; decision: AcceptedDecision }
   private trace: RunTrace[] = []
+  private finalDone = false
+  private smoothed?: Record<DecisionKind, number>
 
   constructor(opts: PredictorOptions = {}) {
     this.opts = opts
@@ -85,6 +87,8 @@ export class StreamingPredictor implements Predictor {
     this.last = undefined
     this.frozen = undefined
     this.trace = []
+    this.finalDone = false
+    this.smoothed = undefined
   }
 
   /** Hypotheses produced so far for this stroke, in order (one per run). */
@@ -114,11 +118,16 @@ export class StreamingPredictor implements Predictor {
     return this.run(stroke, ctx, settings)
   }
 
+  /**
+   * Final run on the finished stroke (pen up / pause). The stroke can no longer change,
+   * so this run is its own confirmation: a challenger leading by switchMargin takes over
+   * here without waiting for a second run (rule 4 guards against flicker while drawing).
+   */
   flush(stroke: Stroke, ctx: SheetContext, settings: BrushSettings): Hypothesis {
     if (this.frozen) return this.frozen.hypothesis
     if (stroke.points.length === 0) return this.last?.hypothesis ?? emptyHypothesis()
-    if (this.last && stroke.points.length === this.lastN) return this.last.hypothesis
-    return this.run(stroke, ctx, settings)
+    if (this.last && this.finalDone && stroke.points.length === this.lastN) return this.last.hypothesis
+    return this.run(stroke, ctx, settings, true)
   }
 
   commit(stroke: Stroke, ctx: SheetContext, settings: BrushSettings, committedAt: number): AcceptedDecision {
@@ -138,7 +147,8 @@ export class StreamingPredictor implements Predictor {
     return decision
   }
 
-  private run(stroke: Stroke, ctx: SheetContext, settings: BrushSettings): Hypothesis {
+  private run(stroke: Stroke, ctx: SheetContext, settings: BrushSettings, final = false): Hypothesis {
+    this.finalDone = final
     const n = stroke.points.length
     const t = stroke.points[n - 1].t
     this.lastRunT = t
@@ -154,11 +164,19 @@ export class StreamingPredictor implements Predictor {
     const prior = (this.opts.sequencePrior ?? defaultSequencePrior)(this.opts.history ?? [])
     const allowed = new Set<DecisionKind>(settings.allowedKinds?.length ? [...settings.allowedKinds, 'markup'] : DECISION_KINDS)
     const compatible = new Set<DecisionKind>(KINDS_FOR_COARSE[coarse])
+    // Raw scores are smoothed over runs while drawing (half old, half new) so a transient dip
+    // in one fit does not flicker the reading; the final run on the finished stroke uses them as is.
+    const fresh = emptyProbs()
+    for (const k of DECISION_KINDS) fresh[k] = Math.max(0, rr.scores[k] * (prior[k] ?? 1))
+    const prev = this.smoothed
+    const smooth = emptyProbs()
+    for (const k of DECISION_KINDS) smooth[k] = prev && !final ? RULES.smoothing * prev[k] + (1 - RULES.smoothing) * fresh[k] : fresh[k]
+    this.smoothed = smooth
     const raw = emptyProbs()
     let sum = 0
     for (const k of DECISION_KINDS) {
       const ok = k === 'markup' || (allowed.has(k) && compatible.has(k))
-      raw[k] = ok ? Math.max(0, rr.scores[k] * (prior[k] ?? 1)) : 0
+      raw[k] = ok ? smooth[k] : 0
       sum += raw[k]
     }
     const probs = emptyProbs()
@@ -178,7 +196,7 @@ export class StreamingPredictor implements Predictor {
       const L = this.stab.leader
       if (L !== undefined && L !== 'markup' && (!compatible.has(L) || !allowed.has(L) || probs[L] < settings.chipLow)) forced = top
     }
-    const step = stabilityStep(this.stab, probs, top, settings.switchMargin, settings.switchRuns, forced)
+    const step = stabilityStep(this.stab, probs, top, settings.switchMargin, final ? 1 : settings.switchRuns, forced)
     const prevLeader = this.stab.leader
     this.stab = step.state
     const kind = step.leader

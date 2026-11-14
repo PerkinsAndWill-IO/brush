@@ -171,6 +171,21 @@ describe('M3-05 stability', () => {
     expect(st.leader).toBe('door')
   })
 
+  it('M3-05: the final run on the finished stroke switches on a single lead of switchMargin, never less', () => {
+    // furniture becomes readable only when the outline closes, i.e. at pen up
+    const stroke = furnitureStroke()
+    const p = new StreamingPredictor()
+    const acc = { ...stroke, points: [] as typeof stroke.points }
+    for (const pt of stroke.points) {
+      acc.points.push(pt)
+      p.update({ ...acc, points: acc.points.slice() }, ctx, S)
+    }
+    const final = p.flush(stroke, ctx, S)
+    expect(final.kind).toBe('furniture')
+    // a second flush on the same points is a no-op
+    expect(p.flush(stroke, ctx, S)).toBe(final)
+  })
+
   it('M3-05: an interrupted challenger starts counting again', () => {
     let st = stabilityStep(initialStability(), probs({ wall: 0.7 }), 'wall', 0.15, 2).state
     st = stabilityStep(st, probs({ wall: 0.3, door: 0.6 }), 'door', 0.15, 2).state
@@ -184,11 +199,18 @@ describe('M3-05 stability', () => {
   it('M3-05: in replayed strokes the leading kind never changes without a challenger run first (except forced switches)', () => {
     for (const { rec, ctx: c } of trainRecordings(30)) {
       const hs = replayRecording(rec, c, S)
-      for (let i = 2; i < hs.length; i++) {
+      // the last run is the flush on the finished stroke, which confirms on its own (see next test)
+      for (let i = 2; i < hs.length - 1; i++) {
         const switched = hs[i].kind !== hs[i - 1].kind
-        // a switch to a non-markup kind needs the previous run to have shown it as a pending challenger
+        // a switch needs the previous run to have shown it as a pending challenger
         if (switched && !hs[i].evidence?.some((e) => e.startsWith('forced switch')))
           expect(hs[i - 1].evidence?.join(' ')).toContain(`${hs[i].kind} challenging`)
+      }
+      const last = hs[hs.length - 1]
+      const prev = hs[hs.length - 2]
+      if (prev && last.kind !== prev.kind && !last.evidence?.some((e) => e.startsWith('forced switch'))) {
+        const prevConf = last.alternatives.find((a) => a.kind === prev.kind)?.confidence ?? 0
+        expect(last.confidence - prevConf).toBeGreaterThanOrEqual(S.switchMargin - 1e-9)
       }
     }
   })
