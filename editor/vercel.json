@@ -4,9 +4,15 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm build",
   "outputDirectory": "dist",
-  "git": { "deploymentEnabled": false },
   "rewrites": [
-    { "source": "/api/ai-gateway/v1/messages", "destination": "/api/ai-gateway" },
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
-  ]
+    {
+      "source": "/api/ai-gateway/v1/messages",
+      "destination": "/api/ai-gateway"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ],
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- ."
 }

@@ -21,4 +21,4 @@ Keep Tauri as the primary target (spec "Architecture and stack"). Rejected for t
 
 - The sidecar `<name>.brush.json` cannot be written silently next to the PDF. The browser keeps autosaving to browser storage; in Chromium, the File System Access API can save next to the file after one permission prompt.
 - `api/ai-gateway.ts` proxies only POST Messages for an allow-list of Haiku models with a max_tokens cap, using Vercel OIDC or a project env var. Previews keep Deployment Protection on.
-- `vercel.json` disables Git auto-deploys; deploy deliberately with the Vercel CLI.
+- Vercel project `perkinswill/brush-editor` (root directory `editor`) builds previews from Git; `ignoreCommand` skips commits that do not touch `editor/`.
