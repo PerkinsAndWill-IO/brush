@@ -86,6 +86,47 @@ describe('M5-08 .drawing zstd reader (schema/schema/drawing-format.md)', () => {
     near(p.boxes!['7'], [432, 0, 864, 432])
   })
 
+  it('decodes viewType and views, with the box in sheet points', () => {
+    const page = onePage(
+      { items: [], views: { '9': { type: 'section', name: 'Sec A', scale: '1 : 50', box: [15240, 30480, 30480, 15240] }, '10': { type: 'hologram', name: 'X', scale: null } } },
+      undefined,
+      { kind: 'view', viewType: 'axon' },
+    )
+    const p = parseDrawingPayload(buildZstd([page], {})).pages[0]
+    expect(p.viewType).toBe('axon')
+    expect(Object.keys(p.views!)).toEqual(['9', '10'])
+    expect(p.views!['9'].type).toBe('section')
+    expect(p.views!['9'].name).toBe('Sec A')
+    expect(p.views!['9'].scale).toBe('1 : 50')
+    near(p.views!['9'].box!, [432, 0, 864, 432])
+    expect(p.views!['10']).toEqual({ type: 'other', name: 'X', scale: null }) // unknown type reads as other, no box
+  })
+
+  it('an unknown page viewType reads as other', () => {
+    const doc = parseDrawingPayload(buildZstd([onePage({ items: [] }, undefined, { viewType: 'hologram' })], {}))
+    expect(doc.pages[0].viewType).toBe('other')
+  })
+
+  it('a file without viewType and views still decodes', () => {
+    const p = parseDrawingPayload(buildZstd([onePage({ items: [] })], {})).pages[0]
+    expect(p.viewType).toBeUndefined()
+    expect(p.views).toBeUndefined()
+  })
+
+  it('rejects bad views, naming the page', () => {
+    const msg = (json: unknown, over: Record<string, unknown> = {}) => {
+      try {
+        parseDrawingPayload(buildZstd([onePage(json, undefined, over)], {}))
+      } catch (e) {
+        return (e as Error).message
+      }
+    }
+    expect(msg({ items: [], views: { '9': { type: 'plan', name: 'a', scale: null, box: [1, 2, 3] } } })).toMatch(/^pages\[0\]\.views\["9"\]\.box: expected four integers/)
+    expect(msg({ items: [], views: [] })).toMatch(/^pages\[0\]\.views: expected an object/)
+    expect(msg({ items: [], views: { '9': { type: 5, name: 'a', scale: null } } })).toMatch(/^pages\[0\]\.views\["9"\]\.type: expected a string/)
+    expect(msg({ items: [] }, { viewType: 5 })).toMatch(/^pages\[0\]\.viewType: expected a string/)
+  })
+
   it('reads sheets first, the first sheet first, and keeps header order within a kind', () => {
     const view = onePage({ items: [] }, undefined, { id: 1, kind: 'view', name: '{3D}', number: null })
     const doc = parseDrawingPayload(buildZstd([view, onePage({ items: [] }, undefined, { id: 2 }), onePage({ items: [] }, undefined, { id: 3, kind: 'view' }), onePage({ items: [] }, undefined, { id: 4 })], {}))
