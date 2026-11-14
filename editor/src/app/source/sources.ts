@@ -7,11 +7,13 @@ import {
   DEFAULT_PALETTE,
   contextFromDrawing,
   contextFromPackage,
+  furnitureSymbolsFromDrawing,
   paletteFromDrawing,
   paletteFromPackage,
   sheetsFromDrawing,
   sheetsFromPackage,
   type DrawingManifest,
+  type FurnitureSymbol,
   type TypePalette,
 } from '@core/context'
 import { DrawingFormatError, type DrawingDocument } from '@core/drawing'
@@ -73,6 +75,8 @@ export interface DrawingSource {
   load(): Promise<LoadedSource>
   /** Context of one sheet (cached). Package: origin 'package', confidence 1, hostRef set. PDF: inferred. */
   contextFor(sheetId: string): Promise<SheetContext>
+  /** How each furniture type is drawn on plan (by type name), when the source knows. Built lazily, then cached. */
+  furnitureSymbols?(): ReadonlyMap<string, FurnitureSymbol>
   close(): Promise<void>
 }
 
@@ -218,6 +222,12 @@ export class DrawingFileSource implements DrawingSource {
 
   async contextFor(sheetId: string): Promise<SheetContext> {
     return contextFromDrawing(this.doc, sheetId)
+  }
+
+  private symbols?: Map<string, FurnitureSymbol>
+  furnitureSymbols(): ReadonlyMap<string, FurnitureSymbol> {
+    this.symbols ??= furnitureSymbolsFromDrawing(this.doc)
+    return this.symbols
   }
 
   async close(): Promise<void> {}
