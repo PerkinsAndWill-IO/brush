@@ -33,15 +33,27 @@ export async function POST(request: Request): Promise<Response> {
   const raw = await request.text()
   if (raw.length > MAX_BODY_BYTES) return json(413, 'request too large')
 
-  let body: { model?: unknown; max_tokens?: unknown; stream?: unknown }
+  // Defense in depth: only the app's own pages may call this (browsers always send these on
+  // cross-origin requests). Real access control is Vercel Deployment Protection on the deployment.
+  const site = request.headers.get('sec-fetch-site')
+  const origin = request.headers.get('origin')
+  const self = new URL(request.url).origin
+  if ((site && site !== 'same-origin') || (origin && origin !== self)) return json(403, 'cross-origin requests are not allowed')
+
+  let body: Record<string, unknown>
   try {
-    body = JSON.parse(raw) as typeof body
+    body = JSON.parse(raw) as Record<string, unknown>
   } catch {
     return json(400, 'invalid JSON')
   }
   if (typeof body.model !== 'string' || !ALLOWED_MODELS.has(body.model)) return json(400, 'model not allowed')
   if (typeof body.max_tokens !== 'number' || body.max_tokens > MAX_TOKENS) return json(400, `max_tokens must be <= ${MAX_TOKENS}`)
-  if (body.stream) return json(400, 'streaming is not supported by this proxy')
+  if (!Array.isArray(body.messages)) return json(400, 'messages required')
+
+  // Forward only the fields the second pass uses (no streaming, no extra options).
+  const forwarded: Record<string, unknown> = {}
+  for (const k of ['model', 'max_tokens', 'system', 'messages', 'tools', 'tool_choice', 'temperature'] as const)
+    if (body[k] !== undefined) forwarded[k] = body[k]
 
   const upstream = await fetch(GATEWAY, {
     method: 'POST',
@@ -50,7 +62,7 @@ export async function POST(request: Request): Promise<Response> {
       'anthropic-version': request.headers.get('anthropic-version') ?? '2023-06-01',
       authorization: `Bearer ${token}`,
     },
-    body: raw,
+    body: JSON.stringify(forwarded),
   })
   return new Response(upstream.body, {
     status: upstream.status,
