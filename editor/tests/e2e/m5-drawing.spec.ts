@@ -68,3 +68,23 @@ test('M5-08: the start page offers the schema sample drawings and opens one', as
   expect(sheets.map((s) => s.number ?? s.name)).toEqual(['A102', 'A103', '{3D}'])
   await page.screenshot({ path: screenPath('m5-sample-picker-house') })
 })
+
+test('M5-08: a file opened while a sample downloads is not replaced by the late sample', async ({ page }) => {
+  let release!: () => void
+  const held = new Promise<void>((r) => (release = r))
+  await page.route('**/samples/house.drawing', async (route) => {
+    await held
+    await route.continue()
+  })
+  await openApp(page)
+  await page.getByTestId('sample-picker').selectOption('house.drawing')
+  await page.evaluate(() => window.__brush!.loadPdf('/fixtures/pdfs/office-1-sheet.pdf'))
+  const sampleDone = page.waitForResponse('**/samples/house.drawing')
+  release()
+  await sampleDone
+  await page.waitForTimeout(500)
+  const sheets = await page.evaluate(() => window.__brush!.sheets())
+  expect(sheets.map((s) => s.number ?? s.name)).not.toContain('A102')
+  expect(sheets.length).toBe(1)
+  await page.screenshot({ path: screenPath('m5-sample-late-download') })
+})

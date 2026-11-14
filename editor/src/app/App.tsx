@@ -11,7 +11,7 @@ import { MeasureOverlay } from './board/viewAidLayers'
 import { useView } from './view'
 import { getPlatform } from './platform'
 import { fileToOpened } from './platform/browser'
-import { openFile, useDocState } from './store'
+import { getDocState, openFile, useDocState } from './store'
 import { EmptyIllustration } from './ui/icons'
 import { chooseFile, LeftSidebar, RightSidebar, ToolCapsule, TopBar } from './ui/Chrome'
 
@@ -42,14 +42,18 @@ function SamplePicker({ disabled }: { disabled: boolean }) {
     if (!sample) return
     setFetching(sample.name)
     setFetchError(undefined)
+    // a file opened while the sample downloads (picker, Ctrl O, drop) bumps loadId; it wins over the late sample
+    const loadIdAtStart = getDocState().loadId
     try {
       const res = await fetch(sample.url)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const bytes = await res.arrayBuffer()
       setFetching(undefined)
+      if (getDocState().loadId !== loadIdAtStart) return
       await openFile({ name: sample.name, size: bytes.byteLength, bytes })
     } catch (e) {
       setFetching(undefined)
+      if (getDocState().loadId !== loadIdAtStart) return
       setFetchError(`Could not download the sample “${sample.name}”. (${(e as Error).message})`)
     }
   }
