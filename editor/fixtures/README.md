@@ -20,7 +20,7 @@ Both generators have zero dependencies and resolve paths relative to their own l
   Double walls: two parallel lines 7 pt apart (thicknessPt 7); thick walls: one stroke, line width 2.5.
 
 ## packages/
-`node scripts/fixtures/gen-package.mjs` (after gen-pdfs). Binary `.drawing` files (`schema/schema/drawing-format.md`,
+`node scripts/fixtures/gen-package.mjs` (after gen-pdfs). Binary `.drawing` files (`schema/schema/drawing-format-legacy.md`,
 decision 0008) of the vector PDFs, drawn the way an exporter would, with host element ids on every item:
 - `office-6-sheets.drawing`, `office-1-sheet.drawing`: sheet ids `900000 + pageIndex`, element ids
   `100000 + pageIndex * 10000 + offset + n` (walls 0, doors 1000, furniture 2000, rooms 3000, grids 4000,
