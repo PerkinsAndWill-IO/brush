@@ -16,6 +16,7 @@ import { getDocState } from '../store'
 import { contextNow, useContexts } from './contextStore'
 import { getLive, useLive } from './live'
 import { acceptReading } from './predictEngine'
+import { WallBody } from './wallBody'
 
 export const KIND_LABEL: Record<DecisionKind, string> = { wall: 'Wall', door: 'Door', furniture: 'Furniture', delete: 'Delete', markup: 'Markup' }
 const ACCENT = 'var(--accent)'
@@ -69,9 +70,8 @@ export function ReadingShape({ kind, geometry, type, targets, sheetId, ghost, st
   switch (kind) {
     case 'wall':
       return (
-        <g data-kind="wall" opacity={op}>
-          <path d={d(pts, geometry.closed)} fill="none" stroke={ACCENT} strokeOpacity={0.38} strokeWidth={6} strokeLinejoin="miter" strokeDasharray={dash} />
-          <path d={d(pts, geometry.closed)} fill="none" stroke={ACCENT} style={{ strokeWidth: px(1.2) }} strokeDasharray={dash} />
+        <g data-kind="wall">
+          <WallBody pts={pts} closed={geometry.closed} type={type} sheetId={sheetId} opacity={op} dash={dash} />
         </g>
       )
     case 'door':
