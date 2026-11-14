@@ -3,11 +3,16 @@
 // Usage (from editor/, with `vite --port 5310` running): node scripts/perf-drawing.mjs /fixtures/perf/kro-test-lean.drawing ...
 // (Git Bash rewrites a leading-slash argument into a Windows path: prefix the command with MSYS_NO_PATHCONV=1.)
 // Files are served by the dev server's /fixtures route. Prints one JSON object per file.
-/* global window, document, requestAnimationFrame -- page.evaluate callbacks run in the browser */
+/* global window, document, requestAnimationFrame */
+import { mkdirSync } from 'node:fs'
 import { chromium } from '@playwright/test'
 
 const BASE = process.env.BRUSH_URL ?? 'http://127.0.0.1:5310/'
 const files = process.argv.slice(2)
+// detail check: screenshots go to SHOTS_DIR as <file>-<sheet>-z<zoom>-<SHOTS_TAG>.png
+const SHOTS_DIR = process.env.SHOTS_DIR ?? 'reports/zoom-check'
+const SHOTS_TAG = process.env.SHOTS_TAG ?? 'now'
+mkdirSync(SHOTS_DIR, { recursive: true })
 const browser = await chromium.launch({ channel: 'chrome', headless: false, args: ['--enable-precise-memory-info'] })
 
 for (const file of files) {
@@ -63,6 +68,7 @@ for (const file of files) {
     sheetsFromDrawing(doc)
     r.sheetsMs = Math.round(performance.now() - t)
     r.pages = []
+    window.__spots = []
     for (const p of doc.pages) {
       const cap = renderScaleFor(1e6, 1, p.sizePt)
       const row = { id: p.number ?? p.id, items: p.items.length, sizePt: [Math.round(p.sizePt.w), Math.round(p.sizePt.h)], capPxPerPt: +cap.toFixed(2) }
@@ -82,6 +88,19 @@ for (const file of files) {
         const d = pg.getImageData(0, 0, probe.width, probe.height).data
         let ink = 0
         for (let k = 0; k < d.length; k += 4) if (d[k] < 250 || d[k + 1] < 250 || d[k + 2] < 250) ink++
+        if (s === 0.25) {
+          // densest cell of a 40 x 40 grid: where the detail check zooms in (same spot on every run)
+          const pc = document.createElement('canvas')
+          pc.width = pc.height = 40
+          const g40 = pc.getContext('2d')
+          g40.drawImage(c, 0, 0, 40, 40)
+          const d40 = g40.getImageData(0, 0, 40, 40).data
+          let best = -1
+          for (let k = 0; k < 1600; k++) {
+            const dark = 765 - d40[4 * k] - d40[4 * k + 1] - d40[4 * k + 2]
+            if (dark > best) [best, window.__spots[r.pages.length]] = [dark, [k % 40, Math.floor(k / 40)]]
+          }
+        }
         row[`s${+s.toFixed(2)}`] = { callMs: Math.round(tDraw), withRasterMs: Math.round(tFlush), inkPct: +((100 * ink) / (d.length / 4)).toFixed(1) }
         c.width = c.height = 0
       }
@@ -130,6 +149,54 @@ for (const file of files) {
       }
     }, [t0, tGestureEnd])
     out.zoom.push({ step: label, ...res })
+  }
+
+  // detail: per sheet and zoom, jump the camera (settles at once) over the sheet's densest drawn spot, then time the
+  // sharp detail raster (scale >= z * dpr) landing on screen; long tasks meanwhile
+  out.detail = []
+  const name = file.split('/').pop().replace(/\.drawing$/, '')
+  const sheetIds = await page.evaluate(() => window.__brush.sheets().map((s) => s.id))
+  for (const id of sheetIds) {
+    for (const z of [2, 8, 32]) {
+      const res = await page.evaluate(
+        async ([id, z]) => {
+          const el = document.querySelector(`[data-sheet-id="${id}"]`)
+          const at = window.__spots[window.__brush.sheets().find((s) => s.id === id).pageIndex]
+          // the sheet element is placed in board units
+          const sw = parseFloat(el.style.width)
+          const bx = parseFloat(el.style.left) + ((at[0] + 0.5) / 40) * sw
+          const by = parseFloat(el.style.top) + ((at[1] + 0.5) / 40) * parseFloat(el.style.height)
+          const board = document.querySelector('[data-testid=board]')
+          const dpr = window.devicePixelRatio || 1
+          const scaleOf = (c) => (c.width / ((parseFloat(c.style.width) / 100) * sw))
+          const t0 = performance.now()
+          window.__brush.setSetting('camera', { x: board.clientWidth / 2 / z - bx, y: board.clientHeight / 2 / z - by, z })
+          let c = null
+          while (performance.now() - t0 < 8000) {
+            c = el.querySelector('.page-detail canvas')
+            if (c && scaleOf(c) >= z * dpr * 0.999) break
+            c = null
+            await new Promise((res) => requestAnimationFrame(res))
+          }
+          const ms = Math.round(performance.now() - t0)
+          // the canvas is in the DOM; a 1-pixel readback waits for its GPU raster (what the screen waits for)
+          c?.getContext('2d').getImageData(0, 0, 1, 1)
+          const rasterMs = Math.round(performance.now() - t0)
+          await new Promise((res) => setTimeout(res, 200))
+          const long = window.__perf.long.filter(([s]) => s >= t0).map(([, d]) => Math.round(d))
+          const pageScale = +el.dataset.renderScale
+          if (!c) return { z, sharp: pageScale >= z * dpr, inDomMs: null, pageScale: +pageScale.toFixed(2), longTasksMs: long }
+          const cd = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+          let ink = 0
+          for (let k = 0; k < cd.length; k += 16) if (cd[k] < 250 || cd[k + 1] < 250 || cd[k + 2] < 250) ink++
+          return { z, sharp: true, inDomMs: ms, rasterMs, detailScale: +scaleOf(c).toFixed(2), detailPx: [c.width, c.height], inkPct: +((400 * ink) / (cd.length / 4)).toFixed(1), longTasksMs: long }
+        },
+        [id, z],
+      )
+      const sheetNo = await page.evaluate((id) => window.__brush.sheets().find((s) => s.id === id).number ?? id, id)
+      await page.screenshot({ path: `${SHOTS_DIR}/${name}-${sheetNo}-z${z}-${SHOTS_TAG}.png` })
+      out.detail.push({ sheet: sheetNo, ...res })
+    }
   }
 
   const m = Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map((x) => [x.name, x.value]))
