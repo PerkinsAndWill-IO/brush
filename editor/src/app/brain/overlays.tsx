@@ -133,6 +133,7 @@ export function LiveOverlay({ sheet }: { sheet: Sheet; placement: Placement }) {
   const h = live.hypothesis
   return (
     <g data-layer="live">
+      <GestureBox ids={live.gesture} />
       {h && h.kind !== 'markup' && h.geometry.points.length > 0 && (
         <g data-ghost={h.kind} data-stable={h.stable}>
           <ReadingShape kind={h.kind} geometry={h.geometry} targets={h.targets} sheetId={sheet.id} ghost stable={h.stable} />
@@ -141,6 +142,31 @@ export function LiveOverlay({ sheet }: { sheet: Sheet; placement: Placement }) {
       {live.snapStart && <SnapMarker snap={live.snapStart} which="start" />}
       {live.snapEnd && <SnapMarker snap={live.snapEnd} which="end" />}
     </g>
+  )
+}
+
+/** M3-11: a dashed box around the strokes read together, once there are two or more. */
+function GestureBox({ ids }: { ids?: readonly string[] }) {
+  const { strokes } = useSession()
+  if (!ids || ids.length < 2) return null
+  const pts = strokes.filter((s) => ids.includes(s.id)).flatMap((s) => s.points)
+  if (!pts.length) return null
+  const pad = 6
+  const xs = pts.map((p) => p.x)
+  const ys = pts.map((p) => p.y)
+  const [x0, y0, x1, y1] = [Math.min(...xs) - pad, Math.min(...ys) - pad, Math.max(...xs) + pad, Math.max(...ys) + pad]
+  return (
+    <rect
+      data-gesture-box={ids.length}
+      x={x0}
+      y={y0}
+      width={x1 - x0}
+      height={y1 - y0}
+      fill="none"
+      stroke={ACCENT}
+      opacity={0.6}
+      style={{ strokeWidth: px(1), strokeDasharray: `${px(4)} ${px(3)}` }}
+    />
   )
 }
 

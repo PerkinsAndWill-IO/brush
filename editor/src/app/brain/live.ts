@@ -46,9 +46,32 @@ export interface LiveState {
   asking?: boolean
   /** Last first-hypothesis latency, ms (top bar readout). */
   lastFirstMs?: number
+  /** M3-11: ids of the strokes read together as the current gesture, oldest first (the last one is `strokeId`). */
+  gesture?: readonly string[]
+  /** M3-11: every multi-stroke gesture this session, keyed by its last stroke id (the decision's strokeId). */
+  gestures: Readonly<Record<string, readonly string[]>>
 }
 
-const initial: LiveState = { phase: 'idle', history: [], chips: [], shapeOnly: false }
+/**
+ * M3-11 gesture grouping in the live brush. A new stroke joins the previous
+ * one's reading when the previous one has not become an element yet (still
+ * pending, offered as chips, or kept as ink), is on the same sheet, ended at
+ * most `gapMs` ago, and the new stroke starts within `distPt` of it.
+ */
+export const GESTURE = {
+  /** Max time from the previous pen-up to the next pen-down. */
+  gapMs: 1000,
+  /** Max distance from the new stroke's first point to the gesture's ink, sheet pts. */
+  distPt: 40,
+  /** Commit pause once a gesture has more than one stroke: room to add the next one. */
+  pauseMs: 900,
+}
+
+/** The commit pause for a reading made of `strokes` strokes. */
+export const commitPauseFor = (settings: { commitPauseMs: number }, strokes = 1) =>
+  strokes > 1 ? Math.max(settings.commitPauseMs, GESTURE.pauseMs) : settings.commitPauseMs
+
+const initial: LiveState = { phase: 'idle', history: [], chips: [], shapeOnly: false, gestures: {} }
 let state: LiveState = initial
 const listeners = new Set<() => void>()
 
