@@ -33,6 +33,10 @@ Wheel zooms about the cursor, drag pans, **Fit** fits the page, **1:1** is true 
 shows the element card; click pins it, Esc or a click on empty paper releases it. Items without an element (`el: null`)
 show no card.
 
+Example: `public/examples/house.drawing` (three pages; licence and attribution in
+[`public/examples/README.md`](public/examples/README.md)) is the first entry of the switcher and opens with
+`?file=/examples/house.drawing`.
+
 Real drawings: put them in `public/scenes/real/` (git-ignored: large, and derived from sample data under its own licence) and
 list them in `public/scenes/index.json`; a listed file that is missing shows an error in the status bar.
 

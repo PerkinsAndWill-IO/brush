@@ -1,5 +1,9 @@
 [
   {
+    "file": "../examples/house.drawing",
+    "title": "Example house (3 pages)"
+  },
+  {
     "file": "fixture.json",
     "title": "Fixture sheet A102"
   },
