@@ -1,5 +1,5 @@
 /**
- * Reader for the binary `.drawing` format, version 1 (spec: `schema/schema/drawing-format.md` in this repo,
+ * Reader for the gzip `.drawing` format, the legacy one (spec: `schema/schema/drawing-format-legacy.md` in this repo,
  * header schema `schema/schema/drawing.schema.json`). Pure and DOM-free: decompressed payload bytes in,
  * pages in SHEET coordinates out (see decision 0008).
  *
@@ -15,7 +15,7 @@
  */
 import type { Point, Rect } from '../types'
 
-export const DRAWING_FORMAT_VERSION = 1
+export const LEGACY_DRAWING_VERSION = 1
 /** Points per paper foot: 12 in x 72 pt. */
 export const PT_PER_FT = 864
 
@@ -117,8 +117,8 @@ export interface DrawingPage {
   /** Items in draw order, sheet points. */
   items: DrawItem[]
   /**
-   * Version 2 files only: per element id, the bounding box of its geometry on this page, [minX, minY, maxX, maxY]
-   * in sheet points (for culling and picking; text anchors may be missing). Absent for version 1.
+   * Zstd files only: per element id, the bounding box of its geometry on this page, [minX, minY, maxX, maxY]
+   * in sheet points (for culling and picking; text anchors may be missing). Absent for legacy files.
    */
   boxes?: Record<string, [number, number, number, number]>
 }
@@ -186,11 +186,11 @@ function dashList(v: unknown, what: string): number[] {
 
 const LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1
 
-/** Where a page's blobs come from: a version 1 buffer of f32 or a version 2 frame of delta-coded integers. */
+/** Where a page's blobs come from: a legacy buffer of f32 or a zstd frame of delta-coded integers. */
 export interface BlobSource {
   /**
    * Coordinates as sheet points in a fresh array: x_pt = (x - minX) * 864, y_pt = (maxY - y) * 864, with `x`, `y`
-   * in paper feet. `unit` floats per record (2 points, 4 segments). Version 2 stores quantised integers relative to
+   * in paper feet. `unit` floats per record (2 points, 4 segments). The zstd format stores quantised integers relative to
    * the page `min` and converts while decoding, so it ignores `minX` and `maxY`.
    */
   coords(v: unknown, what: string, unit: number, minX: number, maxY: number): Float32Array
@@ -326,7 +326,7 @@ function parseItem(o: Record<string, unknown>, at: string, blobs: BlobSource, mi
   }
 }
 
-/** `blobsFor` gets the validated page rectangle (paper feet), so a version 2 reader can convert while decoding. */
+/** `blobsFor` gets the validated page rectangle (paper feet), so the zstd reader can convert while decoding. */
 export function parsePage(raw: unknown, blobsFor: (min: [number, number], max: [number, number]) => BlobSource): DrawingPage {
   if (typeof raw !== 'object' || raw === null) fail('page', 'expected an object')
   const o = raw as Record<string, unknown>
@@ -355,12 +355,12 @@ export function parsePage(raw: unknown, blobsFor: (min: [number, number], max: [
 }
 
 /** Parse a decompressed `.drawing` payload (magic, version, header, padding, buffer). */
-export function parseDrawingPayload(payload: Uint8Array): DrawingDocument {
+export function parseLegacyDrawingPayload(payload: Uint8Array): DrawingDocument {
   if (payload.length < PREAMBLE) throw new DrawingFormatError(`not a .drawing payload: ${payload.length} bytes is shorter than the ${PREAMBLE}-byte preamble`)
   if (!isDrawingPayload(payload)) throw new DrawingFormatError('not a .drawing payload: bad magic (expected DRAWING\\0)')
   const dv = new DataView(payload.buffer, payload.byteOffset, payload.byteLength)
   const version = dv.getUint32(8, true)
-  if (version !== DRAWING_FORMAT_VERSION) throw new DrawingFormatError(`unsupported .drawing version ${version} (the editor reads version ${DRAWING_FORMAT_VERSION})`)
+  if (version !== LEGACY_DRAWING_VERSION) throw new DrawingFormatError(`unsupported .drawing version ${version} (the editor reads version ${LEGACY_DRAWING_VERSION})`)
   const headerLen = dv.getUint32(12, true)
   const headerEnd = PREAMBLE + headerLen
   if (headerEnd > payload.length) throw new DrawingFormatError(`header length ${headerLen} runs past the end of the file (${payload.length} bytes)`)
@@ -376,8 +376,8 @@ export function parseDrawingPayload(payload: Uint8Array): DrawingDocument {
   if (typeof header !== 'object' || header === null || Array.isArray(header)) throw new DrawingFormatError('header: expected a JSON object')
   const h = header as Record<string, unknown>
   if (h.format !== 'drawing') throw new DrawingFormatError(`header.format: expected "drawing", got ${JSON.stringify(h.format)}`)
-  if (h.version !== undefined && h.version !== DRAWING_FORMAT_VERSION)
-    throw new DrawingFormatError(`header.version ${JSON.stringify(h.version)} disagrees with the preamble version ${DRAWING_FORMAT_VERSION}`)
+  if (h.version !== undefined && h.version !== LEGACY_DRAWING_VERSION)
+    throw new DrawingFormatError(`header.version ${JSON.stringify(h.version)} disagrees with the preamble version ${LEGACY_DRAWING_VERSION}`)
   if (!Array.isArray(h.pages)) throw new DrawingFormatError('header.pages: expected an array')
 
   const blobs = new Blobs(payload, bufferStart)

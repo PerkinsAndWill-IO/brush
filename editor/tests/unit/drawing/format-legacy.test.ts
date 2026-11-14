@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { DrawingFormatError, PT_PER_FT, isGzip, pageLabel, parseDrawingPayload } from '../../../src/core/drawing'
-import { BlobBuffer, PNG_BYTES, buildPayload, f32 } from './builder'
+import { DrawingFormatError, PT_PER_FT, isGzip, pageLabel, parseLegacyDrawingPayload } from '../../../src/core/drawing'
+import { BlobBuffer, PNG_BYTES, buildPayload, f32 } from './builder-legacy'
 
 const page = (over: Record<string, unknown> = {}) => ({ id: 1, kind: 'sheet', number: 'A1', name: 'Plan', scale: null, min: [0, 0], max: [2, 1], items: [], ...over })
 
-describe('M5-08 .drawing format reader (schema/schema/drawing-format.md)', () => {
+describe('M5-08 legacy gzip .drawing reader (schema/schema/drawing-format-legacy.md)', () => {
   it('converts paper feet (y up) to sheet points (top-left, y down)', () => {
     const b = new BlobBuffer()
     const pts = b.xy(0.5, 1, 1.5, 0.5)
@@ -31,7 +31,7 @@ describe('M5-08 .drawing format reader (schema/schema/drawing-format.md)', () =>
       ],
       elements: { '7': { class: 'SWall', category: 'Walls' } },
     }
-    const doc = parseDrawingPayload(buildPayload(header, b.bytes()))
+    const doc = parseLegacyDrawingPayload(buildPayload(header, b.bytes()))
     expect(doc.source).toEqual({ file: 'model.rvt', generator: 'g' })
     const p = doc.pages[0]
     expect(p.sizePt).toEqual({ w: 2 * PT_PER_FT, h: 1 * PT_PER_FT })
@@ -57,7 +57,7 @@ describe('M5-08 .drawing format reader (schema/schema/drawing-format.md)', () =>
 
   it('lists sheets first, then views, header order within each kind', () => {
     const header = { format: 'drawing', version: 1, pages: [page({ id: 1, kind: 'view', name: '{3D}' }), page({ id: 2 }), page({ id: 3, kind: 'view', name: 'V' }), page({ id: 4 })] }
-    const doc = parseDrawingPayload(buildPayload(header, new Uint8Array()))
+    const doc = parseLegacyDrawingPayload(buildPayload(header, new Uint8Array()))
     expect(doc.pages.map((p) => p.id)).toEqual(['2', '4', '1', '3'])
     expect(pageLabel(doc.pages[0])).toBe('A1 Plan')
     expect(pageLabel(doc.pages[2])).toBe('{3D} (view)')
@@ -67,7 +67,7 @@ describe('M5-08 .drawing format reader (schema/schema/drawing-format.md)', () =>
     const ok = { format: 'drawing', version: 1, pages: [page()] }
     const err = (bytes: Uint8Array) => {
       try {
-        parseDrawingPayload(bytes)
+        parseLegacyDrawingPayload(bytes)
       } catch (e) {
         expect(e).toBeInstanceOf(DrawingFormatError)
         return (e as Error).message
@@ -96,7 +96,7 @@ describe('M5-08 .drawing format reader (schema/schema/drawing-format.md)', () =>
     for (const shift of [0, 1, 2, 3]) {
       const shifted = new Uint8Array(payload.length + shift + 8).subarray(shift, shift + payload.length)
       shifted.set(payload)
-      const path = parseDrawingPayload(shifted).pages[0].items[0]
+      const path = parseLegacyDrawingPayload(shifted).pages[0].items[0]
       if (path.t !== 'path') throw new Error()
       expect([...path.xy]).toEqual([0, -432, 864, 0])
     }
@@ -104,7 +104,7 @@ describe('M5-08 .drawing format reader (schema/schema/drawing-format.md)', () =>
 
   it('rejects an infinite x coordinate, naming its index', () => {
     const header = { format: 'drawing', version: 1, pages: [page({ items: [{ t: 'path', pts: [0, 16], w: 0 }] })] }
-    expect(() => parseDrawingPayload(buildPayload(header, f32(1, 2, Infinity, 4)))).toThrow(/items\[0\]\.pts: coordinate 2 is not a finite number/)
+    expect(() => parseLegacyDrawingPayload(buildPayload(header, f32(1, 2, Infinity, 4)))).toThrow(/items\[0\]\.pts: coordinate 2 is not a finite number/)
   })
 
   it('sniffs gzip', () => {

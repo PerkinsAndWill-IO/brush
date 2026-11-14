@@ -3,8 +3,8 @@ import { resolve } from 'node:path'
 import { gunzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { contextFromDrawing, furnitureSymbolsFromDrawing, paletteFromDrawing, roomAt, sheetInfo, sheetsFromDrawing } from '../../../src/core/context'
-import { parseDrawingPayload } from '../../../src/core/drawing'
-import { BlobBuffer, buildPayload } from '../drawing/builder'
+import { parseLegacyDrawingPayload } from '../../../src/core/drawing'
+import { BlobBuffer, buildPayload } from '../drawing/builder-legacy'
 
 /** Rectangle outline as a closed path blob (feet). */
 const rect = (b: BlobBuffer, x0: number, y0: number, x1: number, y1: number) => b.xy(x0, y0, x1, y0, x1, y1, x0, y1)
@@ -43,7 +43,7 @@ function fixture() {
       '70': { class: 'FamilyInstance', category: 'Title Blocks' },
     },
   }
-  return parseDrawingPayload(buildPayload(header, b.bytes()))
+  return parseLegacyDrawingPayload(buildPayload(header, b.bytes()))
 }
 
 describe('M5-09 context from a .drawing (decision 0008)', () => {
@@ -110,7 +110,7 @@ describe('M5-09 context from a .drawing (decision 0008)', () => {
 
   const house = resolve(__dirname, '../../../../schema/public/examples/house.drawing')
   it.skipIf(!existsSync(house))('reads the schema example (house.drawing): three pages, plan context with walls, doors, rooms', () => {
-    const doc = parseDrawingPayload(new Uint8Array(gunzipSync(readFileSync(house))))
+    const doc = parseLegacyDrawingPayload(new Uint8Array(gunzipSync(readFileSync(house))))
     const sheets = sheetsFromDrawing(doc)
     expect(sheets.map((s) => s.number ?? s.name)).toEqual(['A102', 'A103', '{3D}'])
     const ctx = contextFromDrawing(doc, sheets[0].id)
@@ -126,7 +126,7 @@ describe('M5-09 context from a .drawing (decision 0008)', () => {
 describe('M5 furniture symbols from a .drawing', () => {
   const house = resolve(__dirname, '../../../../schema/public/examples/house.drawing')
   it.skipIf(!existsSync(house))('M3-03: every furniture type on the plan has its own symbol, normalised to its box', () => {
-    const doc = parseDrawingPayload(new Uint8Array(gunzipSync(readFileSync(house))))
+    const doc = parseLegacyDrawingPayload(new Uint8Array(gunzipSync(readFileSync(house))))
     const syms = furnitureSymbolsFromDrawing(doc)
     for (const f of paletteFromDrawing(doc).furniture) expect(syms.has(f.name)).toBe(true)
     const bar = syms.get('Bar Chair')!

@@ -1,5 +1,5 @@
 /**
- * Decision 0008: the binary `.drawing` format (schema/schema/drawing-format.md) opens in the editor. Pages draw from
+ * Decision 0008: the binary `.drawing` format (schema/schema/drawing-format-legacy.md) opens in the editor. Pages draw from
  * the file's vectors (no PDF), contexts come from the host elements (origin 'package', hostRef), and a wall stroke
  * logs create_wall with a wall type from the model's own palette.
  */

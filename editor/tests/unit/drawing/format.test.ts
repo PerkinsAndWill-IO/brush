@@ -2,10 +2,10 @@ import { gzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { parseDrawingFile } from '../../../src/app/source/drawing-file'
 import { sniffBytes } from '../../../src/app/source'
-import { DrawingFormatError, PT_PER_FT, parseDrawingPayload, parseDrawingPayloadV2, type DrawingDocument, type DrawingPage } from '../../../src/core/drawing'
-import { convertV1ToV2 } from '../../../scripts/drawing-v1-to-v2.mjs'
-import { BlobBuffer, PNG_BYTES, buildPayload } from './builder'
-import { buildV2, i32, pageFrame, zstd, type V2Page } from './builder-v2'
+import { DrawingFormatError, PT_PER_FT, parseDrawingPayload, type DrawingDocument, type DrawingPage } from '../../../src/core/drawing'
+import { convertLegacyToZstd } from '../../../scripts/drawing-from-legacy.mjs'
+import { BlobBuffer, PNG_BYTES, buildPayload } from './builder-legacy'
+import { buildZstd, i32, pageFrame, zstd, type ZstdPage } from './builder'
 
 const near = (a: ArrayLike<number>, b: number[], digits = 3) => {
   expect(a.length).toBe(b.length)
@@ -34,9 +34,9 @@ function blobs(...parts: Uint8Array[]) {
 }
 
 const entry = (over: Record<string, unknown> = {}) => ({ id: 1, kind: 'sheet', number: 'A1', name: 'Plan', scale: null, min: [0, 0], max: [2, 1], ...over })
-const onePage = (json: unknown, buffer: Uint8Array = new Uint8Array(), over: Record<string, unknown> = {}): V2Page => ({ entry: entry(over), frame: pageFrame(json, buffer) })
+const onePage = (json: unknown, buffer: Uint8Array = new Uint8Array(), over: Record<string, unknown> = {}): ZstdPage => ({ entry: entry(over), frame: pageFrame(json, buffer) })
 
-describe('M5-08 .drawing version 2 reader (schema/schema/drawing-format-v2.md)', () => {
+describe('M5-08 .drawing zstd reader (schema/schema/drawing-format.md)', () => {
   it('decodes a tiny page by hand: delta undone, units to sheet points, y flipped', () => {
     // page 0.5..2.5 x -0.5..0.5 ft: 864 pt tall, 1728 pt wide. One unit = 0.01 mm = 864/30480 pt.
     const b = blobs(
@@ -61,7 +61,7 @@ describe('M5-08 .drawing version 2 reader (schema/schema/drawing-format-v2.md)',
       b.buffer,
       { min: [0.5, -0.5], max: [2.5, 0.5] },
     )
-    const doc = parseDrawingPayloadV2(buildV2([page], { '7': { class: 'SWall', category: 'Walls' } }))
+    const doc = parseDrawingPayload(buildZstd([page], { '7': { class: 'SWall', category: 'Walls' } }))
 
     expect(doc.source).toEqual({ file: 'model.rvt', generator: 'test' })
     expect(doc.elements).toEqual({ '7': { class: 'SWall', category: 'Walls' } })
@@ -78,7 +78,7 @@ describe('M5-08 .drawing version 2 reader (schema/schema/drawing-format-v2.md)',
     expect(path.c).toEqual([1, 2, 3])
     near(segsItem.xy, [0, 864, 864, 864, 864, 432, 0, 432])
     near(fill.rings[0], [0, 864, 864, 864, 864, 0])
-    expect(text.at.x).toBeCloseTo(432, 6) // text stays JSON paper feet and is converted like version 1
+    expect(text.at.x).toBeCloseTo(432, 6) // text stays JSON paper feet and is converted like the legacy format
     expect(text.at.y).toBeCloseTo(432, 6)
     expect(image.rect).toEqual({ x: 432, y: 432, w: 432, h: 432 })
     expect([...image.png]).toEqual([...PNG_BYTES])
@@ -88,11 +88,11 @@ describe('M5-08 .drawing version 2 reader (schema/schema/drawing-format-v2.md)',
 
   it('reads sheets first, the first sheet first, and keeps header order within a kind', () => {
     const view = onePage({ items: [] }, undefined, { id: 1, kind: 'view', name: '{3D}', number: null })
-    const doc = parseDrawingPayloadV2(buildV2([view, onePage({ items: [] }, undefined, { id: 2 }), onePage({ items: [] }, undefined, { id: 3, kind: 'view' }), onePage({ items: [] }, undefined, { id: 4 })], {}))
+    const doc = parseDrawingPayload(buildZstd([view, onePage({ items: [] }, undefined, { id: 2 }), onePage({ items: [] }, undefined, { id: 3, kind: 'view' }), onePage({ items: [] }, undefined, { id: 4 })], {}))
     expect(doc.pages.map((p) => p.id)).toEqual(['2', '4', '1', '3'])
   })
 
-  it('decodes the same content as version 1 within 0.005 mm of paper (the converter, level 3 and 19)', () => {
+  it('decodes the same content as the legacy format within 0.005 mm of paper (the converter, level 3 and 19)', () => {
     const b = new BlobBuffer()
     // deterministic scatter over a 3 x 2 ft page whose min is not the origin
     let s = 12345
@@ -129,15 +129,15 @@ describe('M5-08 .drawing version 2 reader (schema/schema/drawing-format-v2.md)',
       ],
       elements: { '3': { class: 'SWall', category: 'Walls', params: [{ name: 'a', value: 'b' }] } },
     }
-    const v1Bytes = new Uint8Array(gzipSync(buildPayload(header, b.bytes())))
-    return parseDrawingFile(v1Bytes).then(async (v1) => {
+    const legacyBytes = new Uint8Array(gzipSync(buildPayload(header, b.bytes())))
+    return parseDrawingFile(legacyBytes).then(async (legacyDoc) => {
       for (const level of [3, 19]) {
-        const v2 = await parseDrawingFile(new Uint8Array(convertV1ToV2(v1Bytes, { level })))
-        expect(v2.source).toEqual(v1.source)
-        expect(v2.elements).toEqual(v1.elements)
-        expect(v2.pages.map(({ boxes: _boxes, ...rest }) => ({ ...rest, items: rest.items.length }))).toEqual(v1.pages.map((p) => ({ ...p, items: p.items.length })))
+        const zstdDoc = await parseDrawingFile(new Uint8Array(convertLegacyToZstd(legacyBytes, { level })))
+        expect(zstdDoc.source).toEqual(legacyDoc.source)
+        expect(zstdDoc.elements).toEqual(legacyDoc.elements)
+        expect(zstdDoc.pages.map(({ boxes: _boxes, ...rest }) => ({ ...rest, items: rest.items.length }))).toEqual(legacyDoc.pages.map((p) => ({ ...p, items: p.items.length })))
         // f32 slack on top of the half-unit (0.005 mm) rounding of the writer
-        expectEqualWithin(v1, v2, 0.0051)
+        expectEqualWithin(legacyDoc, zstdDoc, 0.0051)
       }
     })
   })
@@ -146,49 +146,52 @@ describe('M5-08 .drawing version 2 reader (schema/schema/drawing-format-v2.md)',
     const b = new BlobBuffer()
     const pts = b.xy(0.5, 0.25, 1.5, 0.75)
     const header = { format: 'drawing', version: 1, pages: [{ id: 1, kind: 'sheet', min: [0, 0], max: [2, 1], items: [{ t: 'path', pts, w: 0.001, el: 7 }, { t: 'path', pts, w: 0.001, el: null }] }], elements: {} }
-    const doc = await parseDrawingFile(convertV1ToV2(buildPayload(header, b.bytes())))
+    const doc = await parseDrawingFile(convertLegacyToZstd(buildPayload(header, b.bytes())))
     expect(Object.keys(doc.pages[0].boxes!)).toEqual(['7']) // items without an element have no box
     near(doc.pages[0].boxes!['7'], [432, 216, 1296, 648])
   })
 
-  it('opens through parseDrawingFile and sniffs as a drawing; version 1 still opens', async () => {
-    const v2 = buildV2([onePage({ items: [] })], {})
-    expect(sniffBytes(v2, 'x.drawing')).toBe('drawing')
-    expect((await parseDrawingFile(v2)).pages.map((p) => p.id)).toEqual(['1'])
-    const v1 = buildPayload({ format: 'drawing', version: 1, pages: [entry({ items: [] })] }, new Uint8Array())
-    expect((await parseDrawingFile(v1)).pages.map((p) => p.id)).toEqual(['1']) // raw version 1 payload
-    expect((await parseDrawingFile(new Uint8Array(gzipSync(v1)))).pages.map((p) => p.id)).toEqual(['1'])
-    expect(() => parseDrawingPayload(v2)).toThrow(/unsupported .drawing version 2/) // the v1 reader is unchanged
+  it('opens through parseDrawingFile and sniffs as a drawing; the legacy gzip format still opens', async () => {
+    const zstdFile = buildZstd([onePage({ items: [] })], {})
+    expect(sniffBytes(zstdFile, 'x.drawing')).toBe('drawing')
+    expect((await parseDrawingFile(zstdFile)).pages.map((p) => p.id)).toEqual(['1'])
+    const legacy = buildPayload({ format: 'drawing', version: 1, pages: [entry({ items: [] })] }, new Uint8Array())
+    expect((await parseDrawingFile(new Uint8Array(gzipSync(legacy)))).pages.map((p) => p.id)).toEqual(['1'])
+  })
+
+  it('still reads files written while this format was called version 2', async () => {
+    const old = buildZstd([onePage({ items: [] })], {}, { version: 2, headerVersion: 2 })
+    expect((await parseDrawingFile(old)).pages.map((p) => p.id)).toEqual(['1'])
   })
 
   describe('reading rules', () => {
     const msg = (bytes: Uint8Array) => {
       try {
-        parseDrawingPayloadV2(bytes)
+        parseDrawingPayload(bytes)
       } catch (e) {
         expect(e).toBeInstanceOf(DrawingFormatError)
         return (e as Error).message
       }
       throw new Error('expected a DrawingFormatError')
     }
-    const one = (items: unknown[], buffer: Uint8Array, extra: Record<string, unknown> = {}) => buildV2([onePage({ items, ...extra }, buffer)], {})
+    const one = (items: unknown[], buffer: Uint8Array, extra: Record<string, unknown> = {}) => buildZstd([onePage({ items, ...extra }, buffer)], {})
 
     it('rejects a frame outside the file, naming the page or elements', () => {
       const ok = onePage({ items: [] })
       const second = { ...onePage({ items: [] }, undefined, { id: 2 }), ref: [100000, 10] as [number, number] }
-      expect(msg(buildV2([ok, second], {}))).toMatch(/^pages\[1\]\.frame: \[100000, 10\] is outside the file/)
-      expect(msg(buildV2([ok], {}, { elementsRef: [5, 100000] }))).toMatch(/^elements\.frame: \[5, 100000\] is outside the file/)
+      expect(msg(buildZstd([ok, second], {}))).toMatch(/^pages\[1\]\.frame: \[100000, 10\] is outside the file/)
+      expect(msg(buildZstd([ok], {}, { elementsRef: [5, 100000] }))).toMatch(/^elements\.frame: \[5, 100000\] is outside the file/)
     })
 
     it('rejects a frame that does not decompress, naming the page or elements', () => {
       const junk = new Uint8Array(40).fill(7)
-      expect(msg(buildV2([{ entry: entry(), bytes: junk }], {}))).toMatch(/^pages\[0\]\.frame: does not decompress/)
-      expect(msg(buildV2([onePage({ items: [] })], junk))).toMatch(/^elements\.frame: does not decompress/)
+      expect(msg(buildZstd([{ entry: entry(), bytes: junk }], {}))).toMatch(/^pages\[0\]\.frame: does not decompress/)
+      expect(msg(buildZstd([onePage({ items: [] })], junk))).toMatch(/^elements\.frame: does not decompress/)
     })
 
     it('rejects a unitsPerFoot other than 30480', () => {
-      expect(msg(buildV2([onePage({ items: [] })], {}, { unitsPerFoot: 3048 }))).toMatch(/header\.unitsPerFoot: expected 30480, got 3048/)
-      expect(msg(buildV2([onePage({ items: [] })], {}, { unitsPerFoot: null }))).toMatch(/header\.unitsPerFoot/)
+      expect(msg(buildZstd([onePage({ items: [] })], {}, { unitsPerFoot: 3048 }))).toMatch(/header\.unitsPerFoot: expected 30480, got 3048/)
+      expect(msg(buildZstd([onePage({ items: [] })], {}, { unitsPerFoot: null }))).toMatch(/header\.unitsPerFoot/)
     })
 
     it('rejects a box that is not four integers', () => {
@@ -208,22 +211,22 @@ describe('M5-08 .drawing version 2 reader (schema/schema/drawing-format-v2.md)',
       expect(msg(one([{ t: 'fill', rings: [ring.refs[0]] }], ring.buffer))).toMatch(/items\[0\]\.rings\[0\]: coordinate 4 overflows/)
     })
 
-    it("applies version 1's rules inside the page frame", () => {
+    it("applies the legacy format's rules inside the page frame", () => {
       const ok = blobs(i32(1, 2))
       expect(msg(one([{ t: 'path', pts: [ok.refs[0][0], 400], w: 0 }], ok.buffer))).toMatch(/pages\[0\]\.items\[0\]\.pts: blob .* out of bounds/)
       expect(msg(one([{ t: 'path', pts: [2, 4], w: 0 }], new Uint8Array(16)))).toMatch(/not a multiple of 4/)
       expect(msg(one([{ t: 'segs', segs: [0, 8], w: 0 }], i32(1, 2, 3, 4)))).toMatch(/items\[0\]\.segs: blob length 8 is not a multiple of 16/)
       expect(msg(one([{ t: 'path', pts: [0, 4], w: 0 }], i32(1, 2)))).toMatch(/items\[0\]\.pts: blob length 4 is not a multiple of 8/)
-      expect(msg(buildV2([onePage({ items: [] }, undefined, { max: [0, 1] })], {}))).toMatch(/pages\[0\]\.max/)
-      expect(msg(buildV2([{ entry: entry(), frame: new Uint8Array([1, 2]) }], {}))).toMatch(/pages\[0\]\.frame: 2 bytes is shorter/)
-      expect(msg(buildV2([{ entry: entry(), frame: new Uint8Array([200, 0, 0, 0, 0, 0, 0, 0]) }], {}))).toMatch(/pages\[0\]\.frame: page JSON length 200 runs past/)
+      expect(msg(buildZstd([onePage({ items: [] }, undefined, { max: [0, 1] })], {}))).toMatch(/pages\[0\]\.max/)
+      expect(msg(buildZstd([{ entry: entry(), frame: new Uint8Array([1, 2]) }], {}))).toMatch(/pages\[0\]\.frame: 2 bytes is shorter/)
+      expect(msg(buildZstd([{ entry: entry(), frame: new Uint8Array([200, 0, 0, 0, 0, 0, 0, 0]) }], {}))).toMatch(/pages\[0\]\.frame: page JSON length 200 runs past/)
     })
 
     it('rejects a bad container', () => {
-      const ok = buildV2([onePage({ items: [] })], {})
-      expect(msg(buildV2([onePage({ items: [] })], {}, { magic: 'DRAWINX\0' }))).toMatch(/bad magic/)
-      expect(msg(buildV2([onePage({ items: [] })], {}, { version: 3 }))).toMatch(/unsupported .drawing version 3/)
-      expect(msg(buildV2([onePage({ items: [] })], {}, { headerVersion: 1 }))).toMatch(/header\.version 1 disagrees/)
+      const ok = buildZstd([onePage({ items: [] })], {})
+      expect(msg(buildZstd([onePage({ items: [] })], {}, { magic: 'DRAWINX\0' }))).toMatch(/bad magic/)
+      expect(msg(buildZstd([onePage({ items: [] })], {}, { version: 3 }))).toMatch(/unsupported .drawing version 3/)
+      expect(msg(buildZstd([onePage({ items: [] })], {}, { headerVersion: 2 }))).toMatch(/header\.version 2 disagrees/)
       expect(msg(ok.subarray(0, 30))).toMatch(/runs past the end/)
       expect(msg(zstd(new Uint8Array(0)))).toMatch(/not a .drawing file/)
     })

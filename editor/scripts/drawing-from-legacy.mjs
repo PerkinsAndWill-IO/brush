@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Converts a version 1 `.drawing` file to version 2 (specs: schema/schema/drawing-format.md and drawing-format-v2.md):
+// Converts a legacy (gzip) `.drawing` file to the zstd format (specs: schema/schema/drawing-format-legacy.md and drawing-format.md):
 //
-//   node scripts/drawing-v1-to-v2.mjs in.drawing [out.drawing] [--level 19]
+//   node scripts/drawing-from-legacy.mjs in.drawing [out.drawing] [--level 19]
 //
-// Default output: the input name with `-v2` before the extension. Default zstd level: 19 (needs Node 22.15+, which has
+// Default output: the input name with `-zstd` before the extension. Default zstd level: 19 (needs Node 22.15+, which has
 // zstd in node:zlib). Coordinates are rounded to a unit (0.01 mm of paper) before delta coding, and each delta is taken
 // from the previous rounded value, so rounding errors do not accumulate. Every page gets its own frame, the elements
 // table another, and each page frame carries per-element boxes. Text items are copied unchanged.
@@ -16,12 +16,12 @@ const PREAMBLE = 16
 const MAGIC = Buffer.from('DRAWING\0', 'latin1')
 const I32 = { min: -2147483648, max: 2147483647 }
 
-function readV1(bytes) {
+function readLegacy(bytes) {
   let b = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   if (b[0] === 0x1f && b[1] === 0x8b) b = gunzipSync(b)
   if (!b.subarray(0, 8).equals(MAGIC)) throw new Error('not a .drawing file: bad magic')
   const version = b.readUInt32LE(8)
-  if (version !== 1) throw new Error(`expected a version 1 file, got version ${version}`)
+  if (version !== 1) throw new Error(`expected a legacy file (version 1 payload), got version ${version}`)
   const headerLen = b.readUInt32LE(12)
   const header = JSON.parse(b.subarray(PREAMBLE, PREAMBLE + headerLen).toString('utf8'))
   const start = (PREAMBLE + headerLen + 3) & ~3
@@ -166,13 +166,13 @@ function convertPage(page, buffer, pageIdx) {
 }
 
 /**
- * Convert the bytes of a version 1 file (gzip or raw) to a version 2 file.
+ * Convert the bytes of a legacy file (gzip or raw payload) to a zstd-format file.
  * @param {Uint8Array} bytes
  * @param {{ level?: number }} [opts]
  * @returns {Buffer}
  */
-export function convertV1ToV2(bytes, { level = 19 } = {}) {
-  const { header, buffer } = readV1(bytes)
+export function convertLegacyToZstd(bytes, { level = 19 } = {}) {
+  const { header, buffer } = readLegacy(bytes)
   const compress = (b) => zstdCompressSync(b, { params: { [constants.ZSTD_c_compressionLevel]: level } })
   const frames = []
   const pages = header.pages.map((p, i) => {
@@ -192,7 +192,7 @@ export function convertV1ToV2(bytes, { level = 19 } = {}) {
     })
     const h = {
       format: 'drawing',
-      version: 2,
+      version: 1,
       source: header.source,
       unitsPerFoot: UNITS_PER_FOOT,
       pages: pages.map((p, i) => ({ ...p, frame: refs[i] })),
@@ -208,7 +208,7 @@ export function convertV1ToV2(bytes, { level = 19 } = {}) {
   }
   const out = Buffer.alloc(PREAMBLE + len)
   MAGIC.copy(out, 0)
-  out.writeUInt32LE(2, 8)
+  out.writeUInt32LE(1, 8)
   out.writeUInt32LE(len, 12)
   out.fill(0x20, PREAMBLE) // trailing spaces are valid JSON
   json.copy(out, PREAMBLE)
@@ -220,14 +220,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   let level = 19
   const li = args.indexOf('--level')
   if (li >= 0) level = Number(args.splice(li, 2)[1])
-  const [input, output = input.replace(/(\.drawing)?$/i, '-v2.drawing')] = args
+  const [input, output = input.replace(/(\.drawing)?$/i, '-zstd.drawing')] = args
   if (!input || !Number.isInteger(level)) {
-    console.error('usage: node scripts/drawing-v1-to-v2.mjs in.drawing [out.drawing] [--level 19]')
+    console.error('usage: node scripts/drawing-from-legacy.mjs in.drawing [out.drawing] [--level 19]')
     process.exit(2)
   }
   const t0 = performance.now()
   const src = readFileSync(input)
-  const out = convertV1ToV2(src, { level })
+  const out = convertLegacyToZstd(src, { level })
   writeFileSync(output, out)
   console.log(`${input} (${src.length} bytes) -> ${output} (${out.length} bytes, ${((100 * out.length) / src.length).toFixed(1)}%) at zstd level ${level} in ${((performance.now() - t0) / 1000).toFixed(1)} s`)
 }

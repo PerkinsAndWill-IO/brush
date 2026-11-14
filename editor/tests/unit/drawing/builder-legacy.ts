@@ -1,5 +1,5 @@
 /**
- * Test support: builds `.drawing` bytes from a header and blobs, following schema/schema/drawing-format.md.
+ * Test support: builds `.drawing` bytes from a header and blobs, following schema/schema/drawing-format-legacy.md.
  * Written separately from the reader so the tests check the format, not the reader against itself.
  */
 import { gzipSync } from 'node:zlib'

@@ -1,6 +1,6 @@
 /**
- * Test support: builds version 2 `.drawing` bytes by hand from literal integer blobs, following
- * schema/schema/drawing-format-v2.md. Written separately from the reader and from the converter script.
+ * Test support: builds zstd `.drawing` bytes by hand from literal integer blobs, following
+ * schema/schema/drawing-format.md. Written separately from the reader and from the converter script.
  */
 import { constants, zstdCompressSync } from 'node:zlib'
 
@@ -25,7 +25,7 @@ export function pageFrame(json: unknown, buffer: Uint8Array): Uint8Array {
   return out
 }
 
-export interface V2Page {
+export interface ZstdPage {
   /** Header fields without `items` and `frame`. */
   entry: Record<string, unknown>
   /** The compressed frame bytes (default: zstd of `frame`). */
@@ -36,8 +36,8 @@ export interface V2Page {
 }
 
 /** Raw magic, version, header, then the frames. `elements` is the elements table's JSON (or raw frame bytes). */
-export function buildV2(
-  pages: V2Page[],
+export function buildZstd(
+  pages: ZstdPage[],
   elements: unknown,
   opts: { unitsPerFoot?: number | null; elementsRef?: [number, number]; magic?: string; version?: number; headerVersion?: number } = {},
 ): Uint8Array {
@@ -52,7 +52,7 @@ export function buildV2(
     })
     const h: Record<string, unknown> = {
       format: 'drawing',
-      version: opts.headerVersion ?? 2,
+      version: opts.headerVersion ?? 1,
       source: { file: 'model.rvt', generator: 'test' },
       pages: pages.map((p, i) => ({ ...p.entry, frame: p.ref ?? refs[i] })),
       elements: opts.elementsRef ?? refs[pages.length],
@@ -66,7 +66,7 @@ export function buildV2(
   const out = new Uint8Array(16 + len + frames.reduce((n, f) => n + f.length, 0))
   out.set(new TextEncoder().encode(opts.magic ?? 'DRAWING\0'), 0)
   const dv = new DataView(out.buffer)
-  dv.setUint32(8, opts.version ?? 2, true)
+  dv.setUint32(8, opts.version ?? 1, true)
   dv.setUint32(12, len, true)
   out.fill(0x20, 16, 16 + len)
   out.set(json, 16)

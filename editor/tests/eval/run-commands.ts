@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 import { commandFromDecision } from '../../src/core/commands'
 import { contextFromDrawing } from '../../src/core/context'
-import { parseDrawingPayload, type DrawingDocument } from '../../src/core/drawing'
+import { parseLegacyDrawingPayload, type DrawingDocument } from '../../src/core/drawing'
 import { StrokeSession } from '../../src/core/predict'
 import { settings as entrySettings } from '../../src/core/predict/eval-entry'
 import {
@@ -69,7 +69,7 @@ const packages = new Map<string, Pkg>()
 for (const f of existsSync(resolve(root, 'fixtures/packages')) ? readdirSync(resolve(root, 'fixtures/packages')) : []) {
   if (!f.endsWith('.drawing')) continue
   const name = f.replace(/\.drawing$/, '')
-  const doc = parseDrawingPayload(new Uint8Array(gunzipSync(readFileSync(resolve(root, 'fixtures/packages', f)))))
+  const doc = parseLegacyDrawingPayload(new Uint8Array(gunzipSync(readFileSync(resolve(root, 'fixtures/packages', f)))))
   const idmapPath = resolve(root, 'fixtures/packages', `${name}.idmap.json`)
   packages.set(`${name}.pdf`, { doc, idmap: existsSync(idmapPath) ? (JSON.parse(readFileSync(idmapPath, 'utf8')) as Record<string, string>) : {} })
 }

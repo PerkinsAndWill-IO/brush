@@ -1,13 +1,13 @@
 /**
- * Reader for the binary `.drawing` format, version 2 (spec: `schema/schema/drawing-format-v2.md`). Pure and
- * DOM-free: the whole file's bytes in, the same pages as version 1 in SHEET coordinates out (decision 0009).
+ * Reader for the binary `.drawing` format (version 1; spec: `schema/schema/drawing-format.md`). Pure and
+ * DOM-free: the whole file's bytes in, the same pages as the legacy format in SHEET coordinates out (decision 0009).
  *
- * The file is the raw magic, version 2, a JSON header and independent zstd frames: one per page and one for the
+ * The file is the raw magic, version 1, a JSON header and independent zstd frames: one per page and one for the
  * elements table. Coordinates are i32 in 0.01 mm units relative to the page `min`, delta-coded per blob. Each blob
  * is decoded in one loop that undoes the delta, dequantises and converts to sheet points
- * (x_pt = X * 864 / 30480, y_pt = height_pt - Y * 864 / 30480), the same space version 1 yields after its transform.
+ * (x_pt = X * 864 / 30480, y_pt = height_pt - Y * 864 / 30480), the same space the legacy format yields after its transform.
  *
- * Reading rules: version 1's, applied within each page frame, plus a frame outside the file or that does not
+ * Reading rules: the legacy format's, applied within each page frame, plus a frame outside the file or that does not
  * decompress (naming the page or `elements`), a `unitsPerFoot` other than 30480, a box that is not four integers,
  * and a decoded coordinate that overflows i32.
  */
@@ -23,9 +23,13 @@ import {
   type DrawingDocument,
   type DrawingElement,
   type DrawingPage,
-} from './format'
+} from './format-legacy'
 
-export const DRAWING_FORMAT_VERSION_2 = 2
+export const DRAWING_FORMAT_VERSION = 1
+// ponytail: remove-later shim. Files written while this format was still called "version 2" carry 2 in both version
+// fields; accept them until none are left, then drop this constant and `readsVersion`.
+const PRE_RENAME_VERSION = 2
+const readsVersion = (v: unknown) => v === DRAWING_FORMAT_VERSION || v === PRE_RENAME_VERSION
 /** One unit is 0.01 mm of paper: 304.8 mm per foot / 0.01. */
 export const UNITS_PER_FOOT = 30480
 
@@ -35,13 +39,7 @@ const I32_MAX = 2147483647
 /** Sheet points per unit. */
 const PT_PER_UNIT = PT_PER_FT / UNITS_PER_FOOT
 
-/** The version of a raw payload that starts with the magic (null when it does not or is too short). */
-export function drawingVersion(bytes: Uint8Array): number | null {
-  if (bytes.length < 12 || !isDrawingPayload(bytes)) return null
-  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(8, true)
-}
-
-/** Version 2 blobs of one page frame: delta-coded i32, converted to sheet points while decoding. */
+/** Blobs of one page frame: delta-coded i32, converted to sheet points while decoding. */
 class DeltaBlobs implements BlobSource {
   private readonly size: number
   private readonly dv: DataView
@@ -152,13 +150,13 @@ function parsePageFrame(frame: Uint8Array, header: unknown): DrawingPage {
   return page
 }
 
-/** Parse the bytes of a version 2 `.drawing` file (raw, not gzipped). Pages are decoded sheets first, the first sheet first. */
-export function parseDrawingPayloadV2(bytes: Uint8Array): DrawingDocument {
+/** Parse the bytes of a `.drawing` file (raw, not gzipped). Pages are decoded sheets first, the first sheet first. */
+export function parseDrawingPayload(bytes: Uint8Array): DrawingDocument {
   if (bytes.length < PREAMBLE) throw new DrawingFormatError(`not a .drawing file: ${bytes.length} bytes is shorter than the ${PREAMBLE}-byte preamble`)
   if (!isDrawingPayload(bytes)) throw new DrawingFormatError('not a .drawing file: bad magic (expected DRAWING\\0)')
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   const version = dv.getUint32(8, true)
-  if (version !== DRAWING_FORMAT_VERSION_2) throw new DrawingFormatError(`unsupported .drawing version ${version} (this reader reads version ${DRAWING_FORMAT_VERSION_2})`)
+  if (!readsVersion(version)) throw new DrawingFormatError(`unsupported .drawing version ${version} (this reader reads version ${DRAWING_FORMAT_VERSION})`)
   const headerLen = dv.getUint32(12, true)
   if (PREAMBLE + headerLen > bytes.length) throw new DrawingFormatError(`header length ${headerLen} runs past the end of the file (${bytes.length} bytes)`)
 
@@ -171,8 +169,8 @@ export function parseDrawingPayloadV2(bytes: Uint8Array): DrawingDocument {
   if (!isObject(header)) throw new DrawingFormatError('header: expected a JSON object')
   const h = header as Record<string, unknown>
   if (h.format !== 'drawing') throw new DrawingFormatError(`header.format: expected "drawing", got ${JSON.stringify(h.format)}`)
-  if (h.version !== undefined && h.version !== DRAWING_FORMAT_VERSION_2)
-    throw new DrawingFormatError(`header.version ${JSON.stringify(h.version)} disagrees with the preamble version ${DRAWING_FORMAT_VERSION_2}`)
+  if (h.version !== undefined && h.version !== version)
+    throw new DrawingFormatError(`header.version ${JSON.stringify(h.version)} disagrees with the preamble version ${version}`)
   if (h.unitsPerFoot !== UNITS_PER_FOOT) throw new DrawingFormatError(`header.unitsPerFoot: expected ${UNITS_PER_FOOT}, got ${JSON.stringify(h.unitsPerFoot)}`)
   if (!Array.isArray(h.pages)) throw new DrawingFormatError('header.pages: expected an array')
 
