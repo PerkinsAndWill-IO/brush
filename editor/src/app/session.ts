@@ -8,7 +8,7 @@ import { DEFAULT_BRUSH_SETTINGS, SESSION_SCHEMA_VERSION, type AcceptedDecision, 
 import { StrokeHistory, type Removed } from './board/history'
 import { getPlatform, type SidecarKey } from './platform'
 
-export type Tool = 'select' | 'brush' | 'eraser' | 'pan'
+export type Tool = 'select' | 'brush' | 'eraser' | 'pan' | 'measure'
 
 export interface SessionState {
   strokes: readonly Stroke[]

@@ -13,6 +13,7 @@ import { inkRender, type InkRender } from './ink'
 import { rectsIntersect, renderScaleFor, visibleBoardRect, type Placement } from './layout'
 import { ContextBadge } from '../brain/overlays'
 import { penGate } from './penGate'
+import { SheetGrid } from './viewAidLayers'
 import { enqueueRender } from './renderQueue'
 
 // ───────────── layer registry (board input writes wet ink here) ─────────────
@@ -21,9 +22,23 @@ export interface SheetLayers {
   ink: SVGSVGElement
   wet: SVGPathElement
   overlay: SVGSVGElement
+  grid: SVGSVGElement
 }
 const layers = new Map<string, SheetLayers>()
 export const getSheetLayers = (sheetId: string): SheetLayers | undefined => layers.get(sheetId)
+
+/**
+ * Keep --z live on the grid and overlay layers only (V1-05), so screen-constant
+ * marks and labels stay the same size during a zoom instead of jumping when it
+ * settles. The rest of the world (paper shadows, sheet names) updates on settle.
+ */
+export function setLiveZoom(z: number) {
+  const v = String(z)
+  for (const l of layers.values()) {
+    l.overlay.style.setProperty('--z', v)
+    l.grid.style.setProperty('--z', v)
+  }
+}
 
 // ───────────── overlay extension point (M2 snap markers, M3 ghost + chips) ─────────────
 
@@ -109,12 +124,16 @@ export const SheetView = memo(function SheetView({ sheet, placement, doc, loadId
   const [inkScale, setInkScale] = useState(0)
   const wetRef = useRef<SVGPathElement>(null)
   const overlayRef = useRef<SVGSVGElement>(null)
+  const gridRef = useRef<SVGSVGElement>(null)
   const [renderScale, setRenderScale] = useState(0)
   const overlayComponents = useOverlays()
 
   useLayoutEffect(() => {
-    if (!inkRef.current || !wetRef.current || !overlayRef.current) return
-    layers.set(sheet.id, { ink: inkRef.current, wet: wetRef.current, overlay: overlayRef.current })
+    if (!inkRef.current || !wetRef.current || !overlayRef.current || !gridRef.current) return
+    layers.set(sheet.id, { ink: inkRef.current, wet: wetRef.current, overlay: overlayRef.current, grid: gridRef.current })
+    const z = String(getCamera().z)
+    overlayRef.current.style.setProperty('--z', z)
+    gridRef.current.style.setProperty('--z', z)
     return () => void layers.delete(sheet.id)
   }, [sheet.id])
 
@@ -210,6 +229,9 @@ export const SheetView = memo(function SheetView({ sheet, placement, doc, loadId
       <div className="paper">
         <div className="page" ref={pageRef} />
         {renderScale === 0 && <div className="placeholder" aria-label="Loading sheet" />}
+        <svg className="grid" ref={gridRef} viewBox={`0 0 ${w} ${h}`} width={w} height={h} data-layer="grid" aria-hidden="true">
+          <SheetGrid sheet={sheet} />
+        </svg>
         <canvas className="ink-canvas" ref={inkCanvasRef} data-layer="ink" data-ink-count={strokes.filter((s) => s.tool !== 'eraser').length} data-ink-scale={inkScale} />
         <svg className="ink" ref={inkRef} viewBox={`0 0 ${w} ${h}`} width={w} height={h} data-layer="wet-ink">
           <path ref={wetRef} className="wet" data-layer="wet" />

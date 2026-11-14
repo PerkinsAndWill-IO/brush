@@ -18,7 +18,9 @@ import { getSession, session, sessionFileFor, useSession, type Tool } from '../s
 import { getDocState, openFile, useDocState } from '../store'
 import { buildCommandFile, commandFileName, serializeCommandFile, writeCommandFile } from '../source'
 import { useContexts } from '../brain/contextStore'
-import { BrushIcon, ChevronDown, ChevronRight, EraserIcon, PanIcon, RedoIcon, SelectIcon, UndoIcon } from './icons'
+import { BrushIcon, ChevronDown, ChevronRight, EraserIcon, MeasureIcon, PanIcon, RedoIcon, SelectIcon, UndoIcon } from './icons'
+import { LABEL_SCALES, sheetScale, useView, view } from '../view'
+import { formatMetres, sheetDistanceMetres } from '../board/viewAids'
 
 export async function chooseFile() {
   const f = await (await getPlatform()).openPdf()
@@ -237,6 +239,7 @@ const TOOLS: { id: Tool; label: string; key: string; icon: ReactNode }[] = [
   { id: 'brush', label: 'Brush', key: 'B', icon: <BrushIcon /> },
   { id: 'eraser', label: 'Eraser', key: 'E', icon: <EraserIcon /> },
   { id: 'pan', label: 'Pan', key: 'H', icon: <PanIcon /> },
+  { id: 'measure', label: 'Measure', key: 'M', icon: <MeasureIcon /> },
 ]
 
 export const INK_COLORS = [
@@ -376,6 +379,7 @@ const TOOL_META: Record<Tool, { label: string; icon: ReactNode }> = {
   brush: { label: 'Brush', icon: <BrushIcon size={16} /> },
   eraser: { label: 'Eraser', icon: <EraserIcon size={16} /> },
   pan: { label: 'Pan', icon: <PanIcon size={16} /> },
+  measure: { label: 'Measure', icon: <MeasureIcon size={16} /> },
 }
 
 const MODES: { mode: BrushMode; label: string }[] = [
@@ -536,10 +540,73 @@ export function LeftSidebar() {
         </div>
       )}
 
+      {tool === 'measure' && <MeasureSection />}
+
       <ModeSection />
       <SnappingSection />
       <CommitSection />
+      <ViewSection />
     </aside>
+  )
+}
+
+// ───────────── view aids (docs/tasks/V1-view-aids.md) ─────────────
+
+function MeasureSection() {
+  const { measurements } = useView()
+  const doc = useDocState()
+  useContexts() // a scale found later relabels the list
+  const names = new Map(doc.sheets.map((s) => [s.id, s.number ?? s.name]))
+  return (
+    <Section title="Measurements" aside={<span className="mono-num">{measurements.length}</span>} testId="section-measure">
+      <p className="hint">Drag across a sheet, or click two points. Ends snap to walls and grid lines when snapping is on. Backspace removes the last one.</p>
+      {measurements.length > 0 && (
+        <>
+          <ol className="measure-list" data-testid="measure-list">
+            {measurements.map((m) => {
+              const scale = sheetScale(m.sheetId)
+              return (
+                <li key={m.id}>
+                  <span>
+                    <span className="mono-num">{scale ? formatMetres(sheetDistanceMetres(m.a, m.b, scale)) : 'no scale'}</span> <span className="secondary">{names.get(m.sheetId)}</span>
+                  </span>
+                  <button type="button" className="link-btn" aria-label="Remove measurement" onClick={() => view.removeMeasurement(m.id)}>
+                    Remove
+                  </button>
+                </li>
+              )
+            })}
+          </ol>
+          <button type="button" className="link-btn" data-testid="measure-clear" onClick={() => view.clearMeasurements()}>
+            Clear all
+          </button>
+        </>
+      )}
+      <p className="hint">Measurements are a view aid: they are not saved or sent as commands.</p>
+    </Section>
+  )
+}
+
+function ViewSection() {
+  const { grid, scaleBar, labelScale } = useView()
+  return (
+    <Section title="View" defaultOpen={false} testId="section-view">
+      <Toggle label="Metric grid" on={grid} onChange={(v) => view.setGrid(v)} testId="grid-toggle" />
+      <Toggle label="Scale bar" on={scaleBar} onChange={(v) => view.setScaleBar(v)} testId="scale-bar-toggle" />
+      <div className="field">
+        <div className="field-row">
+          <span>Label size</span>
+        </div>
+        <div className="segmented" role="radiogroup" aria-label="Label size" data-testid="label-size">
+          {LABEL_SCALES.map((o) => (
+            <button key={o.label} type="button" role="radio" aria-checked={labelScale === o.value} className={labelScale === o.value ? 'on' : ''} onClick={() => view.setLabelScale(o.value)}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <p className="hint">Grid and scale bar need the sheet scale (read from text like “1:100”).</p>
+    </Section>
   )
 }
 
