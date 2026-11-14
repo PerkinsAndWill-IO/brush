@@ -33,3 +33,4 @@ body { display: flex; flex-direction: column; font: 13px/1.4 system-ui, sans-ser
 #drop[hidden] { display: none; }
 #card td .raw { font-size: 10px; color: #aaa; }
 #card td .raw { font-size: 10px; color: #aaa; }
+#bar .btn { white-space: nowrap; }

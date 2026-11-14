@@ -383,7 +383,7 @@ function showPage(i: number, parseMs?: number) {
   stats.maxDrawMs = stats.maxHitMs = 0;
   const label = pageLabel(page);
   document.title = `${label} - Brush`;
-  const pageNote = doc.pages.length > 1 ? ` | page ${i + 1} of ${doc.pages.length} (PageUp / PageDown)` : "";
+  const pageNote = doc.pages.length > 1 ? ` | page ${i + 1} of ${doc.pages.length}` : "";
   setStatus(`${label} | ${parsed.items.length.toLocaleString()} items, ${segments.toLocaleString()} segments${pageNote} | ${parseMs === undefined ? "page ready" : "loaded"} in ${(((parseMs ?? 0) + stats.pageMs) / 1000).toFixed(2)} s`);
 }
 
