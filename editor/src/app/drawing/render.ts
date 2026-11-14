@@ -14,7 +14,7 @@ type Cmd =
 
 const css = (c: number[]) => `rgb(${c[0]},${c[1]},${c[2]})`
 
-function compile(page: DrawingPage): Cmd[] {
+function compile(page: DrawingPage, hide: ((it: DrawItem) => boolean) | null): Cmd[] {
   const cmds: Cmd[] = []
   // consecutive stroke items merge per style; any other item ends the run, so draw order across kinds is kept
   let run = new Map<string, Cmd & { k: 'stroke' }>()
@@ -23,6 +23,7 @@ function compile(page: DrawingPage): Cmd[] {
     run = new Map()
   }
   for (const it of page.items) {
+    if (hide?.(it)) continue
     if (it.t === 'path' || it.t === 'segs') {
       const key = `${it.w}|${it.c.join(',')}|${it.dash.join(',')}`
       let cmd = run.get(key)
@@ -58,7 +59,8 @@ function compile(page: DrawingPage): Cmd[] {
   return cmds
 }
 
-const compiled = new WeakMap<DrawingPage, Cmd[]>()
+/** Compiled commands per page, for the filter version they were built with. */
+const compiled = new WeakMap<DrawingPage, { key: number; cmds: Cmd[] }>()
 const bitmaps = new WeakMap<Uint8Array, Promise<ImageBitmap | null>>()
 
 function bitmap(png: Uint8Array): Promise<ImageBitmap | null> {
@@ -118,6 +120,7 @@ function drawText(g: CanvasRenderingContext2D, t: DrawText, minPx: number) {
 /**
  * Render a page into `canvas` at `pxPerPt` device pixels per sheet point (sets the backing size only; the board
  * sizes the canvas with CSS). Awaits the page's images. `gate` pauses between chunks while the pen is down.
+ * `filter` drops items from the drawing (display filters); its `key` must change whenever `hide` does.
  */
 export async function renderDrawingPage(
   page: DrawingPage,
@@ -125,9 +128,12 @@ export async function renderDrawingPage(
   pxPerPt: number,
   signal?: AbortSignal,
   gate?: () => Promise<void> | null,
+  filter?: { key: number; hide: ((it: DrawItem) => boolean) | null },
 ): Promise<void> {
-  let cmds = compiled.get(page)
-  if (!cmds) compiled.set(page, (cmds = compile(page)))
+  const key = filter?.key ?? -1
+  let entry = compiled.get(page)
+  if (!entry || entry.key !== key) compiled.set(page, (entry = { key, cmds: compile(page, filter?.hide ?? null) }))
+  const cmds = entry.cmds
   const images = new Map<DrawItem, ImageBitmap | null>()
   await Promise.all(cmds.filter((c) => c.k === 'image').map(async (c) => images.set(c.item, await bitmap(c.item.png))))
   const wait = gate?.()

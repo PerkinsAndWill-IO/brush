@@ -3,7 +3,7 @@
  * sidebar (tool options) and right sidebar (session list). M1 only — the
  * Reading panel, host status, latency readout and Live toggle arrive in M3.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { DECISION_KINDS, type BrushMode, type DecisionKind } from '@core/types'
 import { KIND_LABEL } from '../brain/overlays'
 import { acceptReading } from '../brain/predictEngine'
@@ -16,7 +16,8 @@ import { getPlatform } from '../platform'
 import { recorder, recorderAvailable, useRecorder } from '../recording'
 import { getSession, session, sessionFileFor, useSession, type Tool } from '../session'
 import { getDocState, openFile, useDocState } from '../store'
-import { buildCommandFile, commandFileName, serializeCommandFile, writeCommandFile } from '../source'
+import { DrawingFileSource, buildCommandFile, commandFileName, serializeCommandFile, writeCommandFile } from '../source'
+import { ITEM_KINDS, categoriesOf, filters, isAnnotationCategory, useFilters } from '../drawing/filters'
 import { useContexts } from '../brain/contextStore'
 import { BrushIcon, ChevronDown, ChevronRight, EraserIcon, MeasureIcon, PanIcon, RedoIcon, SelectIcon, UndoIcon } from './icons'
 import { LABEL_SCALES, sheetScale, useView, view } from '../view'
@@ -550,6 +551,69 @@ export function LeftSidebar() {
   )
 }
 
+// ───────────── drawing filters (docs/tasks/V2-drawing-filters.md) ─────────────
+
+/** Only for a binary `.drawing`: its items carry the element categories the filters work on. */
+function FiltersSection() {
+  const { source } = useDocState()
+  const doc = source instanceof DrawingFileSource ? source.doc : null
+  const list = useMemo(() => (doc ? categoriesOf(doc) : []), [doc])
+  const f = useFilters()
+  if (!doc) return null
+  const hiddenHere = list.filter((c) => f.hiddenCategories.has(c.name)).length + f.hiddenKinds.size
+  const annotation = list.map((c) => c.name).filter(isAnnotationCategory)
+  const annotationHidden = annotation.length > 0 && annotation.every((n) => f.hiddenCategories.has(n))
+  return (
+    <Section title="Filters" aside={hiddenHere ? <span className="mono-num">{hiddenHere} hidden</span> : undefined} testId="section-filters">
+      <div className="field">
+        <div className="field-row">
+          <span>Show</span>
+        </div>
+        <div className="segmented" role="group" aria-label="Item kinds" data-testid="filter-kinds">
+          {ITEM_KINDS.map((k) => {
+            const on = !f.hiddenKinds.has(k.kind)
+            return (
+              <button key={k.kind} type="button" aria-pressed={on} data-kind={k.kind} className={on ? 'on' : ''} onClick={() => filters.setKindHidden(k.kind, on)}>
+                {k.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      <div className="field">
+        <div className="field-row">
+          <span>Categories</span>
+        </div>
+        <div className="filter-actions">
+          {annotation.length > 0 && (
+            <button type="button" className="link-btn" data-testid="filter-annotation" onClick={() => filters.setCategoriesHidden(annotation, !annotationHidden)}>
+              {annotationHidden ? 'Show annotation' : 'Hide annotation'}
+            </button>
+          )}
+          <button type="button" className="link-btn" data-testid="filter-reset" disabled={!hiddenHere} onClick={() => filters.reset()}>
+            Show all
+          </button>
+        </div>
+        <ul className="filter-list" data-testid="filter-categories">
+          {list.map((c) => {
+            const on = !f.hiddenCategories.has(c.name)
+            return (
+              <li key={c.name}>
+                <label className={on ? '' : 'off'}>
+                  <input type="checkbox" checked={on} data-category={c.name} onChange={(e) => filters.setCategoryHidden(c.name, !e.target.checked)} />
+                  <span className="filter-name">{c.name}</span>
+                  <span className="secondary mono-num">{c.count}</span>
+                </label>
+              </li>
+            )
+          })}
+        </ul>
+      </div>
+      <p className="hint">Filters change only what is drawn. Hidden items still count for snapping and predictions. Remembered per browser.</p>
+    </Section>
+  )
+}
+
 // ───────────── view aids (docs/tasks/V1-view-aids.md) ─────────────
 
 function MeasureSection() {
@@ -812,6 +876,7 @@ export function RightSidebar() {
       <Section title="This session" aside={`${strokes.length} ${strokes.length === 1 ? 'stroke' : 'strokes'}`} testId="section-session">
         <SessionList />
       </Section>
+      <FiltersSection />
       {recorderAvailable() && <RecordingsList />}
     </aside>
   )

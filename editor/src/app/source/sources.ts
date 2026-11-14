@@ -187,8 +187,9 @@ export class DrawingFileSource implements DrawingSource {
     const pages = this.doc.pages
     const renderer: PageRenderer = {
       render: async (i, canvas, pxPerPt, signal, gate) => {
-        const m = await import('../drawing/render')
-        return m.renderDrawingPage(pages[i], canvas, pxPerPt, signal, gate)
+        const [m, f] = await Promise.all([import('../drawing/render'), import('../drawing/filters')])
+        const fs = f.getFilters()
+        return m.renderDrawingPage(pages[i], canvas, pxPerPt, signal, gate, { key: fs.version, hide: f.hiddenPredicate(this.doc, fs) })
       },
     }
     return { sheets: this.sheets, pdf: null, pages: renderer }
