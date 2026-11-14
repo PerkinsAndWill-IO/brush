@@ -57,6 +57,21 @@ describe('M5-09 context from a .drawing (decision 0008)', () => {
     expect(sheets[0].scale).toBe(100)
   })
 
+  it('PERF-02: sheets can list every page while reading the items of only the first ones', () => {
+    const doc = fixture()
+    doc.pages[1].scale = '1 : 50'
+    Object.defineProperty(doc.pages[1], 'items', {
+      get: () => {
+        throw new Error('page 901 was decoded')
+      },
+    })
+    const sheets = sheetsFromDrawing(doc, 1)
+    expect(sheets.map((s) => [s.id, s.scale])).toEqual([
+      ['900', 100],
+      ['901', 50],
+    ])
+  })
+
   it('plan context: wall centerline + thickness, door on its host wall, room, fixture, grid, labels; all host refs', () => {
     const ctx = contextFromDrawing(fixture(), '900')
     expect(ctx.origin).toBe('package')
