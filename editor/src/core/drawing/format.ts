@@ -179,6 +179,8 @@ function dashList(v: unknown, what: string): number[] {
 
 // ───────────────────────────── blobs ─────────────────────────────
 
+const LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1
+
 class Blobs {
   private readonly size: number
   constructor(
@@ -198,17 +200,37 @@ class Blobs {
     return [off, len]
   }
 
-  /** f32 x,y data, converted to sheet points into a fresh array. `unit` floats per record (2 points, 4 segments). */
-  coords(v: unknown, what: string, unit: number, tx: (xy: Float32Array) => void): Float32Array {
+  /**
+   * f32 x,y data converted to sheet points into a fresh array: x_pt = (x - minX) * 864, y_pt = (maxY - y) * 864.
+   * `unit` floats per record (2 points, 4 segments). Blob offsets are 4-aligned in the buffer, so a 4-aligned
+   * payload is read through a Float32Array; any other alignment falls back to a DataView.
+   */
+  coords(v: unknown, what: string, unit: number, minX: number, maxY: number): Float32Array {
     const [off, len] = this.ref(v, what, unit * 4)
-    const dv = new DataView(this.payload.buffer, this.payload.byteOffset + this.start + off, len)
+    const at = this.payload.byteOffset + this.start + off
     const out = new Float32Array(len / 4)
-    for (let k = 0; k < out.length; k++) {
-      const f = dv.getFloat32(4 * k, true)
-      if (!Number.isFinite(f)) fail(what, `coordinate ${k} is not a finite number`)
-      out[k] = f
+    const n = out.length
+    if (LITTLE_ENDIAN && at % 4 === 0) {
+      const src = new Float32Array(this.payload.buffer, at, n)
+      for (let k = 0; k < n; k += 2) {
+        const x = src[k]
+        const y = src[k + 1]
+        if (!Number.isFinite(x)) fail(what, `coordinate ${k} is not a finite number`)
+        if (!Number.isFinite(y)) fail(what, `coordinate ${k + 1} is not a finite number`)
+        out[k] = (x - minX) * PT_PER_FT
+        out[k + 1] = (maxY - y) * PT_PER_FT
+      }
+    } else {
+      const dv = new DataView(this.payload.buffer, at, len)
+      for (let k = 0; k < n; k += 2) {
+        const x = dv.getFloat32(4 * k, true)
+        const y = dv.getFloat32(4 * k + 4, true)
+        if (!Number.isFinite(x)) fail(what, `coordinate ${k} is not a finite number`)
+        if (!Number.isFinite(y)) fail(what, `coordinate ${k + 1} is not a finite number`)
+        out[k] = (x - minX) * PT_PER_FT
+        out[k + 1] = (maxY - y) * PT_PER_FT
+      }
     }
-    tx(out)
     return out
   }
 
@@ -223,18 +245,12 @@ class Blobs {
 function parseItem(o: Record<string, unknown>, at: string, blobs: Blobs, min: [number, number], max: [number, number]): DrawItem | null {
   const X = (x: number) => (x - min[0]) * PT_PER_FT
   const Y = (y: number) => (max[1] - y) * PT_PER_FT
-  const toSheet = (xy: Float32Array) => {
-    for (let k = 0; k < xy.length; k += 2) {
-      xy[k] = X(xy[k])
-      xy[k + 1] = Y(xy[k + 1])
-    }
-  }
   const common = { el: id(o.el, `${at}.el`), view: id(o.view, `${at}.view`) }
   switch (o.t) {
     case 'path':
       return {
         t: 'path',
-        xy: blobs.coords(o.pts, `${at}.pts`, 2, toSheet),
+        xy: blobs.coords(o.pts, `${at}.pts`, 2, min[0], max[1]),
         closed: o.closed === true,
         w: num(o.w, `${at}.w`) * PT_PER_FT,
         c: rgb(o.c, `${at}.c`),
@@ -244,7 +260,7 @@ function parseItem(o: Record<string, unknown>, at: string, blobs: Blobs, min: [n
     case 'segs':
       return {
         t: 'segs',
-        xy: blobs.coords(o.segs, `${at}.segs`, 4, toSheet),
+        xy: blobs.coords(o.segs, `${at}.segs`, 4, min[0], max[1]),
         w: num(o.w, `${at}.w`) * PT_PER_FT,
         c: rgb(o.c, `${at}.c`),
         dash: dashList(o.dash, `${at}.dash`),
@@ -252,7 +268,7 @@ function parseItem(o: Record<string, unknown>, at: string, blobs: Blobs, min: [n
       }
     case 'fill': {
       if (!Array.isArray(o.rings)) fail(`${at}.rings`, 'expected a list of rings')
-      const rings = (o.rings as unknown[]).map((r, k) => blobs.coords(r, `${at}.rings[${k}]`, 2, toSheet))
+      const rings = (o.rings as unknown[]).map((r, k) => blobs.coords(r, `${at}.rings[${k}]`, 2, min[0], max[1]))
       return { t: 'fill', rings, c: rgb(o.c, `${at}.c`), ...common }
     }
     case 'text': {
