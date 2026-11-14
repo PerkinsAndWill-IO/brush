@@ -15,6 +15,7 @@ signals, engine rules and budget table; a human may renumber them.
 | [M5-commands-and-packages.md](M5-commands-and-packages.md) | Commands and packages |
 | [M6-revit-link.md](M6-revit-link.md) | Live link to Revit (plugin side in `revit/`) |
 | [V1-view-aids.md](V1-view-aids.md) | View aids from the chSpace viewer (scale bar, measure, grid, label size) |
+| [V2-drawing-filters.md](V2-drawing-filters.md) | Display filters for `.drawing` pages (categories, item kinds) |
 | [eval-entry.md](eval-entry.md) | How a predictor plugs into `pnpm eval` |
 
 To change a test, budget or threshold: add a "Proposed change" section to the task file and wait for a human (rule 3).

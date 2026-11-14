@@ -14,6 +14,7 @@ import { ContextBadge } from '../brain/overlays'
 import { penGate } from './penGate'
 import { SheetGrid } from './viewAidLayers'
 import { enqueueRender } from './renderQueue'
+import { useFilters } from '../drawing/filters'
 
 // ───────────── layer registry (board input writes wet ink here) ─────────────
 
@@ -125,6 +126,9 @@ export const SheetView = memo(function SheetView({ sheet, placement, pages, load
   const overlayRef = useRef<SVGSVGElement>(null)
   const gridRef = useRef<SVGSVGElement>(null)
   const [renderScale, setRenderScale] = useState(0)
+  // Display filters (V2) change what a `.drawing` page draws: re-render on a change. The old raster stays until then.
+  const filterVersion = useFilters().version
+  const [renderedFilter, setRenderedFilter] = useState(-1)
   const overlayComponents = useOverlays()
 
   useLayoutEffect(() => {
@@ -167,6 +171,7 @@ export const SheetView = memo(function SheetView({ sheet, placement, pages, load
         pageRef.current.replaceChildren(canvas)
         current = target
         setRenderScale(target)
+        setRenderedFilter(filterVersion)
         if (first) {
           first = false
           notifyPageRendered(loadId, sheet.pageIndex)
@@ -178,7 +183,7 @@ export const SheetView = memo(function SheetView({ sheet, placement, pages, load
     request()
     const off = onCameraSettled(request)
     return () => off()
-  }, [pages, sheet, placement, loadId, viewport])
+  }, [pages, sheet, placement, loadId, viewport, filterVersion])
 
   // Ink raster scale follows the camera like the page does (sharp after zoom settles), but synchronously.
   useEffect(() => {
@@ -217,6 +222,7 @@ export const SheetView = memo(function SheetView({ sheet, placement, pages, load
       data-sheet-id={sheet.id}
       data-rendered={renderScale > 0}
       data-render-scale={renderScale}
+      data-filter-version={renderedFilter}
       style={{ left: placement.x, top: placement.y, width: placement.w, height: placement.h }}
     >
       <div className="sheet-label" data-testid="sheet-label">
