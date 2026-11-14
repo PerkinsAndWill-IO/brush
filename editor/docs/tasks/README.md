@@ -1,7 +1,7 @@
 # Tasks
 
 One file per milestone. Each lists requirement IDs and the acceptance test that proves each one.
-Spec: `../SPEC.md`. Budgets: `../../scripts/budgets.ts`. Done = `pnpm verify` green (AGENTS.md).
+Spec: `../spec.md`. Budgets: `../../scripts/budgets.ts`. Done = `pnpm verify` green (AGENTS.md).
 
 IDs for M1 are the spec's own. M2–M5 IDs were derived here from the spec's exit criteria, context
 signals, engine rules and budget table; a human may renumber them.

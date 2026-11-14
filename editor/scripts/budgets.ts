@@ -1,5 +1,5 @@
 /**
- * The budget table from docs/SPEC.md "Test strategy and budgets", in one place.
+ * The budget table from docs/spec.md "Test strategy and budgets", in one place.
  * scripts/verify.ts gates on these. AGENTS.md rule 3: never weaken a budget to
  * get to green; propose the change in a task file and wait for a human.
  *

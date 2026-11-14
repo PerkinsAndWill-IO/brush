@@ -3,7 +3,7 @@
 These are the instructions for the **Editor** (`editor/` in the brush repo). Other folders of the repo
 belong to other teams; do not edit them from an Editor task. **Run every command from `editor/`.**
 
-The spec is `docs/SPEC.md`. Shared contracts are `src/core/types/index.ts` (frozen).
+The spec is `docs/spec.md`. Shared contracts are `src/core/types/index.ts` (frozen).
 
 ## Rules
 
@@ -62,7 +62,7 @@ First-time setup: `pnpm install` then `pnpm exec playwright install chromium`.
 | Context | `src/core/context/**`, `tests/unit/context/**` |
 | Predict | `src/core/predict/**` (incl. `eval-entry.ts`), `tests/unit/predict/**` |
 | Commands | `src/core/commands/**`, `tests/unit/commands/**` |
-| Humans | `src/core/types/**` (frozen), `docs/SPEC.md`, `docs/decisions/**`, budgets |
+| Humans | `src/core/types/**` (frozen), `docs/spec.md`, `docs/decisions/**`, budgets |
 
 ## Layout
 
