@@ -4,3 +4,4 @@ dist
 # large scenes (real sheets and the synthetic performance scene)
 public/scenes/synthetic*.json
 public/scenes/local/
+public/scenes/real/
