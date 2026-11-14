@@ -31,6 +31,8 @@ import inkPaintMask from './assets/tool-ink-paint.png'
 import { LABEL_SCALES, sheetScale, useView, view } from '../view'
 import { formatMetres, sheetDistanceMetres } from '../board/viewAids'
 import { RevitButton } from '../revit/RevitPanel'
+import { ElementPanel, useCanInspect } from '../drawing/InspectLayers'
+import { useInspect } from '../drawing/inspect'
 import { useRevit } from '../revit/controller'
 
 export async function chooseFile() {
@@ -572,9 +574,10 @@ function CommitSection() {
 
 export function LeftSidebar() {
   const { tool, settings, eraserSize } = useSession()
+  const canInspect = useCanInspect()
   const meta = TOOL_META[tool]
   return (
-    <aside className="sidebar left" aria-label={`${meta.label} options`} data-testid="left-sidebar">
+    <aside className={`sidebar left${tool === 'select' && canInspect ? ' wide' : ''}`} aria-label={`${meta.label} options`} data-testid="left-sidebar">
       <div className="tool-head">
         <span className="tool-badge" aria-hidden="true">
           {meta.icon}
@@ -602,11 +605,12 @@ export function LeftSidebar() {
           <p className="hint">Removes every stroke it touches. Undo brings them back.</p>
         </Section>
       )}
-      {(tool === 'select' || tool === 'pan') && (
+      {tool === 'pan' && (
         <div className="section-body hint-block">
-          <p className="hint">{tool === 'pan' ? 'Drag to move around the board. Ctrl-scroll or pinch to zoom.' : 'Nothing to select yet. Selection arrives with predictions.'}</p>
+          <p className="hint">Drag to move around the board. Ctrl-scroll or pinch to zoom.</p>
         </div>
       )}
+      {tool === 'select' && <ElementSection />}
 
       {tool === 'measure' && <MeasureSection />}
 
@@ -940,6 +944,23 @@ function ReadingPanel() {
         </>
       )}
     </Section>
+  )
+}
+
+/** Element data (V3): the Select tool's panel in the left sidebar, on documents with host elements. */
+function ElementSection() {
+  const canInspect = useCanInspect()
+  const { pinned } = useInspect()
+  if (!canInspect)
+    return (
+      <div className="section-body hint-block" data-testid="section-inspect">
+        <p className="hint">Element data is available on .drawing files and Revit sheets. PDFs carry no elements.</p>
+      </div>
+    )
+  return (
+    <section className="section element-section" data-testid="section-element" data-pinned={pinned}>
+      <ElementPanel />
+    </section>
   )
 }
 
