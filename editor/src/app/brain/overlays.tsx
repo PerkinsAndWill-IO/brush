@@ -103,9 +103,10 @@ export function ReadingShape({ kind, geometry, targets, sheetId, ghost, stable }
 // ───────────── overlays ─────────────
 
 export function ElementsOverlay({ sheet }: { sheet: Sheet; placement: Placement }) {
-  const { accepted } = useSession()
+  const { accepted, hidden } = useSession()
   useContexts() // delete targets resolve once the context is in
-  const mine = accepted.filter((a) => a.sheetId === sheet.id)
+  // hidden: landed in the linked model (M6-04), the sheet draws the real element now
+  const mine = accepted.filter((a) => a.sheetId === sheet.id && !hidden.has(a.strokeId))
   return (
     <g data-layer="elements">
       {mine.map((a: AcceptedDecision) => (
