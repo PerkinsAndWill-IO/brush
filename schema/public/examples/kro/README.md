@@ -9,5 +9,5 @@ project. Project data, not covered by the repository licence.
 
 Stored with Git LFS: run `git lfs pull` after cloning. Open in the viewer with `?file=/examples/kro/kro-test.drawing`.
 
-Known gaps of this export: the axonometric viewports on 0061 are not clipped and are drawn too large, some floor bands
-on 0032 are filled solid black, and room tags on 0001 overlap.
+Known gaps of this export: some floor bands and facade panels on 0032 are drawn as dense black hairlines, and room
+tags on 0001 overlap.
