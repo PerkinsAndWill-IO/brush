@@ -7,7 +7,8 @@
  * element on another sheet" is simply the items with the same `el`.
  */
 import { useSyncExternalStore } from 'react'
-import type { DrawingElement, DrawingPage, DrawItem } from '@core/drawing'
+import type { DrawingDocument, DrawingElement, DrawingPage, DrawItem } from '@core/drawing'
+import { categoryName, isAnnotationCategory, NO_CATEGORY } from './filters'
 import { buildPageHitIndex, hitItem, type Measure, type PageHitIndex } from './hit'
 
 // ───────────── element card logic (pure) ─────────────
@@ -97,6 +98,53 @@ export function pageHitIndex(page: DrawingPage): PageHitIndex {
 export function elementAt(page: DrawingPage, x: number, y: number, tol: number, skip?: ((it: DrawItem) => boolean) | null): string | null {
   const i = hitItem(pageHitIndex(page), x, y, tol, skip)
   return i < 0 ? null : page.items[i].el
+}
+
+/** Categories the eraser passes over without erasing: what lies under or across everything (rooms, floors, ...). */
+const ERASE_BACKGROUND = /^(rooms?|areas?|floors?|topography|building ?pad|<room separation>|<area boundary>)$/i
+
+/**
+ * Host elements an eraser path hits on a page (M3-03 delete over a `.drawing`), each once, in path order. The
+ * path is walked every tol/2 with the Select tool's hit test (radius `tol`, sheet points). Annotation (grids,
+ * dimensions, tags, ...) and background elements (rooms, floors, ...) are skipped, so a pass across a wall does not
+ * also take the grid crossing it or the room it bounds; so are items `skip` hides (already erased, filtered out).
+ */
+export function elementsAlong(
+  page: DrawingPage,
+  doc: Pick<DrawingDocument, 'elements'>,
+  pts: readonly { x: number; y: number }[],
+  tol: number,
+  skip?: ((it: DrawItem) => boolean) | null,
+): string[] {
+  const protectedEl = (el: string | null) => {
+    if (el === null) return true
+    const name = categoryName(doc.elements[el])
+    return isAnnotationCategory(name) || ERASE_BACKGROUND.test(name) || name === NO_CATEGORY
+  }
+  const ignore = (it: DrawItem) => protectedEl(it.el) || !!skip?.(it)
+  const ix = pageHitIndex(page)
+  const out: string[] = []
+  const seen = new Set<string>()
+  const step = Math.max(tol / 2, 0.5)
+  const hit = (x: number, y: number) => {
+    const i = hitItem(ix, x, y, tol, ignore)
+    const el = i < 0 ? null : page.items[i].el
+    if (el !== null && !seen.has(el)) {
+      seen.add(el)
+      out.push(el)
+    }
+  }
+  for (let k = 0; k < pts.length; k++) {
+    const a = pts[k]
+    const b = pts[k + 1]
+    if (!b) {
+      hit(a.x, a.y)
+      break
+    }
+    const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / step))
+    for (let j = 0; j < n; j++) hit(a.x + ((b.x - a.x) * j) / n, a.y + ((b.y - a.y) * j) / n)
+  }
+  return out
 }
 
 // ───────────── store ─────────────
