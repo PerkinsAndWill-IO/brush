@@ -14,7 +14,7 @@
  * `unknown` items so they can still be targeted by id. Pure: no DOM.
  */
 import type { ContextItem, ContextItemKind, Point, Sheet, SheetContext } from '../types'
-import type { DrawItem, DrawingDocument, DrawingElement, DrawingPage } from '../drawing'
+import type { DrawItem, DrawingDocument, DrawingElement, DrawingPage, ViewType } from '../drawing'
 import { DEFAULT_PALETTE } from './palette'
 import type { DoorFamilyDef, FurnitureFamilyDef, TypePalette, WallTypeDef } from './package-format'
 import { parseScaleText, ptPerMetre } from './scale'
@@ -226,8 +226,25 @@ function groupsOf(page: DrawingPage): Group[] {
   return [...map.values()]
 }
 
+/** What a file's own view type says about a page; types not listed (ceiling, rendering, other) fall back to the title words. */
+const VIEW_SHEET_TYPE: Partial<Record<ViewType, SheetType>> = {
+  plan: 'plan',
+  'structural-plan': 'plan',
+  'area-plan': 'plan',
+  elevation: 'elevation',
+  section: 'section',
+  detail: 'detail',
+  axon: 'axonometric',
+  perspective: 'axonometric',
+  drafting: 'other',
+  legend: 'other',
+  schedule: 'other',
+}
+
 /** Sheet type of a page from its number and name (the title-block words the PDF path reads). */
 export function drawingPageType(page: DrawingPage): SheetType {
+  const byView = page.viewType && VIEW_SHEET_TYPE[page.viewType]
+  if (byView) return byView
   if (page.kind === 'view' && /\{?3D\}?|axonom|isometr|perspect/i.test(page.name)) return 'axonometric'
   return classifySheet({ number: page.number ?? undefined, name: page.name }).sheetType
 }

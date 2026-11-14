@@ -2,8 +2,8 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { gunzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
-import { contextFromDrawing, furnitureSymbolsFromDrawing, paletteFromDrawing, roomAt, sheetInfo, sheetsFromDrawing, wallStylesFromDrawing } from '../../../src/core/context'
-import { isDrawingPayload, parseDrawingPayload, parseLegacyDrawingPayload } from '../../../src/core/drawing'
+import { contextFromDrawing, drawingPageType, furnitureSymbolsFromDrawing, paletteFromDrawing, roomAt, sheetInfo, sheetsFromDrawing, wallStylesFromDrawing } from '../../../src/core/context'
+import { type DrawingPage, isDrawingPayload, parseDrawingPayload, parseLegacyDrawingPayload } from '../../../src/core/drawing'
 import { BlobBuffer, buildPayload } from '../drawing/builder-legacy'
 
 /** Rectangle outline as a closed path blob (feet). */
@@ -197,5 +197,19 @@ describe('M2 scale from wall lengths written in metres', () => {
     const styles = wallStylesFromDrawing(doc)
     expect(walls.filter((w) => styles.has(w.name)).length).toBeGreaterThan(10)
     expect(styles.get('MUR_BA 30cm')!.thicknessMm).toBeCloseTo(300, -1)
+  })
+})
+
+describe('drawing page view type', () => {
+  const page = (name: string, viewType?: 'plan' | 'section' | 'ceiling'): DrawingPage => ({
+    id: '1', kind: 'view', number: null, name, scale: null, sizePt: { w: 10, h: 10 }, items: [], ...(viewType ? { viewType } : {}),
+  })
+  it('the file view type decides the sheet type over the title words', () => {
+    expect(drawingPageType(page('Level 1', 'section'))).toBe('section')
+    expect(drawingPageType(page('Section A', 'plan'))).toBe('plan')
+  })
+  it('a type the table does not cover, or none, falls back to the title words', () => {
+    expect(drawingPageType(page('Level 1 Elevation', 'ceiling'))).toBe('elevation')
+    expect(drawingPageType(page('Level 1 Elevation'))).toBe('elevation')
   })
 })
