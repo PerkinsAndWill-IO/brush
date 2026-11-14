@@ -31,7 +31,7 @@ export async function POST(request: Request): Promise<Response> {
   if (!token) return json(500, 'AI Gateway credentials are not configured')
 
   const raw = await request.text()
-  if (raw.length > MAX_BODY_BYTES) return json(413, 'request too large')
+  if (new TextEncoder().encode(raw).length > MAX_BODY_BYTES) return json(413, 'request too large')
 
   // Defense in depth: only the app's own pages may call this (browsers always send these on
   // cross-origin requests). Real access control is Vercel Deployment Protection on the deployment.
@@ -47,8 +47,12 @@ export async function POST(request: Request): Promise<Response> {
     return json(400, 'invalid JSON')
   }
   if (typeof body.model !== 'string' || !ALLOWED_MODELS.has(body.model)) return json(400, 'model not allowed')
-  if (typeof body.max_tokens !== 'number' || body.max_tokens > MAX_TOKENS) return json(400, `max_tokens must be <= ${MAX_TOKENS}`)
+  const mt = body.max_tokens
+  if (typeof mt !== 'number' || !Number.isInteger(mt) || mt < 1 || mt > MAX_TOKENS) return json(400, `max_tokens must be an integer in 1..${MAX_TOKENS}`)
   if (!Array.isArray(body.messages)) return json(400, 'messages required')
+  // Only plain client tools (the second pass's 'decide' tool); no server tools (web search, code execution...).
+  if (body.tools !== undefined && (!Array.isArray(body.tools) || body.tools.some((t) => typeof t !== 'object' || t === null || ((t as { type?: unknown }).type !== undefined && (t as { type?: unknown }).type !== 'custom'))))
+    return json(400, 'only custom tools are allowed')
 
   // Forward only the fields the second pass uses (no streaming, no extra options).
   const forwarded: Record<string, unknown> = {}
