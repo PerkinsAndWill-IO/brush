@@ -24,6 +24,7 @@ import { resolveAnswer } from '@core/rescore'
 import { closestPointOnPolyline, snapPoint } from '@core/geometry'
 import { commandFromDecision } from '@core/commands'
 import { StrokeSession, buildContextPacket, chipsFor, prepareContext } from '@core/predict'
+import { withSessionElements } from '@core/context'
 import { nextCommandId } from '../board/history'
 import { registerBrushEngine, type BrushEngine } from '../engine'
 import { pushMetric } from '../metrics'
@@ -185,7 +186,29 @@ function joinable(prev: Current | null, stroke: Readonly<Stroke>, sheet: Sheet, 
   const ids = [...prev.members, prev.stroke.id]
   const ink = getSession().strokes.filter((s) => ids.includes(s.id))
   if (ink.length !== ids.length) return false // a member was undone or erased
-  return ink.some((s) => closestPointOnPolyline(start, s.points).distance <= GESTURE.distPt)
+  if (!ink.some((s) => closestPointOnPolyline(start, s.points).distance <= GESTURE.distPt)) return false
+  return !startsOnPendingWall(prev, start)
+}
+
+/**
+ * C1: a confident wall waiting for its commit pause, and a new stroke that starts on its body rather than at one of
+ * its ends: that is the next element (a door on the new wall), not more of the wall. The wall is committed first
+ * (settlePrevious), so the new stroke sees it as context. A stroke that starts at an end still joins (a wall drawn
+ * in two strokes).
+ */
+function startsOnPendingWall(prev: Current, start: StrokePoint): boolean {
+  const h = prev.applied ?? prev.session.current
+  if (!h || h.kind !== 'wall' || chipsFor(h, prev.settings).length || h.confidence < prev.settings.chipHigh) return false
+  const pts = prev.session.stroke.points
+  if (pts.length < 2) return false
+  const end = Math.min(Math.hypot(start.x - pts[0].x, start.y - pts[0].y), Math.hypot(start.x - pts[pts.length - 1].x, start.y - pts[pts.length - 1].y))
+  return end > GESTURE.distPt / 2
+}
+
+/** The sheet's context with this session's own elements laid over it (C1, core/context withSessionElements). */
+export function sessionContext(sheetId: string): SheetContext {
+  const s = getSession()
+  return withSessionElements(contextNow(sheetId) ?? emptyContext(sheetId), s.commands, { palette: getDocState().source?.palette, skipStrokes: s.hidden })
 }
 
 export const predictEngine: BrushEngine = {
@@ -201,9 +224,10 @@ export const predictEngine: BrushEngine = {
       return
     }
     const settings = { ...getSession().settings }
-    const ctx = contextNow(sheet.id) ?? emptyContext(sheet.id)
-    const history = getSession().accepted
     const palette = getDocState().source?.palette
+    // C1: walls sketched earlier in this session are context too, so a door drawn on one is hosted in it
+    const ctx = sessionContext(sheet.id)
+    const history = getSession().accepted
     let c: Current
     if (join) {
       // continue the previous gesture's time line: its points, the pause, then this stroke
