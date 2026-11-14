@@ -8,6 +8,7 @@ import { Board } from './board/Board'
 import { installBrain } from './brain'
 import { registerSheetOverlay } from './board/SheetView'
 import { MeasureOverlay } from './board/viewAidLayers'
+import { InspectOverlay } from './drawing/InspectLayers'
 import { useView } from './view'
 import { getPlatform } from './platform'
 import { fileToOpened } from './platform/browser'
@@ -19,6 +20,7 @@ import { isPhotoFile, photoImport, PhotoImportDialog } from './photo/PhotoImport
 
 installBrain()
 registerSheetOverlay(MeasureOverlay) // above the brain overlays
+registerSheetOverlay(InspectOverlay) // element highlight (V3), on top
 
 const TldrawSmoke = lazy(() => import('./dev/TldrawSmoke'))
 

@@ -314,3 +314,37 @@ button.pen-chip:hover { border-color: var(--accent); }
 .modal .ink-list .swatch { width: 12px; height: 12px; border-radius: 50%; border: 1px solid var(--line); display: block; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .modal-actions .btn.soft { background: #fff; border: 1px solid var(--line-soft); }
+
+/* ───────────── inspect (V3): element highlight in the logo's coral (the orange-on-blue logo variant) ───────────── */
+:root { --highlight: #d9583f; --highlight-soft: rgba(217, 88, 63, 0.28); }
+.inspect-hl { pointer-events: none; }
+.inspect-hl .halo { fill: none; stroke: var(--highlight-soft); stroke-linecap: round; stroke-linejoin: round; }
+.inspect-hl .line { fill: none; stroke: var(--highlight); stroke-linecap: round; stroke-linejoin: round; }
+.inspect-hl .fill { fill: var(--highlight-soft); stroke: none; }
+.inspect-hl .box { fill: rgba(217, 88, 63, 0.14); stroke: var(--highlight); }
+
+.sidebar.left.wide { width: 280px; }
+.element-section { padding: 0 0 6px; }
+.inspect-panel .prop-title { display: flex; align-items: center; gap: 8px; padding: 10px 12px 8px; }
+.inspect-panel .titles { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.inspect-panel .prop-title .name { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.inspect-panel .prop-title .sub { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.inspect-panel.empty .prop-title .name { color: var(--faint); font-weight: 500; }
+.inspect-panel.pinned .prop-title .name { color: var(--highlight); }
+.inspect-panel .state { color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; }
+.inspect-panel .icon-btn { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
+.inspect-panel .icon-btn:hover { background: var(--tool-selected); color: var(--text); }
+.inspect-panel .hint { margin: 0; padding: 2px 12px 8px; }
+.prop-list { font-size: 12px; }
+.prop-group-head { display: flex; align-items: center; gap: 6px; width: 100%; height: 26px; padding: 0 12px 0 8px; border: 0; border-top: 1px solid var(--line-soft); background: var(--bg); color: var(--text); font-weight: 600; text-align: left; cursor: pointer; }
+.prop-group-head svg { color: var(--muted); }
+.prop-group-head .t { flex: 1; }
+.prop-group-head .n { color: var(--faint); font-weight: 400; font-size: 11px; font-family: var(--mono); }
+.prop-row { display: grid; grid-template-columns: minmax(0, 44%) minmax(0, 1fr); gap: 10px; align-items: baseline; width: 100%; min-height: 22px; padding: 3px 12px; line-height: 16px; border: 0; background: transparent; font: inherit; text-align: left; }
+.prop-row:hover { background: var(--capsule); }
+.prop-row .k { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prop-row .v { color: var(--text); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prop-row .unit { color: var(--faint); font-weight: 400; }
+.prop-row.link { cursor: pointer; }
+.prop-row.link .k { color: var(--accent); }
+.prop-row.link:hover { background: var(--tool-selected); }
