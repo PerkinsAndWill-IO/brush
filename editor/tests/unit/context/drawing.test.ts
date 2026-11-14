@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { gunzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
-import { contextFromDrawing, paletteFromDrawing, roomAt, sheetInfo, sheetsFromDrawing } from '../../../src/core/context'
+import { contextFromDrawing, furnitureSymbolsFromDrawing, paletteFromDrawing, roomAt, sheetInfo, sheetsFromDrawing } from '../../../src/core/context'
 import { parseDrawingPayload } from '../../../src/core/drawing'
 import { BlobBuffer, buildPayload } from '../drawing/builder'
 
@@ -120,5 +120,26 @@ describe('M5-09 context from a .drawing (decision 0008)', () => {
     expect(count('opening')).toBeGreaterThan(20)
     expect(ctx.items.filter((i) => i.props?.role === 'room').length).toBeGreaterThan(10)
     expect(ctx.items.filter((i) => i.kind === 'opening' && i.props?.hostWall).length).toBeGreaterThan(20)
+  })
+})
+
+describe('M5 furniture symbols from a .drawing', () => {
+  const house = resolve(__dirname, '../../../../schema/public/examples/house.drawing')
+  it.skipIf(!existsSync(house))('M3-03: every furniture type on the plan has its own symbol, normalised to its box', () => {
+    const doc = parseDrawingPayload(new Uint8Array(gunzipSync(readFileSync(house))))
+    const syms = furnitureSymbolsFromDrawing(doc)
+    for (const f of paletteFromDrawing(doc).furniture) expect(syms.has(f.name)).toBe(true)
+    const bar = syms.get('Bar Chair')!
+    expect(bar.lines.length).toBeGreaterThan(10)
+    expect(bar.widthPt).toBeCloseTo(bar.depthPt, 0)
+    for (const l of bar.lines) for (const p of l.pts) expect(Math.max(Math.abs(p.x), Math.abs(p.y))).toBeLessThanOrEqual(0.5 + 1e-3)
+  })
+
+  it('M3-03: the desk of the built fixture becomes a symbol with its outline', () => {
+    const syms = furnitureSymbolsFromDrawing(fixture())
+    const desk = syms.get('Desk 1400x500')!
+    expect(desk.lines).toHaveLength(1)
+    expect(desk.lines[0].closed).toBe(true)
+    expect(desk.widthPt / desk.depthPt).toBeCloseTo(2.5, 1)
   })
 })
