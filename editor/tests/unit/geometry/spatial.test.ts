@@ -118,6 +118,15 @@ describe('snapPoint', () => {
     expect(s.point).toEqual({ x: 0, y: 100 })
   })
 
+  it('a point on the wall line just short of a corner snaps to the corner, not the line', () => {
+    const s = snapPoint({ x: 146, y: 100 }, idx, { radius: 8 })
+    expect(s.kind).toBe('intersection')
+    expect(s.point).toEqual({ x: 150, y: 100 })
+    const e = snapPoint({ x: 4, y: 100 }, idx, { radius: 8 })
+    expect(e.kind).toBe('endpoint')
+    expect(e.point).toEqual({ x: 0, y: 100 })
+  })
+
   it('snaps onto a wall centerline and a grid line', () => {
     const w = snapPoint({ x: 70, y: 104 }, idx)
     expect(w.kind).toBe('on-wall')

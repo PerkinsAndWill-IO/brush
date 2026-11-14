@@ -106,6 +106,9 @@ export function snapPoint(point: Point, index: SpatialIndex, opts: SnapOptions =
       best = { point: { ...c.p }, kind: c.v.kind, itemIds: c.v.ids.slice(), distance: c.distance }
     }
   }
+  // Point targets (intersections, endpoints) strictly win over the line fallback:
+  // a stroke end a few points short of a corner along a wall must land ON the corner.
+  if (best) return best
   for (const h of index.itemsNear(point, radius, (it) => kinds.includes(it.kind))) {
     const cost = (h.distance * FACTOR.line) / weight(h.item.confidence)
     if (cost < bestCost) {

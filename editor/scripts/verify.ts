@@ -21,7 +21,8 @@ function readMetrics(file: string): Record<string, number> {
   return out
 }
 
-const data = { perf: readMetrics('perf.json'), eval: readMetrics('eval.json') }
+// perf-context.json (written by the context unit tests) supplies snapDecisionMs; perf.json (in-app, e2e) wins on overlap.
+const data = { perf: { ...readMetrics('perf-context.json'), ...readMetrics('perf.json') }, eval: readMetrics('eval.json') }
 
 type Row = { id: string; measure: string; budget: string; measured: string; status: 'pass' | 'FAIL' | string }
 const rows: Row[] = BUDGETS.map((b) => {

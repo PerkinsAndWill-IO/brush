@@ -60,6 +60,8 @@ export function findWallPairs(segs: Seg[], pool: number[], lo: number, hi: numbe
       if (j <= i) continue
       const t = segs[j]
       if (angleDiff(s.ang, t.ang) > ANG_TOL) continue
+      // a heavy stroke next to a thin line is a wall (thick run) beside a door leaf or symbol, not a pair
+      if (Math.max(s.lw, t.lw) >= 1.5 && Math.max(s.lw, t.lw) > 2 * Math.min(s.lw, t.lw)) continue
       let t0 = (t.ax - s.ax) * s.ux + (t.ay - s.ay) * s.uy
       let o0 = (t.ax - s.ax) * nx + (t.ay - s.ay) * ny
       let t1 = (t.bx - s.ax) * s.ux + (t.by - s.ay) * s.uy
@@ -363,4 +365,87 @@ function matchArc(arcs: Point[][], e1: Point, e2: Point, gap: number): Point | u
     }
   }
   return undefined
+}
+
+/**
+ * Door swing arcs whose leaf lies in a wall line but whose two sides are not a single clean gap
+ * (e.g. two doors share one stub between them). The hinge is the arc centre; the opening runs from
+ * the hinge to the arc end that lies along a wall. Needs a wall run ending near the opening.
+ */
+export function findArcOpenings(runs: WallRun[], arcs: Point[][], known: OpeningHit[], gapMin: number, gapMax: number): OpeningHit[] {
+  const hits: OpeningHit[] = []
+  const lens = runs.map((r) => hyp(r.bx - r.ax, r.by - r.ay))
+  for (const arc of arcs) {
+    if (arc.length < 4) continue
+    const P = arc[0]
+    const Q = arc[arc.length - 1]
+    const d = hyp(Q.x - P.x, Q.y - P.y)
+    const r = d / Math.SQRT2
+    if (r < gapMin || r > gapMax) continue
+    const mid = arc[Math.floor(arc.length / 2)]
+    const M = { x: (P.x + Q.x) / 2, y: (P.y + Q.y) / 2 }
+    const nx = -(Q.y - P.y) / d
+    const ny = (Q.x - P.x) / d
+    for (const sgn of [1, -1]) {
+      const c = { x: M.x + (sgn * nx * d) / 2, y: M.y + (sgn * ny * d) / 2 }
+      if (Math.abs(hyp(mid.x - c.x, mid.y - c.y) - r) > 0.12 * r) continue
+      if (known.some((k) => hyp(k.hinge.x - c.x, k.hinge.y - c.y) <= 3)) continue
+      for (const E of [P, Q]) {
+        const sx = E.x - c.x
+        const sy = E.y - c.y
+        const sl = hyp(sx, sy)
+        if (sl < 1e-9) continue
+        const sAng = undirectedAngle(sx, sy)
+        let hostE = -1
+        let hostC = -1
+        let bestE = Infinity
+        let bestC = Infinity
+        let blocked = false
+        for (let i = 0; i < runs.length; i++) {
+          const w = runs[i]
+          if (lens[i] < 1e-9) continue
+          if (angleDiff(sAng, undirectedAngle(w.bx - w.ax, w.by - w.ay)) > 0.06) continue
+          const tol = w.thick / 2 + 3
+          const dc = distLine(c, w)
+          const de = distLine(E, w)
+          if (dc > tol || de > tol) continue
+          // the swept segment must be open: its midpoint is not on the run
+          const m = { x: (c.x + E.x) / 2, y: (c.y + E.y) / 2 }
+          if (distPointSeg(m.x, m.y, w.ax, w.ay, w.bx, w.by) <= tol) blocked = true
+          for (const [pt, kind] of [
+            [E, 0],
+            [c, 1],
+          ] as const) {
+            const de2 = Math.min(hyp(pt.x - w.ax, pt.y - w.ay), hyp(pt.x - w.bx, pt.y - w.by))
+            if (kind === 0 && de2 < bestE) {
+              bestE = de2
+              hostE = i
+            }
+            if (kind === 1 && de2 < bestC) {
+              bestC = de2
+              hostC = i
+            }
+          }
+        }
+        if (blocked) continue
+        const lim = 0.5 * r + 6
+        const okE = hostE >= 0 && bestE <= lim
+        const okC = hostC >= 0 && bestC <= lim
+        if (!okE && !okC) continue
+        const mx = (c.x + E.x) / 2
+        const my = (c.y + E.y) / 2
+        if ([...known, ...hits].some((k) => hyp((k.a.x + k.b.x) / 2 - mx, (k.a.y + k.b.y) / 2 - my) < 0.5 * sl)) continue
+        const hA = okE ? hostE : hostC
+        const hB = okC ? hostC : hostE
+        hits.push({ a: c, b: { x: E.x, y: E.y }, widthPt: sl, hostA: hA, hostB: hB, hinge: c })
+        break
+      }
+    }
+  }
+  return hits
+}
+
+function distLine(p: Point, w: WallRun): number {
+  const l = hyp(w.bx - w.ax, w.by - w.ay)
+  return Math.abs((p.x - w.ax) * -(w.by - w.ay) + (p.y - w.ay) * (w.bx - w.ax)) / l
 }

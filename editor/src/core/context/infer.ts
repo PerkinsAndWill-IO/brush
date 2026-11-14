@@ -1,8 +1,8 @@
-import type { ContextItem, Path, Point, RawPageContent, RawText, SheetContext } from '../types'
+import type { ContextItem, Path, Point, RawPageContent, RawPath, RawText, SheetContext } from '../types'
 import { hyp, pointInPolygon, bboxOf } from './internal/math'
 import { classifyPath, type PathInfo } from './internal/shapes'
-import { findDimensions, findHatch, makeSeg, type Seg } from './internal/segments'
-import { findOpenings, findWallPairs, mergeCollinear, snapCorners, type WallRun } from './internal/walls'
+import { findDimensions, findHatch, findLadders, makeSeg, type Seg } from './internal/segments'
+import { findArcOpenings, findOpenings, findWallPairs, mergeCollinear, snapCorners, type WallRun } from './internal/walls'
 import { buildRooms } from './rooms'
 import { findScale, ptPerMetre } from './scale'
 import { isGridLabel, isNumericDim, isRoomLabel } from './text'
@@ -77,6 +77,7 @@ export function inferContext(raw: RawPageContent, opts: InferOptions = {}): Shee
   const arcs: Point[][] = []
   const pocheRuns: WallRun[] = []
   const segs: Seg[] = []
+  const thinOutlines: number[] = []
   for (let pi = 0; pi < raw.paths.length; pi++) {
     const p = raw.paths[pi]
     const info = infos[pi]
@@ -116,6 +117,8 @@ export function inferContext(raw: RawPageContent, opts: InferOptions = {}): Shee
       }
     }
     if (!p.stroked) continue
+    // an isolated thin closed rectangle outline (cabinet, partition stall) is a fixture, not a wall
+    if (info.kind === 'rect' && info.closed && !p.filled && isThinOutline(info, wallLo, wallHi)) thinOutlines.push(pi)
     const pts = info.pts
     const dashed = !!p.dash && p.dash.length > 0 && p.dash.some((d) => d > 0)
     const n = pts.length
@@ -139,7 +142,12 @@ export function inferContext(raw: RawPageContent, opts: InferOptions = {}): Shee
 
   // ---- reject hatches and dimension lines ----
   const hatch = findHatch(segs, solid)
-  const dimPool = solid.filter((i) => !hatch[i])
+  const ladders = findLadders(segs, solid)
+  // thin closed outlines (cabinet, partition stall, stair rail) that nothing but a ladder touches are fixtures
+  const ladderSrc = new Set<number>()
+  for (const i of solid) if (ladders[i]) ladderSrc.add(segs[i].src)
+  const notWall = new Set<number>(thinOutlines.filter((pi) => !touchedByOthers(infos[pi], raw.paths, pi, ladderSrc)))
+  const dimPool = solid.filter((i) => !hatch[i] && !ladders[i] && !notWall.has(segs[i].src))
   const dims = findDimensions(segs, dimPool, raw.texts)
   const wallPool = dimPool.filter((i) => !dims.mask[i] && segs[i].len >= T.minSegLenPt)
 
@@ -194,6 +202,7 @@ export function inferContext(raw: RawPageContent, opts: InferOptions = {}): Shee
   const gapMin = T.doorWidthM[0] * ppm
   const gapMax = T.doorWidthM[1] * ppm
   const hits = findOpenings(runs, arcs, gapMin, gapMax)
+  hits.push(...findArcOpenings(runs, arcs, hits, gapMin, gapMax))
   hits.sort((a, b) => cmpPos(a.a.x + a.b.x, a.a.y + a.b.y, b.a.x + b.b.x, b.a.y + b.b.y))
   const openingItems: ContextItem[] = hits.map((h, i) => ({
     id: `opening-${i + 1}`,
@@ -406,6 +415,24 @@ export function inferContext(raw: RawPageContent, opts: InferOptions = {}): Shee
   const ctx: SheetContext = { sheetId: raw.sheetId, origin: 'inferred', items }
   if (scale !== undefined) ctx.scale = scale
   return ctx
+}
+
+/** Thin closed rect outline (candidate fixture). */
+function isThinOutline(info: PathInfo, lo: number, hi: number): boolean {
+  const thin = Math.min(info.w!, info.h!)
+  const long = Math.max(info.w!, info.h!)
+  return thin >= lo && thin <= hi && long >= 3 * thin
+}
+
+/** True if another path (not in `ignore`) starts or ends on a corner of the rectangle. */
+function touchedByOthers(info: PathInfo, paths: RawPath[], self: number, ignore: Set<number>): boolean {
+  for (let k = 0; k < paths.length; k++) {
+    if (k === self || ignore.has(k)) continue
+    const q = paths[k].points
+    if (q.length < 2) continue
+    for (const e of [q[0], q[q.length - 1]]) for (const c of info.pts) if (Math.abs(e.x - c.x) <= 2 && Math.abs(e.y - c.y) <= 2) return true
+  }
+  return false
 }
 
 function round3(n: number): number {
