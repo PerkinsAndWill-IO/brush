@@ -14,7 +14,6 @@ import {
 
 export const DRAWING_VERSION = 1;
 const MAGIC = [0x44, 0x52, 0x41, 0x57, 0x49, 0x4e, 0x47, 0x00]; // "DRAWING\0"
-const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const PREAMBLE = 16; // magic (8) + version (4) + header length (4)
 const LITTLE_ENDIAN_HOST = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
 
@@ -103,12 +102,9 @@ class Blobs {
       points: (v, what) => this.floats(v, what, 2),
       segments: (v, what) => this.floats(v, what, 4),
       png: (v, what) => {
+        // Not checked for a PNG signature: an image the browser cannot decode is not drawn, and does not stop the page loading.
         const [off, len] = this.ref(v, what, 1);
-        const abs = this.start + off;
-        if (len < PNG_SIGNATURE.length || PNG_SIGNATURE.some((b, k) => this.payload[abs + k] !== b)) {
-          throw new DrawingError(`${what}: blob is not a PNG image`);
-        }
-        return this.payload.subarray(abs, abs + len);
+        return this.payload.subarray(this.start + off, this.start + off + len);
       },
     };
   }

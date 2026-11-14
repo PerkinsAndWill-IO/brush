@@ -146,11 +146,12 @@ describe("parseDrawing errors", () => {
     expect(() => parsePayload(buildPayload(header, buf.bytes()))).toThrow(/coordinate 2 is not a finite number/);
   });
 
-  it("rejects an image blob that is not a PNG", () => {
+  it("keeps an image blob that is not a PNG, leaving the browser to skip it", () => {
     const buf = new BlobBuffer();
-    const png = buf.add(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9]));
+    const png = buf.add(new Uint8Array([1, 2, 3]));
     const header = { format: "drawing", version: 1, pages: [{ id: 1, kind: "view", name: "v", min: [0, 0], max: [1, 1], items: [{ t: "image", min: [0, 0], max: [1, 1], png }] }] };
-    expect(() => parsePayload(buildPayload(header, buf.bytes()))).toThrow(/not a PNG/);
+    const image = parsePayload(buildPayload(header, buf.bytes())).pages[0].scene.items[0];
+    expect(image.t === "image" && Array.from(image.png)).toEqual([1, 2, 3]);
   });
 
   it("rejects a page of an unknown kind or without area", () => {

@@ -63,13 +63,13 @@ The item types and fields of the scene contract (`path`, `segs`, `fill`, `text`,
 | `path` | `pts` | `f32` x,y per point (length a multiple of 8) |
 | `segs` | `segs` | `f32` x0,y0,x1,y1 per segment (length a multiple of 16) |
 | `fill` | `rings` | a list of blob references, one `f32` x,y list per ring (even-odd over all rings) |
-| `image` | `png` | PNG file bytes |
+| `image` | `png` | PNG file bytes (an image the browser cannot decode is skipped when drawing) |
 
 `text` items are unchanged. Every coordinate must be finite.
 
 ## Reading rules the viewer enforces
 
 Bad magic, a version other than 1, a header that overruns the file, a header that is not UTF-8 JSON of the right shape, a
-blob outside the buffer, a blob offset that is not a multiple of 4, a coordinate blob of the wrong length or with a
-non-finite value, and an image blob that is not a PNG each stop the load with a message that names the page, the item and
+blob outside the buffer, a blob offset that is not a multiple of 4, and a coordinate blob of the wrong length or with a
+non-finite value each stop the load with a message that names the page, the item and
 the field.
