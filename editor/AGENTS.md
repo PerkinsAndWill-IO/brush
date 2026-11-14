@@ -5,6 +5,8 @@ belong to other teams; do not edit them from an Editor task. **Run every command
 
 The spec is `docs/spec.md`. Shared contracts are `src/core/types/index.ts` (frozen).
 
+**Target: web app first** (decision 0007). The product for the hackathon is the web app (`pnpm dev`, deployed to Vercel). The Tauri shell is parked: never add Tauri-only behavior; everything goes through the `platform` adapter's browser path.
+
 ## Rules
 
 1. **Work from a task file** in `docs/tasks/`. If a task has no acceptance test, write the test first, and stop for review if the requirement is unclear.
@@ -26,7 +28,7 @@ The spec is `docs/spec.md`. Shared contracts are `src/core/types/index.ts` (froz
 | `pnpm e2e` | Playwright on Chromium (`tests/e2e/**`), screenshots to `reports/screens` | a few minutes |
 | `pnpm eval` | Replays `fixtures/strokes/**` through `core/predict`, writes `reports/eval.json` | under 1 min |
 | `pnpm verify` | check + e2e + eval + budget gates (`scripts/verify.ts`). **Definition of done.** | under 5 min |
-| `pnpm app` | Runs the Tauri shell (`tauri dev`), for humans | n/a |
+| `pnpm app` | Runs the Tauri shell (`tauri dev`). **Parked** (decision 0007): not part of verify or the demo | n/a |
 
 Sub-steps: `pnpm typecheck`, `pnpm lint`, `pnpm test:unit`, `pnpm budgets` (gates only, reads existing reports).
 First-time setup: `pnpm install` then `pnpm exec playwright install chromium`.
@@ -69,7 +71,8 @@ First-time setup: `pnpm install` then `pnpm exec playwright install chromium`.
 ```text
 src/core/      pure TS: types, geometry, stroke, context, predict, commands
 src/app/       React UI, pdf.js wrapper (pdf/), platform adapter (platform/), test API (testApi.ts)
-src-tauri/     Tauri 2 shell: window, dialog + fs plugins, file drop. No app logic.
+src-tauri/     Tauri 2 shell, PARKED (decision 0007). Keep it compiling-in-principle; don't spend time on it.
+api/           Vercel Functions. api/ai-gateway.ts = server-side proxy for the hosted second pass.
 fixtures/      pdfs/, strokes/, contexts/ (optional precomputed SheetContext for eval), cassettes/
 tests/unit/    Vitest, core only        tests/e2e/   Playwright        tests/eval/  run-eval.ts
 reports/       generated, not committed: screens/, eval.json, perf.json, budgets.json

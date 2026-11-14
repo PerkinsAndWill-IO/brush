@@ -46,14 +46,15 @@ function serveFixtures(): Plugin {
 // Tauri expects a fixed port; tests override with --port.
 export default defineConfig(({ mode }) => {
   // The AI Gateway key stays on the dev server (no VITE_ prefix => never in the bundle).
-  // The app's hosted second pass targets /ai-gateway in dev; the proxy adds the key.
+  // The app's hosted second pass targets /api/ai-gateway; in dev this proxy adds the key,
+  // in production the Vercel Function api/ai-gateway.ts does.
   const gatewayKey = loadEnv(mode, root, '').VERCEL_AI_GATEWAY_API_KEY
   const proxy = gatewayKey
     ? {
-        '/ai-gateway': {
+        '/api/ai-gateway': {
           target: 'https://ai-gateway.vercel.sh',
           changeOrigin: true,
-          rewrite: (p: string) => p.replace(/^\/ai-gateway/, ''),
+          rewrite: (p: string) => p.replace(/^\/api\/ai-gateway/, ''),
           headers: { 'x-api-key': gatewayKey },
         },
       }

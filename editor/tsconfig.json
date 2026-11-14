@@ -16,5 +16,5 @@
     "baseUrl": ".",
     "paths": { "@core/*": ["src/core/*"], "@app/*": ["src/app/*"] }
   },
-  "include": ["src", "tests", "scripts", "*.config.ts"]
+  "include": ["src", "tests", "scripts", "api", "*.config.ts"]
 }
