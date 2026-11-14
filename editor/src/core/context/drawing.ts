@@ -69,17 +69,15 @@ function isAnnotation(e: DrawingElement | undefined): boolean {
 
 const r2 = (n: number) => Math.round(n * 100) / 100
 
-function pointsOf(items: DrawItem[]): Point[] {
-  const out: Point[] = []
-  const push = (xy: Float32Array) => {
-    for (let k = 0; k + 1 < xy.length; k += 2) out.push({ x: xy[k], y: xy[k + 1] })
-  }
+/** Flat x,y arrays of the items' drawn points (stroke and ring arrays as they are; an image as its two corners). */
+function xyArraysOf(items: DrawItem[]): ArrayLike<number>[] {
+  const out: ArrayLike<number>[] = []
   for (const it of items) {
-    if (it.t === 'path' || it.t === 'segs') push(it.xy)
-    else if (it.t === 'fill') it.rings.forEach(push)
+    if (it.t === 'path' || it.t === 'segs') out.push(it.xy)
+    else if (it.t === 'fill') for (const r of it.rings) out.push(r)
     else if (it.t === 'image') {
       const { x, y, w, h } = it.rect
-      out.push({ x, y }, { x: x + w, y: y + h })
+      out.push([x, y, x + w, y + h])
     }
   }
   return out
@@ -96,25 +94,32 @@ export interface OrientedBox {
   maxV: number
 }
 
-export function orientedBox(pts: Point[]): OrientedBox | null {
-  if (pts.length === 0) return null
+/** The box of x,y pairs held in flat arrays (no per-point objects; large groups hold millions of points). */
+function boxOfArrays(arrays: ArrayLike<number>[]): OrientedBox | null {
+  let count = 0
   let cx = 0
   let cy = 0
-  for (const p of pts) {
-    cx += p.x
-    cy += p.y
+  for (const xy of arrays) {
+    for (let k = 0; k + 1 < xy.length; k += 2) {
+      cx += xy[k]
+      cy += xy[k + 1]
+      count++
+    }
   }
-  cx /= pts.length
-  cy /= pts.length
+  if (count === 0) return null
+  cx /= count
+  cy /= count
   let sxx = 0
   let syy = 0
   let sxy = 0
-  for (const p of pts) {
-    const dx = p.x - cx
-    const dy = p.y - cy
-    sxx += dx * dx
-    syy += dy * dy
-    sxy += dx * dy
+  for (const xy of arrays) {
+    for (let k = 0; k + 1 < xy.length; k += 2) {
+      const dx = xy[k] - cx
+      const dy = xy[k + 1] - cy
+      sxx += dx * dx
+      syy += dy * dy
+      sxy += dx * dy
+    }
   }
   const a = 0.5 * Math.atan2(2 * sxy, sxx - syy)
   const u = { x: Math.cos(a), y: Math.sin(a) }
@@ -123,15 +128,28 @@ export function orientedBox(pts: Point[]): OrientedBox | null {
   let maxU = -Infinity
   let minV = Infinity
   let maxV = -Infinity
-  for (const p of pts) {
-    const du = (p.x - cx) * u.x + (p.y - cy) * u.y
-    const dv = (p.x - cx) * v.x + (p.y - cy) * v.y
-    minU = Math.min(minU, du)
-    maxU = Math.max(maxU, du)
-    minV = Math.min(minV, dv)
-    maxV = Math.max(maxV, dv)
+  for (const xy of arrays) {
+    for (let k = 0; k + 1 < xy.length; k += 2) {
+      const dx = xy[k] - cx
+      const dy = xy[k + 1] - cy
+      const du = dx * u.x + dy * u.y
+      const dv = dx * v.x + dy * v.y
+      if (du < minU) minU = du
+      if (du > maxU) maxU = du
+      if (dv < minV) minV = dv
+      if (dv > maxV) maxV = dv
+    }
   }
   return { c: { x: cx, y: cy }, u, v, minU, maxU, minV, maxV }
+}
+
+export function orientedBox(pts: Point[]): OrientedBox | null {
+  const xy = new Float64Array(pts.length * 2)
+  pts.forEach((p, i) => {
+    xy[2 * i] = p.x
+    xy[2 * i + 1] = p.y
+  })
+  return boxOfArrays([xy])
 }
 
 const at = (b: OrientedBox, du: number, dv: number): Point => ({ x: r2(b.c.x + b.u.x * du + b.v.x * dv), y: r2(b.c.y + b.u.y * du + b.v.y * dv) })
@@ -181,7 +199,7 @@ function estimateViewScales(groups: Group[], elements: Record<string, DrawingEle
     const e = elements[g.el]
     if (categoryOf(e) !== 'Walls') continue
     const mm = parseFloat(param(e, 'CURVE_ELEM_LENGTH') ?? '')
-    const b = orientedBox(pointsOf(g.items))
+    const b = boxOf(g)
     if (!b || !(mm > 0)) continue
     const lenPt = b.maxU - b.minU
     const thick = b.maxV - b.minV
@@ -204,6 +222,54 @@ function estimateViewScales(groups: Group[], elements: Record<string, DrawingEle
   return out
 }
 
+/** Axis-aligned extent. */
+interface Zone {
+  minX: number
+  maxX: number
+  minY: number
+  maxY: number
+}
+
+function extentOf(arrays: ArrayLike<number>[]): Zone {
+  const z: Zone = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }
+  for (const xy of arrays) {
+    for (let k = 0; k + 1 < xy.length; k += 2) {
+      const x = xy[k]
+      const y = xy[k + 1]
+      if (x < z.minX) z.minX = x
+      if (x > z.maxX) z.maxX = x
+      if (y < z.minY) z.minY = y
+      if (y > z.maxY) z.maxY = y
+    }
+  }
+  return z
+}
+
+/**
+ * Extent of the band an opening's points are matched against on a wall (along -thick..L+thick, across +-band),
+ * padded far above rounding error so it only ever rules out walls that cannot match. Null for a degenerate wall,
+ * which the match skips anyway.
+ */
+function wallZone(a: Point, b: Point, thick: number): Zone | null {
+  const L = Math.hypot(b.x - a.x, b.y - a.y)
+  if (L < 1e-6) return null
+  const ux = (b.x - a.x) / L
+  const uy = (b.y - a.y) / L
+  const band = thick / 2 + Math.max(1, 0.25 * thick)
+  const pad = 1e-3
+  const z: Zone = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }
+  for (const along of [-thick, L + thick])
+    for (const off of [-band, band]) {
+      const x = a.x + ux * along - uy * off
+      const y = a.y + uy * along + ux * off
+      z.minX = Math.min(z.minX, x - pad)
+      z.maxX = Math.max(z.maxX, x + pad)
+      z.minY = Math.min(z.minY, y - pad)
+      z.maxY = Math.max(z.maxY, y + pad)
+    }
+  return z
+}
+
 // ───────────────────────────── per page ─────────────────────────────
 
 interface Group {
@@ -211,6 +277,14 @@ interface Group {
   /** View id, '' when the items carry none. */
   view: string
   items: DrawItem[]
+  /** Oriented box of the drawn points, computed on first use (see `boxOf`). */
+  box?: OrientedBox | null
+}
+
+/** The group's oriented box, computed once however many passes ask for it. */
+function boxOf(g: Group): OrientedBox | null {
+  if (g.box === undefined) g.box = boxOfArrays(xyArraysOf(g.items))
+  return g.box
 }
 
 function groupsOf(page: DrawingPage): Group[] {
@@ -285,7 +359,7 @@ function analyse(doc: DrawingDocument, page: DrawingPage): PageAnalysis {
   const itemId = (kind: string, g: Group) => (views.get(g.el)! > 1 ? `${kind}-${g.el}@${g.view}` : `${kind}-${g.el}`)
 
   const items: ContextItem[] = []
-  const walls: Array<{ item: ContextItem; view: string; a: Point; b: Point; thick: number }> = []
+  const walls: Array<{ item: ContextItem; view: string; a: Point; b: Point; thick: number; zone: Zone | null }> = []
   const openings: Group[] = []
 
   for (const g of groups) {
@@ -299,8 +373,7 @@ function analyse(doc: DrawingDocument, page: DrawingPage): PageAnalysis {
     if (e?.family) props.family = e.family
     if (e?.level) props.level = e.level
     if (g.view) props.view = g.view
-    const pts = pointsOf(g.items)
-    const box = orientedBox(pts)
+    const box = boxOf(g)
     if (!box) continue
     const base = { confidence: 1, hostRef: g.el, props }
 
@@ -314,7 +387,7 @@ function analyse(doc: DrawingDocument, page: DrawingPage): PageAnalysis {
         props.thicknessPt = String(r2(thick))
         const item: ContextItem = { id: itemId('wall', g), kind: 'wall', geometry: { points: [a, b], closed: false }, ...base }
         items.push(item)
-        walls.push({ item, view: g.view, a, b, thick })
+        walls.push({ item, view: g.view, a, b, thick, zone: wallZone(a, b, thick) })
         continue
       }
       kind = 'unknown' // a stub or junction piece: keep it targetable, but it is no wall line
@@ -333,7 +406,16 @@ function analyse(doc: DrawingDocument, page: DrawingPage): PageAnalysis {
     }
     if (category === 'Rooms' && planOk) {
       let best: Float32Array | undefined
-      for (const it of g.items) if (it.t === 'fill') for (const r of it.rings) if (!best || ringArea(r) > ringArea(best)) best = r
+      let bestArea = -Infinity
+      for (const it of g.items)
+        if (it.t === 'fill')
+          for (const r of it.rings) {
+            const area = ringArea(r)
+            if (!best || area > bestArea) {
+              best = r
+              bestArea = area
+            }
+          }
       const poly: Point[] = []
       if (best) for (let k = 0; k + 1 < best.length; k += 2) poly.push({ x: r2(best[k]), y: r2(best[k + 1]) })
       const polygon = poly.length >= 3 ? poly : boxPolygon(box)
@@ -355,8 +437,9 @@ function analyse(doc: DrawingDocument, page: DrawingPage): PageAnalysis {
   // doors and windows: the opening segment on the host wall's centerline (else the long side of their box)
   for (const g of openings) {
     const e = elements[g.el]
-    const pts = pointsOf(g.items)
-    const box = orientedBox(pts)!
+    const box = boxOf(g)!
+    const arrays = xyArraysOf(g.items)
+    const span = extentOf(arrays)
     const props: Record<string, string> = { category: categoryOf(e) }
     if (e?.type) props.typeName = e.type
     if (e?.family) props.family = e.family
@@ -365,6 +448,8 @@ function analyse(doc: DrawingDocument, page: DrawingPage): PageAnalysis {
     let best: { w: (typeof walls)[number]; lo: number; hi: number; n: number } | undefined
     for (const w of walls) {
       if (w.view !== g.view) continue
+      // no point of this opening can lie in the wall's band when their extents do not meet (n would stay 0)
+      if (!w.zone || w.zone.maxX < span.minX || w.zone.minX > span.maxX || w.zone.maxY < span.minY || w.zone.minY > span.maxY) continue
       const L = Math.hypot(w.b.x - w.a.x, w.b.y - w.a.y)
       if (L < 1e-6) continue
       const ux = (w.b.x - w.a.x) / L
@@ -373,13 +458,17 @@ function analyse(doc: DrawingDocument, page: DrawingPage): PageAnalysis {
       let lo = Infinity
       let hi = -Infinity
       let n = 0
-      for (const p of pts) {
-        const along = (p.x - w.a.x) * ux + (p.y - w.a.y) * uy
-        const off = Math.abs((p.x - w.a.x) * -uy + (p.y - w.a.y) * ux)
-        if (off <= band && along >= -w.thick && along <= L + w.thick) {
-          n++
-          lo = Math.min(lo, along)
-          hi = Math.max(hi, along)
+      for (const xy of arrays) {
+        for (let k = 0; k + 1 < xy.length; k += 2) {
+          const px = xy[k] - w.a.x
+          const py = xy[k + 1] - w.a.y
+          const along = px * ux + py * uy
+          const off = Math.abs(px * -uy + py * ux)
+          if (off <= band && along >= -w.thick && along <= L + w.thick) {
+            n++
+            lo = Math.min(lo, along)
+            hi = Math.max(hi, along)
+          }
         }
       }
       if (n >= 2 && hi - lo > 1 && (!best || n > best.n)) best = { w, lo, hi, n }
@@ -551,6 +640,23 @@ export function furnitureSymbolsFromDrawing(doc: DrawingDocument): Map<string, F
       if (!type || out.has(type)) continue
       const sym = symbolOf(g.items)
       if (sym) out.set(type, sym)
+    }
+  }
+  return out
+}
+
+/** Every drawn point of some items as objects (fine for one element's symbol; the hot paths read the arrays). */
+function pointsOf(items: DrawItem[]): Point[] {
+  const out: Point[] = []
+  const push = (xy: Float32Array) => {
+    for (let k = 0; k + 1 < xy.length; k += 2) out.push({ x: xy[k], y: xy[k + 1] })
+  }
+  for (const it of items) {
+    if (it.t === 'path' || it.t === 'segs') push(it.xy)
+    else if (it.t === 'fill') it.rings.forEach(push)
+    else if (it.t === 'image') {
+      const { x, y, w, h } = it.rect
+      out.push({ x, y }, { x: x + w, y: y + h })
     }
   }
   return out
