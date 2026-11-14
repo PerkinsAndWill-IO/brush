@@ -6,7 +6,7 @@
  * part that did not change, and `pages` is one stable renderer that delegates to the current part. So the board
  * re-renders only the replaced sheet, and camera, strokes and the other sheets stay as they were.
  */
-import { DEFAULT_PALETTE, type FurnitureSymbol, type TypePalette } from '@core/context'
+import { DEFAULT_PALETTE, type FurnitureSymbol, type TypePalette, type WallStyle } from '@core/context'
 import type { Sheet, SheetContext } from '@core/types'
 import { openSource, type DrawingSource, type LoadedSource, type PageRenderer, type VectorPage } from '../source'
 import type { LinkSheetSummary } from './protocol'
@@ -160,6 +160,16 @@ export class RevitSource implements DrawingSource {
     for (const id of this.order) {
       const syms = this.parts.get(id)?.source.furnitureSymbols?.()
       if (syms) for (const [k, v] of syms) if (!out.has(k)) out.set(k, v)
+    }
+    return out
+  }
+
+  /** Wall styles of every open sheet's package; the first sheet that draws a type wins. */
+  wallStyles(): ReadonlyMap<string, WallStyle> {
+    const out = new Map<string, WallStyle>()
+    for (const id of this.order) {
+      const styles = this.parts.get(id)?.source.wallStyles?.()
+      if (styles) for (const [k, v] of styles) if (!out.has(k)) out.set(k, v)
     }
     return out
   }

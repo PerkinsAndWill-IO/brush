@@ -17,7 +17,7 @@ npm run build                          # typecheck + vite build into dist/
 
 ## Opening files
 
-- **`.drawing`**: the primary format, several pages in one binary file. See [`schema/drawing-format.md`](schema/drawing-format.md).
+- **`.drawing`**: the primary format, several pages in one binary file. See [`schema/drawing-format.md`](schema/drawing-format.md); this viewer reads the legacy gzip format, [`schema/drawing-format-legacy.md`](schema/drawing-format-legacy.md).
 - **`.json`**: a scene, the simple single-page form (below).
 
 Drag a file onto the page, use the **Open file** button, pass `?file=<url>` (`?scene=` still works), or choose one from the

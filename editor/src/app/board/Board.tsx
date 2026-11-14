@@ -36,7 +36,7 @@ import type { Removed } from './history'
 import { cachedInk, getSheetLayers, setLiveZoom, SheetView } from './SheetView'
 import { ScaleBarHud, snapMeasurePoint } from './viewAidLayers'
 import { getView, view } from '../view'
-import { elementAt, getInspect, inspect } from '../drawing/inspect'
+import { elementAtIfReady, getInspect, inspect, onHitIndexReady, warmHitIndexes } from '../drawing/inspect'
 import { getFilters, hiddenPredicate } from '../drawing/filters'
 
 // ───────────── board handle (top bar zoom menu, test API) ─────────────
@@ -197,6 +197,10 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
 
   // The element card belongs to the document and the Select tool (V3).
   useEffect(() => inspect.clear(), [loadId, tool])
+  // ...and its hit indexes are built in the background as soon as the Select tool is chosen, never on the first hover.
+  useEffect(() => {
+    if (tool === 'select') warmHitIndexes(sheets.map((s) => getDocState().source?.vectorPage?.(s.id)?.page))
+  }, [loadId, tool, sheets])
 
   // Fit all sheets when a document opens.
   useLayoutEffect(() => {
@@ -370,7 +374,7 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
       const vp = source.vectorPage(pl.sheetId)
       if (!vp) return null
       const sp = boardToSheet(pl, b)
-      return elementAt(vp.page, sp.x, sp.y, PICK_PX / cam.z, hiddenPredicate({ elements: vp.elements }, getFilters()))
+      return elementAtIfReady(vp.page, sp.x, sp.y, PICK_PX / cam.z, hiddenPredicate({ elements: vp.elements }, getFilters()))
     }
     let hoverRaf = 0
     let hoverEv: { clientX: number; clientY: number } | null = null
@@ -386,6 +390,10 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
         inspect.hover(id)
       })
     }
+    // a page indexed in the background while the pointer rests on it: look again
+    const offIndexReady = onHitIndexReady(() => {
+      if (hoverEv && !gesture && getSession().tool === 'select') inspect.hover(elementUnder(hoverEv))
+    })
     const endInspect = (g: Extract<Gesture, { kind: 'inspect' }>, e: PointerEvent) => {
       if (g.dragged) vp.classList.remove('panning')
       else if (e.type === 'pointerup') {
@@ -603,6 +611,7 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
       vp.removeEventListener('pointerup', onUp)
       vp.removeEventListener('pointercancel', onUp)
       vp.removeEventListener('pointerleave', onLeave)
+      offIndexReady()
       vp.removeEventListener('wheel', onWheel)
       if (hoverRaf) cancelAnimationFrame(hoverRaf)
       window.removeEventListener('keydown', onKeyDown)

@@ -275,6 +275,8 @@ button.pen-chip:hover { border-color: var(--accent); }
 .revit-sheets li { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 4px 0 8px; border-radius: 9px; }
 .revit-sheets li[data-open='true'] { background: #fff; }
 .revit-sheet-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.revit-sheet-name { border: 0; background: none; padding: 0; text-align: left; color: inherit; font: inherit; cursor: pointer; }
+button.revit-sheet-name:hover { text-decoration: underline; }
 .revit-sheets .chip-btn, .revit-body .link-btn { font-family: inherit; min-height: 28px; justify-content: center; }
 .revit-sheets .chip-btn { background: var(--accent); color: #fff; font-weight: 600; padding: 0 12px; }
 .revit-sheets li[data-open='true'] .chip-btn { background: rgba(27, 29, 33, 0.07); color: var(--text); font-weight: 500; }
@@ -294,6 +296,32 @@ button.pen-chip:hover { border-color: var(--accent); }
 .revit-result.note { background: #fff8eb; border-color: rgba(194, 120, 3, 0.35); color: #6b4300; pointer-events: auto; }
 .revit-result.note .dot { background: #c27803; }
 .revit-result button { border: 0; background: none; padding: 0 2px; cursor: pointer; font-size: 13px; line-height: 1; color: inherit; }
+
+/* ───────────── photo import (P1) ───────────── */
+.modal-backdrop { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(24, 30, 46, 0.32); }
+.modal { width: min(100%, 460px); max-height: 100%; overflow: auto; display: flex; flex-direction: column; gap: 14px; padding: 22px 22px 18px; background: var(--capsule); border: 1px solid var(--line-soft); border-radius: 20px; box-shadow: 0 24px 64px rgba(24, 30, 46, 0.28); }
+.modal h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.modal p { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--muted); text-wrap: pretty; }
+.modal p b { color: var(--text); font-weight: 600; }
+.modal p.secondary { font-size: 11.5px; }
+.modal .field { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12.5px; }
+.modal .field > span { flex: none; color: var(--muted); }
+.modal .field select, .modal .field .btn { min-height: 40px; max-width: 62%; min-width: 0; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: inherit; font: inherit; padding: 0 12px; cursor: pointer; }
+.modal .field .btn { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.modal .error { color: var(--error); background: #fdf0ee; border-radius: 10px; padding: 10px 14px; font-size: 12px; }
+.modal .progress { margin: 0; padding: 10px 14px 10px 30px; display: flex; flex-direction: column; gap: 4px; min-height: 96px; border-radius: 12px; background: #fff; border: 1px solid var(--line-soft); font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.modal .progress li:last-child { color: var(--text); }
+.modal .ink-list { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; }
+.modal .ink-list li { display: flex; align-items: center; gap: 6px; }
+.modal .ink-list .swatch { width: 12px; height: 12px; border-radius: 50%; border: 1px solid var(--line); display: block; }
+.session-list li.photo-group { align-items: flex-start; padding: 8px 0 2px; }
+.session-list li.photo-group .swatches-sm { display: flex; gap: 2px; padding-top: 4px; }
+.session-list .row-actions { display: flex; gap: 14px; }
+.session-list .row-actions .link-btn { min-height: 32px; padding: 0; text-decoration: none; color: var(--accent); }
+.session-list .row-actions .link-btn:disabled { color: var(--muted); }
+.session-list .error-text { color: var(--error); white-space: normal; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.modal-actions .btn.soft { background: #fff; border: 1px solid var(--line-soft); }
 
 /* ───────────── inspect (V3): element highlight in the logo's coral (the orange-on-blue logo variant) ───────────── */
 :root { --highlight: #d9583f; --highlight-soft: rgba(217, 88, 63, 0.28); }

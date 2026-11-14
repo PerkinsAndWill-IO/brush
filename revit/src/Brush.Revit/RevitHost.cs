@@ -95,6 +95,15 @@ internal sealed class RevitHost : ILinkHost, IDisposable
         }
     }, ct);
 
+    public Task ShowSheetAsync(string sheetId, CancellationToken ct) => dispatcher.InvokeAsync(app =>
+    {
+        var uidoc = app.ActiveUIDocument ?? throw new InvalidOperationException("no model is open in Revit");
+        var sheet = SheetReader.FindSheet(uidoc.Document, sheetId);
+        if (uidoc.ActiveView?.Id != sheet.Id) uidoc.ActiveView = sheet;
+        log.Info($"showing {sheet.SheetNumber} in Revit");
+        return true;
+    }, ct);
+
     public Task<bool> ApproveOriginAsync(string origin, CancellationToken ct) => dispatcher.InvokeAsync(_ =>
     {
         var dlg = new TaskDialog("Brush Link")

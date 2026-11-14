@@ -2,6 +2,8 @@
 
 Date: 2026-11-14
 
+> Naming: the gzip format described here is now the legacy format, `schema/schema/drawing-format-legacy.md`; `drawing-format.md` is the zstd format (0009).
+
 ## Context
 
 The repo now holds the real `.drawing` format next to the Editor: `schema/schema/drawing-format.md` (container) and

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://brush.local/schema/drawing.schema.json",
   "title": "Brush .drawing header (version 1)",
-  "description": "The JSON header of a .drawing file (see drawing-format.md for the binary container). Items are the scene items of scene.schema.json, except that geometry and images are blob references. Coordinates are paper feet, x right, y up.",
+  "description": "The JSON header of a .drawing file (see drawing-format.md and drawing-format-legacy.md for the binary container). Items are the scene items of scene.schema.json, except that geometry and images are blob references. Coordinates are paper feet, x right, y up.",
   "type": "object",
   "required": ["format", "version", "pages"],
   "properties": {

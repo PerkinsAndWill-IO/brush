@@ -26,6 +26,9 @@ public interface ILinkHost
     /// <summary>Undo earlier commands of this link: delete the elements they created. Used for the editor's undo.</summary>
     Task<IReadOnlyList<CommandResult>> RevertAsync(IReadOnlyList<string> commandIds, CancellationToken ct);
 
+    /// <summary>Make the sheet the active view in the host. Throws <see cref="KeyNotFoundException"/> for an unknown sheet.</summary>
+    Task ShowSheetAsync(string sheetId, CancellationToken ct);
+
     /// <summary>Ask the user whether a web page from <paramref name="origin"/> may edit the open model.</summary>
     Task<bool> ApproveOriginAsync(string origin, CancellationToken ct);
 

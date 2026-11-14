@@ -69,6 +69,35 @@ function snapEnd(ev: Evidence, p: Point, s: BrushSettings): { p: Point; ids: str
   return r.kind === 'none' ? { p, ids: [] } : { p: r.point, ids: r.itemIds }
 }
 
+/**
+ * Where the ray from `from` through `to` crosses a wall of the snap target `b`, within `radius` of `to`; undefined
+ * when `b` already lies on the ray (within 0.5 pt) or no target wall crosses it near there.
+ */
+function alongDirection(ev: Evidence, from: Point, to: Point, b: { p: Point; ids: string[] }, radius: number): { p: Point; ids: string[] } | undefined {
+  const u = normalize(sub(to, from))
+  const off = (q: Point) => Math.abs((q.x - from.x) * -u.y + (q.y - from.y) * u.x)
+  if (off(b.p) <= 0.5) return undefined
+  let best: { p: Point; ids: string[]; d: number } | undefined
+  for (const id of b.ids) {
+    const w = ev.pc.lines.getItem(id)
+    if (!w || w.kind !== 'wall') continue
+    const g = w.geometry.points
+    for (let i = 0; i + 1 < g.length; i++) {
+      const e = sub(g[i + 1], g[i])
+      const den = u.x * e.y - u.y * e.x
+      if (Math.abs(den) < 1e-9) continue // parallel
+      const r = sub(g[i], from)
+      const t = (r.x * e.y - r.y * e.x) / den // along the ray
+      const k = (r.x * u.y - r.y * u.x) / den // along the wall segment
+      if (k < -0.02 || k > 1.02 || t <= 0) continue
+      const p = add(from, scale(u, t))
+      const d = dist(p, to)
+      if (d <= radius && (!best || d < best.d)) best = { p, ids: [id], d }
+    }
+  }
+  return best && { p: best.p, ids: best.ids }
+}
+
 function shapeWall(ev: Evidence, s: BrushSettings, palette: TypePalette): Shaped {
   const evidence: string[] = []
   const lineFit = ev.fit.line
@@ -82,24 +111,37 @@ function shapeWall(ev: Evidence, s: BrushSettings, palette: TypePalette): Shaped
     const a = snapEnd(ev, verts[0], s)
     verts[0] = a.p
     snapped.push(...a.ids)
+    let lastSnapped = false
     for (let i = 1; i < verts.length; i++) {
       const ang = snapAngle(verts[i - 1], verts[i], index)
       verts[i] = ang.point
+      lastSnapped = ang.snappedTo !== 'none'
       if (ang.snappedTo !== 'none' && i === 1) evidence.push(`direction snapped to ${ang.snappedTo === 'wall' ? `wall ${ang.itemId ?? ''}`.trim() : 'axis'}`)
     }
     const last = verts.length - 1
     const b = snapEnd(ev, verts[last], s)
     if (b.ids.length) {
-      // keep the snapped direction when the snap target lies on it, else take the target
-      verts[last] = b.p
-      snapped.push(...b.ids)
+      // keep the snapped direction when the snap target lies on it, else land where that direction crosses the
+      // target's wall (a corner a few points to the side would skew the wall); else take the target
+      const along = lastSnapped ? alongDirection(ev, verts[last - 1], verts[last], b, s.snapRadiusPt) : undefined
+      verts[last] = along?.p ?? b.p
+      snapped.push(...(along?.ids ?? b.ids))
     }
   }
   if (snapped.length) evidence.push(`endpoints snapped to ${[...new Set(snapped)].join(', ')}`)
   const host = (ev.alongWallId ? ev.pc.lines.getItem(ev.alongWallId) : undefined) ?? nearbyWall(ev, verts[0]) ?? nearbyWall(ev, verts[verts.length - 1])
+  // a wall drawn off (or between) placed walls is most likely of their type: take it as is when the palette has it,
+  // else the palette type nearest its drawn thickness
+  const hostType = host?.props?.typeName
   const tPt = wallThicknessPt(host)
-  const type = tPt !== undefined ? nearestWallType(palette, tPt / ev.ptPerM)?.name : (palette.walls.find((w) => w.thicknessMm === 200) ?? palette.walls[0])?.name
-  if (tPt !== undefined) evidence.push(`type from nearby wall thickness ${(tPt / ev.ptPerM).toFixed(2)} m`)
+  let type: string | undefined
+  if (hostType && palette.walls.some((w) => w.name === hostType)) {
+    type = hostType
+    evidence.push(`type of connected wall ${host!.id}`)
+  } else if (tPt !== undefined) {
+    type = nearestWallType(palette, tPt / ev.ptPerM)?.name
+    evidence.push(`type from nearby wall thickness ${(tPt / ev.ptPerM).toFixed(2)} m`)
+  } else type = (palette.walls.find((w) => w.thicknessMm === 200) ?? palette.walls[0])?.name
   return { geometry: { points: verts, closed: false }, type, evidence }
 }
 

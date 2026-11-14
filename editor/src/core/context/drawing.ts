@@ -195,7 +195,10 @@ function estimateViewScales(groups: Group[], elements: Record<string, DrawingEle
   for (const [view, list] of ratios) {
     list.sort((a, b) => a - b)
     const med = list[Math.floor(list.length / 2)]
-    const snap = STANDARD_SCALES.find((s) => Math.abs(s - med) / s <= 0.05)
+    // exports write the length in millimetres or in metres (no unit on the value): take the reading that is a
+    // standard scale, millimetres first
+    const snapOf = (m: number) => STANDARD_SCALES.find((s) => Math.abs(s - m) / s <= 0.05)
+    const snap = snapOf(med) ?? snapOf(med * 1000)
     if (snap) out.set(view, snap)
   }
   return out
@@ -579,3 +582,158 @@ function symbolOf(items: DrawItem[]): FurnitureSymbol | null {
 }
 
 const r4 = (n: number) => Math.round(n * 1e4) / 1e4
+
+// ───────────────────────────── wall styles ─────────────────────────────
+
+/** One line that runs along a wall: its offset across the wall (faces at -0.5 and 0.5) and its stroke weight (pt). */
+export interface WallStyleLine {
+  offset: number
+  weightPt: number
+}
+
+/** A band of solid fill along a wall (a layer's background or poché), across offsets `from..to` (-0.5..0.5). */
+export interface WallStyleFill {
+  from: number
+  to: number
+  /** RGB 0..255, as drawn. */
+  color: [number, number, number]
+}
+
+/** How a wall type is drawn on plan, taken from one placed instance, normalised to its face-to-face thickness. */
+export interface WallStyle {
+  /** Face-to-face thickness of the instance it was taken from, sheet points. */
+  thicknessPt: number
+  /** The same in model millimetres, when the view's scale is known. */
+  thicknessMm?: number
+  /** Lines parallel to the wall: the two faces (heaviest), layer boundaries, the location line. Sorted by offset. */
+  lines: WallStyleLine[]
+  /** Fills between the faces, sorted by `from`. */
+  fills: WallStyleFill[]
+}
+
+/**
+ * Plan linework of each wall type in the document, from its longest straight instance on a plan page: the lines
+ * that run the instance's length parallel to it (faces, layer boundaries, location line) as offsets across it, and
+ * its fill bands. Short pieces (hatch strokes, join clean-ups, end caps) are left out. Pure.
+ */
+export function wallStylesFromDrawing(doc: DrawingDocument): Map<string, WallStyle> {
+  // every instance of each type is a candidate; the one whose linework reads best wins
+  const best = new Map<string, { style: WallStyle; score: number }>()
+  for (const page of doc.pages) {
+    const { ctx, viewScales, scale } = analyse(doc, page)
+    let groups: Map<string, Group> | undefined
+    for (const it of ctx.items) {
+      const p = it.props
+      if (it.kind !== 'wall' || !p?.typeName || !it.hostRef || it.geometry.points.length < 2) continue
+      groups ??= new Map(groupsOf(page).map((g) => [`${g.el}|${g.view}`, g]))
+      const g = groups.get(`${it.hostRef}|${p.view ?? ''}`)
+      const style = g && wallStyleOf(g.items, it.geometry.points[0], it.geometry.points[1])
+      if (!style) continue
+      const s = viewScales.get(p.view ?? '') ?? scale
+      if (s) style.thicknessMm = r2((style.thicknessPt / ptPerMetre(s)) * 1000)
+      // faces that agree with the drawn outline, then the most layers, then the longest run
+      const boxT = Number(p.thicknessPt)
+      const fit = boxT > 0 ? Math.abs(style.thicknessPt - boxT) / boxT : 0
+      const [a, b] = it.geometry.points
+      const score = (fit <= 0.15 ? 1000 : -1000 * fit) + 10 * (style.lines.length + style.fills.length) + Math.min(9, Math.hypot(b.x - a.x, b.y - a.y) / 100)
+      const cur = best.get(p.typeName)
+      if (!cur || score > cur.score) best.set(p.typeName, { style, score })
+    }
+  }
+  return new Map([...best].map(([k, v]) => [k, v.style]))
+}
+
+function wallStyleOf(items: DrawItem[], a: Point, b: Point): WallStyle | null {
+  const L = Math.hypot(b.x - a.x, b.y - a.y)
+  if (!(L > 0)) return null
+  const u = { x: (b.x - a.x) / L, y: (b.y - a.y) / L }
+  const v = { x: -u.y, y: u.x }
+  const along = (p: Point) => (p.x - a.x) * u.x + (p.y - a.y) * u.y
+  const across = (p: Point) => (p.x - a.x) * v.x + (p.y - a.y) * v.y
+  const TOL = 0.04 // pt: offsets closer than this are the same line
+  const key = (o: number) => Math.round(o / TOL)
+
+  // parallel pieces: total length per (offset, weight)
+  const runs = new Map<string, { off: number; w: number; len: number }>()
+  const piece = (p: Point, q: Point, w: number) => {
+    const dl = Math.abs(along(q) - along(p))
+    const dv = Math.abs(across(q) - across(p))
+    if (dl < 1e-6 || dv > 0.02 * dl + 0.02) return // not parallel to the wall
+    const off = (across(p) + across(q)) / 2
+    const k = `${key(off)}|${w}`
+    const r = runs.get(k) ?? { off, w, len: 0 }
+    r.len += dl
+    runs.set(k, r)
+  }
+  for (const it of items) {
+    if (it.t === 'segs') for (let k = 0; k + 3 < it.xy.length; k += 4) piece({ x: it.xy[k], y: it.xy[k + 1] }, { x: it.xy[k + 2], y: it.xy[k + 3] }, it.w)
+    else if (it.t === 'path') {
+      const n = it.xy.length / 2
+      for (let k = 0; k + 1 < n; k++) piece({ x: it.xy[2 * k], y: it.xy[2 * k + 1] }, { x: it.xy[2 * k + 2], y: it.xy[2 * k + 3] }, it.w)
+    }
+  }
+  // a line of the type runs (most of) the wall's length; short ones are joins, caps or hatching
+  const kept = [...runs.values()].filter((r) => r.len >= 0.3 * L)
+  if (!kept.length) return null
+  // faces: the outermost of the heaviest lines (else the outermost lines)
+  const heavy = Math.max(...kept.map((r) => r.w))
+  const faces = kept.filter((r) => r.w >= 0.99 * heavy)
+  const src = faces.length >= 2 ? faces : kept
+  const lo = Math.min(...src.map((r) => r.off))
+  const hi = Math.max(...src.map((r) => r.off))
+  const T = hi - lo
+  if (!(T > 0.2)) return null
+  const mid = (lo + hi) / 2
+  const norm = (o: number) => r4((o - mid) / T)
+
+  // one line per offset (the heaviest weight drawn there), inside the faces
+  const byOff = new Map<number, WallStyleLine>()
+  for (const r of kept) {
+    const o = norm(r.off)
+    if (Math.abs(o) > 0.5 + TOL / T) continue
+    const k = key(r.off)
+    const cur = byOff.get(k)
+    if (!cur || r.w > cur.weightPt) byOff.set(k, { offset: Math.max(-0.5, Math.min(0.5, o)), weightPt: r4(r.w) })
+  }
+  // lines a hair apart (a layer edge drawn twice, a face and its fill edge) read as one: keep the heavier
+  const lines: WallStyleLine[] = []
+  for (const l of [...byOff.values()].sort((p, q) => p.offset - q.offset)) {
+    const prev = lines[lines.length - 1]
+    if (prev && (l.offset - prev.offset) * T < 0.12) {
+      if (l.weightPt > prev.weightPt || (l.weightPt === prev.weightPt && Math.abs(l.offset) > Math.abs(prev.offset))) lines[lines.length - 1] = l
+    } else lines.push(l)
+  }
+
+  // fills: each ring's extent across the wall, kept when it runs a good part of the length
+  const fills: WallStyleFill[] = []
+  for (const it of items) {
+    if (it.t !== 'fill') continue
+    let fLo = Infinity
+    let fHi = -Infinity
+    let len = 0
+    for (const ring of it.rings) {
+      let rLo = Infinity
+      let rHi = -Infinity
+      let aLo = Infinity
+      let aHi = -Infinity
+      for (let k = 0; k + 1 < ring.length; k += 2) {
+        const p = { x: ring[k], y: ring[k + 1] }
+        rLo = Math.min(rLo, across(p))
+        rHi = Math.max(rHi, across(p))
+        aLo = Math.min(aLo, along(p))
+        aHi = Math.max(aHi, along(p))
+      }
+      if (rHi - rLo > T * 1.2) continue // not a band of this wall
+      fLo = Math.min(fLo, rLo)
+      fHi = Math.max(fHi, rHi)
+      len += aHi - aLo
+    }
+    if (len < 0.3 * L || !(fHi > fLo)) continue
+    const from = Math.max(-0.5, norm(fLo))
+    const to = Math.min(0.5, norm(fHi))
+    if (to - from < 1e-3) continue
+    fills.push({ from, to, color: [it.c[0], it.c[1], it.c[2]] })
+  }
+  fills.sort((p, q) => p.from - q.from)
+  return { thicknessPt: r2(T), lines, fills }
+}

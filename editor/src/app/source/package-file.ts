@@ -1,6 +1,6 @@
 /**
  * Reading legacy manifest packages (decision 0005). Pure and DOM-free: bytes in, manifest + optional PDF bytes out.
- * The `.drawing` format proper is the binary one in `schema/schema/drawing-format.md` (decision 0008, read by
+ * The `.drawing` format proper is the binary one in `schema/schema/drawing-format-legacy.md` (decision 0008, read by
  * `drawing-file.ts`); `sniffBytes` tells them apart by content. These manifest containers stay readable for the
  * M5 fixtures and older exports.
  *

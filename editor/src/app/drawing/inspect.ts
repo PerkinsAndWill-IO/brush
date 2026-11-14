@@ -9,7 +9,7 @@
 import { useSyncExternalStore } from 'react'
 import type { DrawingDocument, DrawingElement, DrawingPage, DrawItem } from '@core/drawing'
 import { categoryName, isAnnotationCategory, NO_CATEGORY } from './filters'
-import { buildPageHitIndex, hitItem, type Measure, type PageHitIndex } from './hit'
+import { buildPageHitIndex, hitItem, pageHitIndexSteps, type Measure, type PageHitIndex } from './hit'
 
 // ───────────── element card logic (pure) ─────────────
 
@@ -92,6 +92,62 @@ export function pageHitIndex(page: DrawingPage): PageHitIndex {
   let ix = hitCache.get(page)
   if (!ix) hitCache.set(page, (ix = buildPageHitIndex(page, canvasMeasure)))
   return ix
+}
+
+// Large sheets (millions of segments) take about a second to index: warming builds the index of each page in
+// slices of a few milliseconds between timer ticks, so the first hover never freezes the board.
+const SLICE_MS = 8
+const warmQueue: DrawingPage[] = []
+let warming = false
+const readyListeners = new Set<() => void>()
+
+/** Called whenever a page's hit index has just been built in the background (so a still pointer can look again). */
+export function onHitIndexReady(l: () => void): () => void {
+  readyListeners.add(l)
+  return () => readyListeners.delete(l)
+}
+
+/** Index `pages` in the background, one after the other (pages already indexed are skipped). */
+export function warmHitIndexes(pages: readonly (DrawingPage | undefined | null)[]) {
+  for (const p of pages) if (p && !hitCache.has(p) && !warmQueue.includes(p)) warmQueue.push(p)
+  if (warming || warmQueue.length === 0) return
+  warming = true
+  const run = () => {
+    const page = warmQueue[0]
+    if (!page) {
+      warming = false
+      return
+    }
+    if (hitCache.has(page)) {
+      warmQueue.shift()
+      return run()
+    }
+    const steps = pageHitIndexSteps(page, canvasMeasure)
+    const slice = () => {
+      const until = performance.now() + SLICE_MS
+      for (;;) {
+        const r = steps.next()
+        if (r.done) {
+          if (!hitCache.has(page)) hitCache.set(page, r.value) // a hover may have built it synchronously meanwhile
+          warmQueue.shift()
+          readyListeners.forEach((l) => l())
+          return setTimeout(run, 0)
+        }
+        if (performance.now() > until) return setTimeout(slice, 0)
+      }
+    }
+    slice()
+  }
+  setTimeout(run, 0)
+}
+
+/** Like `elementAt`, but never builds the index on the spot: while a page is still being indexed it answers null. */
+export function elementAtIfReady(page: DrawingPage, x: number, y: number, tol: number, skip?: ((it: DrawItem) => boolean) | null): string | null {
+  if (!hitCache.has(page)) {
+    warmHitIndexes([page])
+    return null
+  }
+  return elementAt(page, x, y, tol, skip)
 }
 
 /** Element id under (x, y) sheet points, or null. Hidden items (display filters) are skipped. */

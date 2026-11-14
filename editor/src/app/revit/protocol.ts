@@ -36,6 +36,7 @@ export type ClientMessage =
   | { type: 'list_sheets'; requestId?: string }
   | { type: 'open_sheet'; sheetId: string; requestId?: string }
   | { type: 'close_sheet'; sheetId: string; requestId?: string }
+  | { type: 'show_sheet'; sheetId: string; requestId?: string }
   | { type: 'apply'; sheetId: string; baseVersion?: number; commands: Command[]; requestId?: string }
   | { type: 'revert'; sheetId: string; commandIds: string[]; requestId?: string }
   | { type: 'ping'; requestId?: string }
@@ -99,9 +100,10 @@ export type ServerMessage =
   | AppliedMessage
   | RevertedMessage
   | ErrorMessage
+  | { type: 'shown'; requestId?: string; sheetId: string }
   | { type: 'pong'; requestId?: string }
 
-const SERVER_TYPES = new Set(['welcome', 'sheets', 'sheet', 'applied', 'reverted', 'error', 'pong'])
+const SERVER_TYPES = new Set(['welcome', 'sheets', 'sheet', 'applied', 'reverted', 'shown', 'error', 'pong'])
 
 /** Parse one text frame; null for anything that is not a known server message. */
 export function parseServerMessage(text: string): ServerMessage | null {
