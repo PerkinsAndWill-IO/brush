@@ -150,6 +150,10 @@ public sealed class LinkHub : IAsyncDisposable
             case CloseSheet c:
                 lock (stateLock) clients[conn.Id].sheets.Remove(c.SheetId);
                 break;
+            case ShowSheet sh:
+                await Gated(async c => { await host.ShowSheetAsync(sh.SheetId, c); return true; }, ct);
+                await conn.SendAsync(ServerMessages.Shown(msg.RequestId, sh.SheetId), ct);
+                break;
             case Apply a:
             {
                 await gate.WaitAsync(ct);

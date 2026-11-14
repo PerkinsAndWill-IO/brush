@@ -27,6 +27,9 @@ public sealed record OpenSheet(string SheetId) : ClientMessage;
 
 public sealed record CloseSheet(string SheetId) : ClientMessage;
 
+/// <summary>Make the sheet the active view in the host, so the user sees in Revit the sheet they opened in the editor.</summary>
+public sealed record ShowSheet(string SheetId) : ClientMessage;
+
 public sealed record Apply(string SheetId, int? BaseVersion, IReadOnlyList<Command> Commands) : ClientMessage;
 
 public sealed record Revert(string SheetId, IReadOnlyList<string> CommandIds) : ClientMessage;
@@ -72,6 +75,7 @@ public static class ClientMessageParser
                 "list_sheets" => new ListSheets(),
                 "open_sheet" => new OpenSheet(Need(o, "sheetId", requestId)),
                 "close_sheet" => new CloseSheet(Need(o, "sheetId", requestId)),
+                "show_sheet" => new ShowSheet(Need(o, "sheetId", requestId)),
                 "apply" => new Apply(
                     Need(o, "sheetId", requestId),
                     o["baseVersion"]?.GetValue<int>(),
@@ -143,6 +147,12 @@ public static class ServerMessages
         ["type"] = "reverted",
         ["sheetId"] = sheetId,
         ["results"] = JsonSerializer.SerializeToNode(results, Json.Options),
+    }, requestId);
+
+    public static JsonObject Shown(string? requestId, string sheetId) => WithRequest(new JsonObject
+    {
+        ["type"] = "shown",
+        ["sheetId"] = sheetId,
     }, requestId);
 
     public static JsonObject Pong(string? requestId) => WithRequest(new JsonObject { ["type"] = "pong" }, requestId);

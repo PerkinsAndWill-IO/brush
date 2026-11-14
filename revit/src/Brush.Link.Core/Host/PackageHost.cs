@@ -161,6 +161,15 @@ public sealed class PackageHost : ILinkHost
         }
     }
 
+    /// <summary>The sheet last shown with <see cref="ShowSheetAsync"/> (the DevHost has no views; tests read this).</summary>
+    public string? ShownSheet { get; private set; }
+
+    public Task ShowSheetAsync(string sheetId, CancellationToken ct)
+    {
+        lock (gate) ShownSheet = Find(sheetId).Sheet.Id;
+        return Task.CompletedTask;
+    }
+
     public Task<bool> ApproveOriginAsync(string origin, CancellationToken ct) => Task.FromResult(ApproveOrigin(origin));
 
     /// <summary>Simulate someone editing the model in the host: change a sheet outside the link.</summary>
