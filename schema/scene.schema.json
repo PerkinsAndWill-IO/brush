@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://brush.local/schema/scene.schema.json",
+  "title": "Brush scene (format 1)",
+  "description": "Coordinates are paper feet, x right, y up. Items are in draw order.",
+  "type": "object",
+  "required": ["format", "min", "max", "items"],
+  "properties": {
+    "format": { "const": 1 },
+    "sheet": {
+      "type": ["object", "null"],
+      "required": ["id"],
+      "properties": { "id": { "type": "number" }, "number": { "type": "string" }, "name": { "type": "string" } }
+    },
+    "viewInfo": {
+      "type": ["object", "null"],
+      "required": ["id"],
+      "properties": { "id": { "type": "number" }, "name": { "type": "string" }, "scale": { "type": ["number", "string"] } }
+    },
+    "min": { "$ref": "#/$defs/point" },
+    "max": { "$ref": "#/$defs/point" },
+    "items": { "type": "array", "items": { "$ref": "#/$defs/item" } },
+    "elements": { "type": "object", "additionalProperties": { "$ref": "#/$defs/element" } }
+  },
+  "$defs": {
+    "point": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+    "color": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+    "ring": { "type": "array", "items": { "$ref": "#/$defs/point" } },
+    "id": { "type": ["number", "null"] },
+    "item": {
+      "type": "object",
+      "required": ["t"],
+      "properties": {
+        "t": { "type": "string" },
+        "el": { "$ref": "#/$defs/id" },
+        "view": { "$ref": "#/$defs/id" }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "t": { "const": "path" },
+            "pts": { "$ref": "#/$defs/ring" },
+            "closed": { "type": "boolean" },
+            "w": { "type": "number" },
+            "c": { "$ref": "#/$defs/color" },
+            "dash": { "type": "array", "items": { "type": "number" } }
+          },
+          "required": ["pts", "w"]
+        },
+        {
+          "properties": {
+            "t": { "const": "segs" },
+            "segs": { "type": "array", "items": { "type": "number" }, "description": "Flat x0,y0,x1,y1 per segment; length is a multiple of 4." },
+            "w": { "type": "number" },
+            "c": { "$ref": "#/$defs/color" },
+            "dash": { "type": "array", "items": { "type": "number" } }
+          },
+          "required": ["segs", "w"]
+        },
+        {
+          "properties": {
+            "t": { "const": "fill" },
+            "rings": { "type": "array", "items": { "$ref": "#/$defs/ring" } },
+            "c": { "$ref": "#/$defs/color" }
+          },
+          "required": ["rings"]
+        },
+        {
+          "properties": {
+            "t": { "const": "text" },
+            "text": { "type": "string" },
+            "at": { "$ref": "#/$defs/point" },
+            "size": { "type": "number" },
+            "anchor": { "type": "string", "pattern": "^[lcr][tmb]$" },
+            "dir": { "$ref": "#/$defs/point" },
+            "maxWidth": { "type": ["number", "null"] },
+            "c": { "$ref": "#/$defs/color" },
+            "bold": { "type": "boolean" }
+          },
+          "required": ["text", "at", "size"]
+        },
+        {
+          "properties": {
+            "t": { "const": "image" },
+            "min": { "$ref": "#/$defs/point" },
+            "max": { "$ref": "#/$defs/point" },
+            "png": { "type": "string", "description": "Base64 PNG." }
+          },
+          "required": ["min", "max", "png"]
+        },
+        {
+          "properties": { "t": { "not": { "enum": ["path", "segs", "fill", "text", "image"] } } },
+          "description": "Unknown item types are allowed and skipped by the viewer."
+        }
+      ]
+    },
+    "element": {
+      "type": "object",
+      "properties": {
+        "class": { "type": ["string", "null"] },
+        "category": { "type": ["string", "null"] },
+        "name": { "type": ["string", "null"] },
+        "family": { "type": ["string", "null"] },
+        "type": { "type": ["string", "null"] },
+        "level": { "type": ["string", "null"] },
+        "tagged": { "type": ["number", "null"], "description": "Id of another element this element refers to (a label, a tag). The viewer shows that element's card and highlights both." },
+        "params": {
+          "type": "array",
+          "items": { "type": "object", "required": ["name", "value"], "properties": { "name": { "type": "string" }, "value": { "type": "string" } } }
+        }
+      }
+    }
+  }
+}

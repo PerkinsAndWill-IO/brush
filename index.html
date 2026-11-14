@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Brush sheet viewer</title>
+  </head>
+  <body>
+    <header id="bar">
+      <strong>Brush</strong>
+      <select id="scenes" aria-label="Scene"></select>
+      <select id="pages" aria-label="Page" title="PageUp / PageDown" hidden></select>
+      <label class="btn">Open file<input id="file" type="file" accept=".drawing,.json,application/json" hidden /></label>
+      <button id="fit" type="button">Fit</button>
+      <button id="actual" type="button">1:1</button>
+      <button id="save" type="button" hidden>Save .drawing</button>
+      <span id="status">Drop a .drawing or .json here</span>
+    </header>
+    <main id="wrap">
+      <div id="stage">
+        <canvas id="base"></canvas>
+        <canvas id="over"></canvas>
+      </div>
+      <aside id="card" hidden></aside>
+      <div id="drop" hidden>Drop a .drawing or .json to open it</div>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
