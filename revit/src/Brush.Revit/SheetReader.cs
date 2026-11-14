@@ -56,6 +56,9 @@ internal static class SheetReader
         foreach (var vpId in sheet.GetAllViewports())
         {
             if (doc.GetElement(vpId) is not Viewport vp || doc.GetElement(vp.ViewId) is not View view) continue;
+            // Legends, drafting views and some 3D views have no model space: GetModelToProjectionTransforms throws
+            // "The view does not return transforms" for them. Skip them; commands can't land there anyway.
+            if (!view.HasViewTransforms()) continue;
             var projections = view.GetModelToProjectionTransforms();
             if (projections.Count == 0) continue;
             // A view with a split crop region has one transform per region; v1 uses the first (see README limits).
