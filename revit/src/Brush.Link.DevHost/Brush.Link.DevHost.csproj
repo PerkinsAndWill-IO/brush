@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The link without Revit: serves an editor .drawing package and applies commands to its manifest. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Brush.Link.DevHost</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Brush.Link.Core\Brush.Link.Core.csproj" />
+  </ItemGroup>
+</Project>

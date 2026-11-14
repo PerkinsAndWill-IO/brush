@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The Revit add-in. Revit 2025 and 2026 run on .NET 8, Revit 2027 on .NET 10.
+    Build for another Revit year with: dotnet build -p:RevitVersion=2025   (2025, 2026, 2027)
+    The Revit API comes from reference-only packages (no Revit install needed to compile, not shipped).
+  -->
+  <PropertyGroup>
+    <RevitVersion Condition="'$(RevitVersion)' == ''">2026</RevitVersion>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <RootNamespace>Brush.Revit</RootNamespace>
+    <PlatformTarget>x64</PlatformTarget>
+    <DefineConstants>$(DefineConstants);REVIT$(RevitVersion)</DefineConstants>
+    <!-- Copy into %APPDATA%\Autodesk\Revit\Addins\<year> after a Windows build; -p:DeployToRevit=false to skip. -->
+    <DeployToRevit Condition="'$(DeployToRevit)' == '' And '$(OS)' == 'Windows_NT'">true</DeployToRevit>
+  </PropertyGroup>
+
+  <Choose>
+    <When Condition="'$(RevitVersion)' == '2025'"><PropertyGroup><RevitApiVersion>2025.4.60</RevitApiVersion><TargetFramework>net8.0-windows</TargetFramework></PropertyGroup></When>
+    <When Condition="'$(RevitVersion)' == '2027'"><PropertyGroup><RevitApiVersion>2027.3.0</RevitApiVersion><TargetFramework>net10.0-windows</TargetFramework></PropertyGroup></When>
+    <Otherwise><PropertyGroup><RevitApiVersion>2026.4.10</RevitApiVersion><TargetFramework>net8.0-windows</TargetFramework></PropertyGroup></Otherwise>
+  </Choose>
+
+  <ItemGroup>
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="$(RevitApiVersion)" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="$(RevitApiVersion)" ExcludeAssets="runtime" PrivateAssets="all" />
+    <ProjectReference Include="..\Brush.Link.Core\Brush.Link.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="Brush.Revit.addin" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="DeployToRevitAddins" AfterTargets="Build" Condition="'$(DeployToRevit)' == 'true'">
+    <PropertyGroup>
+      <AddinsDir>$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)</AddinsDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <BrushFiles Include="$(TargetDir)*.dll;$(TargetDir)*.pdb" />
+    </ItemGroup>
+    <Copy SourceFiles="$(TargetDir)Brush.Revit.addin" DestinationFolder="$(AddinsDir)" />
+    <Copy SourceFiles="@(BrushFiles)" DestinationFolder="$(AddinsDir)\Brush" />
+    <Message Importance="high" Text="Brush Link installed for Revit $(RevitVersion) in $(AddinsDir)" />
+  </Target>
+</Project>
