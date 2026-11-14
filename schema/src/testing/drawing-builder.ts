@@ -1,4 +1,4 @@
-// Test support: builds .drawing bytes from a header and blobs, following schema/drawing-format.md.
+// Test support: builds .drawing bytes from a header and blobs, following schema/drawing-format-legacy.md.
 // Written separately from the reader on purpose, so the tests check the format and not the reader against itself.
 
 /** Little-endian f32 bytes. */
