@@ -29,6 +29,7 @@ editor                                   plugin
   │── hello {protocol:1} ───────────────▶│
   │◀────────────── welcome {document, sheets}
   │── open_sheet {sheetId} ─────────────▶│  subscribes this connection to the sheet
+  │── show_sheet {sheetId} ─────────────▶│  Revit switches its active view to that sheet
   │◀────────────── sheet {version:1, reason:"open", package}
   │── apply {sheetId, baseVersion:1, commands} ─▶│  one Undo step in Revit
   │◀────────────── applied {results}
@@ -50,6 +51,7 @@ Every message may carry a `requestId` (string). The reply, or the error, echoes 
 | `list_sheets` | | `sheets` |
 | `open_sheet` | `sheetId` | `sheet` with `reason: "open"`. Subscribes: every later version of this sheet is pushed. |
 | `close_sheet` | `sheetId` | none. Stops the pushes. |
+| `show_sheet` | `sheetId` | `shown {sheetId}`. Makes the sheet the active view in Revit. The editor sends it when the user opens a sheet, or clicks one that is already open. An older plugin answers `unknown_type`, which the editor ignores. |
 | `apply` | `sheetId`, `baseVersion?`, `commands: Command[]` | `applied`, then `sheet` (`reason: "apply"`) if anything changed |
 | `revert` | `sheetId`, `commandIds: string[]` | `reverted`, then `sheet` (`reason: "revert"`) if anything changed |
 | `ping` | | `pong` |
@@ -79,6 +81,7 @@ sheet the package described. Unknown ops are reported as failed. They do not bre
                { "id": "cmd-0003", "status": "failed", "elementIds": [], "message": "cmd-0003: not inside a plan viewport on this sheet" } ] }
 
 { "type": "reverted", "requestId": "…", "sheetId": "382617", "results": [ … ] }
+{ "type": "shown", "requestId": "…", "sheetId": "382617" }
 { "type": "pong", "requestId": "…" }
 { "type": "error", "requestId": "…", "code": "unknown_sheet", "message": "no sheet with id '1' in Tower A" }
 ```

@@ -275,6 +275,8 @@ button.pen-chip:hover { border-color: var(--accent); }
 .revit-sheets li { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 4px 0 8px; border-radius: 9px; }
 .revit-sheets li[data-open='true'] { background: #fff; }
 .revit-sheet-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.revit-sheet-name { border: 0; background: none; padding: 0; text-align: left; color: inherit; font: inherit; cursor: pointer; }
+button.revit-sheet-name:hover { text-decoration: underline; }
 .revit-sheets .chip-btn, .revit-body .link-btn { font-family: inherit; min-height: 28px; justify-content: center; }
 .revit-sheets .chip-btn { background: var(--accent); color: #fff; font-weight: 600; padding: 0 12px; }
 .revit-sheets li[data-open='true'] .chip-btn { background: rgba(27, 29, 33, 0.07); color: var(--text); font-weight: 500; }

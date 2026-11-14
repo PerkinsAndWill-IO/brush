@@ -125,7 +125,19 @@ function PanelBody({ close }: { close: () => void }) {
             const opening = rv.opening.includes(s.id)
             return (
               <li key={s.id} data-sheet-id={s.id} data-open={v !== undefined}>
-                <span className="revit-sheet-name">{sheetLabel(s)}</span>
+                {v !== undefined ? (
+                  <button
+                    type="button"
+                    className="revit-sheet-name"
+                    title="Show this sheet in Revit"
+                    data-testid="revit-show-sheet"
+                    onClick={() => revit.showSheet(s.id)}
+                  >
+                    {sheetLabel(s)}
+                  </button>
+                ) : (
+                  <span className="revit-sheet-name">{sheetLabel(s)}</span>
+                )}
                 {v !== undefined ? (
                   <>
                     <span className="mono-num secondary" data-testid="revit-version">
