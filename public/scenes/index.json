@@ -1,0 +1,50 @@
+[
+  {
+    "file": "../examples/house.drawing",
+    "title": "Example house (3 pages)"
+  },
+  {
+    "file": "fixture.json",
+    "title": "Fixture sheet A102"
+  },
+  {
+    "file": "real/A001 - Title Sheet.json",
+    "title": "A001 Title Sheet"
+  },
+  {
+    "file": "real/A101 - Site Plan.json",
+    "title": "A101 Site Plan"
+  },
+  {
+    "file": "real/A102 - Plans.json",
+    "title": "A102 Plans"
+  },
+  {
+    "file": "real/A103 - Elevations_Sections.json",
+    "title": "A103 Elevations and Sections"
+  },
+  {
+    "file": "real/A104 - Elev._Sec._Det..json",
+    "title": "A104 Elevations, Sections, Details"
+  },
+  {
+    "file": "real/A105 - Elev._ Stair Sections.json",
+    "title": "A105 Stair Sections"
+  },
+  {
+    "file": "real/960621.json",
+    "title": "3D view 960621"
+  },
+  {
+    "file": "real/950806.json",
+    "title": "Section Perspective 950806"
+  },
+  {
+    "file": "real/312.json",
+    "title": "Plan view 312"
+  },
+  {
+    "file": "real/98984.json",
+    "title": "Section view 98984"
+  }
+]
