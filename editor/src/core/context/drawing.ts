@@ -380,7 +380,7 @@ function analyse(doc: DrawingDocument, page: DrawingPage): PageAnalysis {
     if (kind === 'wall') {
       const len = box.maxU - box.minU
       const thick = box.maxV - box.minV
-      if (len >= 1.5 * thick) {
+      if (r2(thick) > 0 && len >= 1.5 * thick) {
         const mid = (box.minV + box.maxV) / 2
         const a = at(box, box.minU, mid)
         const b = at(box, box.maxU, mid)

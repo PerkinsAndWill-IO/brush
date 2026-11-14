@@ -1,16 +1,20 @@
-# KRO test drawings
+# KRO sample drawing
 
-Exported from a Perkins&Will project model (KRO, Revit 2026) for testing the viewer and the editor on a large real
-project. Project data, not covered by the repository licence.
+`kro-sample.drawing` is exported from a Perkins&Will project model (KRO, Revit 2026) to test the Editor on a large real
+project. It is in the current `.drawing` format (version 1, zstd frames, `schema/schema/drawing-format.md`) and replaces
+the earlier legacy `kro-test.drawing` and `kro-test-lean.drawing`.
 
-| File | Pages |
+| Sheet | Content |
 |---|---|
-| `kro-test.drawing` | KRO-APD-ARC-PLN-A1A-N01-0001 (plan), KRO-APD-ARC-ELE-A1A-TTN-0032 (elevation), KRO-APD-ARC-SYN-A1A-TTN-0061 (synthesis) |
-| `kro-test-lean.drawing` | The same three sheets, a leaner export (12 MB instead of 30 MB) |
+| KRO-APD-ARC-PLN-A1A-N01-0001 | plan |
+| KRO-APD-ARC-ELE-A1A-TTN-0032 | elevation |
+| KRO-APD-ARC-DET-A1A-TTN-0053 | detail |
+| KRO-APD-ARC-SYN-A1A-TTN-0061 | synthesis (axonometric) |
 
-`kro-test.drawing` is stored with Git LFS: run `git lfs pull` after cloning. `kro-test-lean.drawing` is a regular file, so
-deployments that skip LFS still offer it. The files appear in the editor's sample picker (a file not yet
-pulled is left out). Open in the viewer with `?file=/examples/kro/kro-test.drawing`.
+The file is about 3.5 MB and a regular git file, not Git LFS (see `schema/.gitattributes`), so deployments that skip LFS,
+such as Vercel, still offer it in the Editor's sample picker. Other `.drawing` files in this folder are LFS objects.
 
-Known gaps of this export: some floor bands and facade panels on 0032 are drawn as dense black hairlines, and room
-tags on 0001 overlap.
+## Licence
+
+Project data of Perkins&Will, approved for publication in this public repository. It is not covered by the code licence
+of this repository and is not the CC BY-NC-SA sample of `../house.drawing`. No Revit model is distributed here.

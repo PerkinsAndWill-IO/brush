@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { gunzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { contextFromDrawing, drawingPageType, furnitureSymbolsFromDrawing, paletteFromDrawing, roomAt, sheetInfo, sheetsFromDrawing, wallStylesFromDrawing } from '../../../src/core/context'
-import { type DrawingPage, isDrawingPayload, parseDrawingPayload, parseLegacyDrawingPayload } from '../../../src/core/drawing'
+import { parseDrawingFile } from '../../../src/app/source/drawing-file'
+import { type DrawingPage, parseLegacyDrawingPayload } from '../../../src/core/drawing'
 import { BlobBuffer, buildPayload } from '../drawing/builder-legacy'
 
 /** Rectangle outline as a closed path blob (feet). */
@@ -124,14 +124,16 @@ describe('M5-09 context from a .drawing (decision 0008)', () => {
   })
 
   const house = resolve(__dirname, '../../../../schema/public/examples/house.drawing')
-  it.skipIf(!existsSync(house))('reads the schema example (house.drawing): three pages, plan context with walls, doors, rooms', () => {
-    const doc = parseLegacyDrawingPayload(new Uint8Array(gunzipSync(readFileSync(house))))
+  it.skipIf(!existsSync(house))('reads the schema example (house.drawing): three pages, plan context with walls, doors, rooms', async () => {
+    const doc = await parseDrawingFile(new Uint8Array(readFileSync(house)))
     const sheets = sheetsFromDrawing(doc)
     expect(sheets.map((s) => s.number ?? s.name)).toEqual(['A102', 'A103', '{3D}'])
     const ctx = contextFromDrawing(doc, sheets[0].id)
     expect(ctx.scale).toBe(100)
     const count = (k: string) => ctx.items.filter((i) => i.kind === k).length
     expect(count('wall')).toBeGreaterThan(30)
+    // a wall drawn as one stub line (CL_W1 627064 in this export) has no thickness: it is no wall line
+    expect(ctx.items.filter((i) => i.kind === 'wall' && !(Number(i.props?.thicknessPt) > 0))).toEqual([])
     expect(count('opening')).toBeGreaterThan(20)
     expect(ctx.items.filter((i) => i.props?.role === 'room').length).toBeGreaterThan(10)
     expect(ctx.items.filter((i) => i.kind === 'opening' && i.props?.hostWall).length).toBeGreaterThan(20)
@@ -140,8 +142,8 @@ describe('M5-09 context from a .drawing (decision 0008)', () => {
 
 describe('M5 furniture symbols from a .drawing', () => {
   const house = resolve(__dirname, '../../../../schema/public/examples/house.drawing')
-  it.skipIf(!existsSync(house))('M3-03: every furniture type on the plan has its own symbol, normalised to its box', () => {
-    const doc = parseLegacyDrawingPayload(new Uint8Array(gunzipSync(readFileSync(house))))
+  it.skipIf(!existsSync(house))('M3-03: every furniture type on the plan has its own symbol, normalised to its box', async () => {
+    const doc = await parseDrawingFile(new Uint8Array(readFileSync(house)))
     const syms = furnitureSymbolsFromDrawing(doc)
     for (const f of paletteFromDrawing(doc).furniture) expect(syms.has(f.name)).toBe(true)
     const bar = syms.get('Bar Chair')!
@@ -161,8 +163,8 @@ describe('M5 furniture symbols from a .drawing', () => {
 
 describe('M5 wall styles from a .drawing', () => {
   const house = resolve(__dirname, '../../../../schema/public/examples/house.drawing')
-  it.skipIf(!existsSync(house))('M3-03: every wall type on the plan has its linework: heavy faces at ±0.5, layer lines between', () => {
-    const doc = parseLegacyDrawingPayload(new Uint8Array(gunzipSync(readFileSync(house))))
+  it.skipIf(!existsSync(house))('M3-03: every wall type on the plan has its linework: heavy faces at ±0.5, layer lines between', async () => {
+    const doc = await parseDrawingFile(new Uint8Array(readFileSync(house)))
     const styles = wallStylesFromDrawing(doc)
     for (const w of paletteFromDrawing(doc).walls) expect(styles.has(w.name)).toBe(true)
     for (const [, s] of styles) {
@@ -200,14 +202,13 @@ describe('M5 wall styles from a .drawing', () => {
 })
 
 describe('M2 scale from wall lengths written in metres', () => {
-  const kro = resolve(__dirname, '../../../../schema/public/examples/kro/kro-test-lean.drawing')
-  it.skipIf(!existsSync(kro))('M2-05: kro-test-lean (CURVE_ELEM_LENGTH in m) gets a scale, so the palette and wall styles are its own types', () => {
-    const raw = new Uint8Array(readFileSync(kro))
-    const doc = isDrawingPayload(raw) ? parseDrawingPayload(raw) : parseLegacyDrawingPayload(new Uint8Array(gunzipSync(raw)))
+  const kro = resolve(__dirname, '../../../../schema/public/examples/kro/kro-sample.drawing')
+  it.skipIf(!existsSync(kro))('M2-05: kro-sample (CURVE_ELEM_LENGTH in m) gets a scale, so the palette and wall styles are its own types', async () => {
+    const doc = await parseDrawingFile(new Uint8Array(readFileSync(kro)))
     const plan = sheetsFromDrawing(doc)[0]
     expect(contextFromDrawing(doc, plan.id).scale).toBeGreaterThan(0)
     const walls = paletteFromDrawing(doc).walls
-    expect(walls.every((w) => w.name.startsWith('MUR_'))).toBe(true)
+    expect(walls.every((w) => /^MUR[ _]/.test(w.name))).toBe(true)
     // the type a sketched wall gets is one whose linework the editor can draw
     const styles = wallStylesFromDrawing(doc)
     expect(walls.filter((w) => styles.has(w.name)).length).toBeGreaterThan(10)
