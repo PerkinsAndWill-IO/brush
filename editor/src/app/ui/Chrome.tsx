@@ -19,7 +19,7 @@ import { getDocState, openFile, useDocState } from '../store'
 import { DrawingFileSource, buildCommandFile, commandFileName, serializeCommandFile, writeCommandFile } from '../source'
 import { ITEM_KINDS, categoriesOf, filters, isAnnotationCategory, useFilters } from '../drawing/filters'
 import { useContexts } from '../brain/contextStore'
-import { BrushIcon, ChevronDown, ChevronRight, EraserIcon, MeasureIcon, PanIcon, RedoIcon, SelectIcon, UndoIcon } from './icons'
+import { BrushIcon, ChevronDown, ChevronRight, EraserIcon, MeasureIcon, MenuIcon, PanIcon, RedoIcon, SelectIcon, UndoIcon } from './icons'
 import brushLogo from './assets/brush-logo.png'
 import selectToolIcon from './assets/tool-select.png'
 import brushToolIcon from './assets/tool-brush.png'
@@ -69,37 +69,6 @@ function ZoomMenu() {
             </button>
           ))}
         </div>
-      )}
-    </div>
-  )
-}
-
-function RecordToggle() {
-  const rec = useRecorder()
-  return (
-    <div className="rec" data-testid="recorder">
-      <button
-        type="button"
-        className={`chip-btn${rec.enabled ? ' on' : ''}`}
-        aria-pressed={rec.enabled}
-        data-testid="record-toggle"
-        title="Dev only: record each stroke as a labeled fixture (M1-12)"
-        onClick={() => recorder.setEnabled(!rec.enabled)}
-      >
-        <span className="rec-dot" aria-hidden="true" />
-        {rec.enabled ? 'Recording' : 'Record'}
-      </button>
-      {rec.enabled && (
-        <label className="rec-label">
-          <span className="sr-only">Label for recorded strokes</span>
-          <select value={rec.kind} data-testid="record-kind" onChange={(e) => recorder.setKind(e.target.value as DecisionKind)}>
-            {DECISION_KINDS.map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
-          </select>
-        </label>
       )}
     </div>
   )
@@ -160,40 +129,119 @@ export async function saveToFiles(): Promise<'disk' | 'download' | null> {
   return 'download'
 }
 
-function SaveButton() {
-  const [state, setState] = useState<string | null>(null)
+/**
+ * Hamburger at the top right: file actions (open, save, export), the dev recorder and "Clear session".
+ * Save stays open to show its result; the other actions close the menu.
+ */
+function AppMenu() {
+  const doc = useDocState()
+  const { commands, strokes } = useSession()
+  const rec = useRecorder()
+  const ready = doc.status === 'ready'
+  const [open, setOpen] = useState(false)
+  const [saveState, setSaveState] = useState<string | null>(null)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && setOpen(false)
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    window.addEventListener('pointerdown', close)
+    window.addEventListener('keydown', esc)
+    return () => {
+      window.removeEventListener('pointerdown', close)
+      window.removeEventListener('keydown', esc)
+    }
+  }, [open])
+  const run = (fn: () => unknown) => {
+    setOpen(false)
+    void fn()
+  }
+  const clearSession = () => {
+    const n = strokes.length
+    if (n && !window.confirm(`Clear this session? ${n} ${n === 1 ? 'stroke' : 'strokes'} and ${commands.length} ${commands.length === 1 ? 'command' : 'commands'} will be removed. This can't be undone.`)) return
+    session.clear()
+    view.clearMeasurements()
+    setOpen(false)
+  }
   return (
-    <button
-      type="button"
-      className="btn soft"
-      data-testid="save-to-file"
-      title="Write <name>.brush.json and <name>.commands.json to a folder you choose (downloads if your browser can't)"
-      onClick={() =>
-        void saveToFiles().then((r) => {
-          setState(r === 'disk' ? 'Saved to disk' : r === 'download' ? 'Downloaded' : null)
-          setTimeout(() => setState(null), 2500)
-        })
-      }
-    >
-      {state ?? 'Save to file'}
-    </button>
-  )
-}
-
-function ExportButton() {
-  const { commands } = useSession()
-  return (
-    <button
-      type="button"
-      className="btn soft"
-      data-testid="export-commands"
-      disabled={commands.length === 0}
-      title="Save the command log as <name>.commands.json"
-      onClick={() => void exportCommands()}
-    >
-      Export commands
-      <span className="mono-num">{commands.length}</span>
-    </button>
+    <div className="menu-anchor" ref={ref}>
+      <button type="button" className="icon-btn" aria-label="Menu" aria-haspopup="menu" aria-expanded={open} data-testid="app-menu-button" title="Menu" onClick={() => setOpen(!open)}>
+        <MenuIcon />
+      </button>
+      {open && (
+        <div className="menu app-menu" role="menu" aria-label="Menu" data-testid="app-menu">
+          <button type="button" role="menuitem" data-testid="open-file" onClick={() => run(chooseFile)}>
+            Open file…
+          </button>
+          {ready && (
+            <>
+              <div className="menu-sep" role="separator" />
+              <button
+                type="button"
+                role="menuitem"
+                data-testid="save-to-file"
+                title="Write <name>.brush.json and <name>.commands.json to a folder you choose (downloads if your browser can't)"
+                onClick={() =>
+                  void saveToFiles().then((r) => {
+                    setSaveState(r === 'disk' ? 'Saved to disk' : r === 'download' ? 'Downloaded' : null)
+                    setTimeout(() => setSaveState(null), 2500)
+                  })
+                }
+              >
+                {saveState ?? 'Save to file'}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                data-testid="export-commands"
+                disabled={commands.length === 0}
+                title="Save the command log as <name>.commands.json"
+                onClick={() => run(exportCommands)}
+              >
+                Export commands
+                <span className="mono-num">{commands.length}</span>
+              </button>
+              {recorderAvailable() && (
+                <>
+                  <div className="menu-sep" role="separator" />
+                  <button
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked={rec.enabled}
+                    aria-pressed={rec.enabled}
+                    data-testid="record-toggle"
+                    title="Dev only: record each stroke as a labeled fixture (M1-12)"
+                    onClick={() => recorder.setEnabled(!rec.enabled)}
+                  >
+                    <span className="menu-rec">
+                      <span className={`rec-dot${rec.enabled ? ' on' : ''}`} aria-hidden="true" />
+                      {rec.enabled ? 'Recording' : 'Record strokes'}
+                    </span>
+                    <span className="dev-tag">dev</span>
+                  </button>
+                  {rec.enabled && (
+                    <label className="menu-field">
+                      <span>Label</span>
+                      <select value={rec.kind} data-testid="record-kind" onChange={(e) => recorder.setKind(e.target.value as DecisionKind)}>
+                        {DECISION_KINDS.map((k) => (
+                          <option key={k} value={k}>
+                            {k}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </>
+              )}
+              <div className="menu-sep" role="separator" />
+              <button type="button" role="menuitem" className="danger" data-testid="clear-session" disabled={strokes.length === 0} title="Remove every stroke and command for this drawing and start over" onClick={clearSession}>
+                Clear session
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -228,7 +276,6 @@ export function TopBar() {
         )}
       </div>
       <div className="actions">
-        {ready && recorderAvailable() && <RecordToggle />}
         {ready && <HostStatus />}
         <RevitButton />
         {ready && <LatencyReadout />}
@@ -241,13 +288,9 @@ export function TopBar() {
               <RedoIcon />
             </button>
             <ZoomMenu />
-            <SaveButton />
-            <ExportButton />
           </>
         )}
-        <button type="button" className="btn solid-white" onClick={() => void chooseFile()}>
-          Open file
-        </button>
+        <AppMenu />
       </div>
     </header>
   )

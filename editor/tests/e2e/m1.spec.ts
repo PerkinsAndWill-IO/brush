@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 import { openApp, screenPath } from './helpers'
-import { boardCenter, camera, fixturePath, inkCount, line, openWith, readRecording, replay, sampleInk, settle, strokes } from './m1-helpers'
+import { boardCenter, camera, fixturePath, inkCount, line, openWith, openAppMenu, readRecording, replay, sampleInk, settle, strokes } from './m1-helpers'
 
 const SIX = 'office-6-sheets.pdf'
 
@@ -495,6 +495,7 @@ test('M1-12: strokes can be recorded to fixture files from a dev-only toggle (wr
   await openWith(page, SIX)
   await page.evaluate(() => window.__brushDev!.focusSheet(4, 1))
   await settle(page)
+  await openAppMenu(page)
   await page.getByTestId('record-toggle').click()
   await expect(page.getByTestId('record-toggle')).toHaveAttribute('aria-pressed', 'true')
   await page.getByTestId('record-kind').selectOption('door')
@@ -523,6 +524,7 @@ test('M1-12: strokes can be recorded to fixture files from a dev-only toggle (wr
   expect(rec.points).toEqual(drawn.points)
 
   // and it replays to the same stroke
+  await openAppMenu(page)
   await page.getByTestId('record-toggle').click()
   await replay(page, rec)
   const all = await strokes(page)

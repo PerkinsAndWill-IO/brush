@@ -83,3 +83,9 @@ export const sampleInk = (page: Page, sheetId: string, pts: { x: number; y: numb
     },
     [sheetId, pts] as const,
   )
+
+/** Open the top-right hamburger menu (file actions, recorder, clear session) unless it is already open. */
+export async function openAppMenu(page: Page) {
+  const btn = page.getByTestId('app-menu-button')
+  if ((await btn.getAttribute('aria-expanded')) !== 'true') await btn.click()
+}

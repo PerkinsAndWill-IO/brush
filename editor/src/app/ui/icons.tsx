@@ -71,3 +71,10 @@ export const MeasureIcon = ({ size = 20 }: { size?: number }) => (
     <path d="M6 10l1.5 1.5M8.5 7.5l1.5 1.5M11 5l1.5 1.5" />
   </Icon>
 )
+export const MenuIcon = () => (
+  <Icon size={18}>
+    <path d="M3.5 5.5h13" />
+    <path d="M3.5 10h13" />
+    <path d="M3.5 14.5h13" />
+  </Icon>
+)
