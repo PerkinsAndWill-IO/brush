@@ -7,8 +7,8 @@
 import type { Sheet, Stroke } from '@core/types'
 
 export interface BrushEngine {
-  /** Pen down on a sheet; the stroke has its first point. */
-  onStrokeStart?(stroke: Readonly<Stroke>, sheet: Sheet): void
+  /** Pen down on a sheet; the stroke has its first point. `downTs` is the pointer event time (performance.now clock). */
+  onStrokeStart?(stroke: Readonly<Stroke>, sheet: Sheet, info: { downTs: number }): void
   /** New points arrived (called at most once per animation frame). */
   onStrokeUpdate?(stroke: Readonly<Stroke>, sheet: Sheet): void
   /** Pen up. `committed` is false when the stroke was cancelled (e.g. a pinch started). */

@@ -34,6 +34,11 @@ export interface Platform {
   onFileDrop(cb: (file: OpenedFile) => void): Promise<() => void>
   /** Save a small text file the user keeps (dev stroke recordings, M1-12). Browser: a download. */
   saveTextFile(suggestedName: string, text: string): Promise<void>
+  /**
+   * Optional: write several files to a place on disk the user grants once (File System Access API).
+   * Resolves false when unavailable or declined; callers fall back to `saveTextFile`.
+   */
+  saveFilesToDisk?(files: { name: string; text: string }[]): Promise<boolean>
 }
 
 export function sidecarPathFor(pdfPath: string): string {

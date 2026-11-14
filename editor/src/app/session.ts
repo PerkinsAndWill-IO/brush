@@ -4,14 +4,18 @@
  * and the test API. Autosaves to the sidecar through the platform adapter (M1-10).
  */
 import { useSyncExternalStore } from 'react'
-import { DEFAULT_BRUSH_SETTINGS, SESSION_SCHEMA_VERSION, type BrushSettings, type SessionFile, type Stroke } from '@core/types'
-import { StrokeHistory } from './board/history'
+import { DEFAULT_BRUSH_SETTINGS, SESSION_SCHEMA_VERSION, type AcceptedDecision, type BrushSettings, type Command, type SessionFile, type Stroke } from '@core/types'
+import { StrokeHistory, type Removed } from './board/history'
 import { getPlatform, type SidecarKey } from './platform'
 
 export type Tool = 'select' | 'brush' | 'eraser' | 'pan'
 
 export interface SessionState {
   strokes: readonly Stroke[]
+  /** Accepted predictions (M3), one per committed stroke; markup is never stored. */
+  accepted: readonly AcceptedDecision[]
+  /** The command log (M3/M5). */
+  commands: readonly Command[]
   canUndo: boolean
   canRedo: boolean
   tool: Tool
@@ -22,11 +26,15 @@ export interface SessionState {
   activeSheetId: string | null
   /** Last autosave result, for the UI. */
   saved: 'idle' | 'pending' | 'saved' | 'error'
+  /** Dev/debug: draw the detected context on every sheet (M2). */
+  contextOverlay: boolean
 }
 
 const history = new StrokeHistory()
 let state: SessionState = {
   strokes: [],
+  accepted: [],
+  commands: [],
   canUndo: false,
   canRedo: false,
   tool: 'brush',
@@ -34,6 +42,7 @@ let state: SessionState = {
   eraserSize: 12,
   activeSheetId: null,
   saved: 'idle',
+  contextOverlay: false,
 }
 const listeners = new Set<() => void>()
 
@@ -43,7 +52,7 @@ function emit(next: Partial<SessionState>) {
 }
 
 function syncStrokes(dirty = true) {
-  emit({ strokes: history.strokes(), canUndo: history.canUndo(), canRedo: history.canRedo() })
+  emit({ strokes: history.strokes(), accepted: history.accepted(), commands: history.commands(), canUndo: history.canUndo(), canRedo: history.canRedo() })
   if (dirty) scheduleSave()
 }
 
@@ -63,6 +72,7 @@ export const session = {
   setSetting(key: string, value: unknown) {
     if (key === 'tool') return session.setTool(value as Tool)
     if (key === 'eraserSize') return emit({ eraserSize: Number(value) })
+    if (key === 'contextOverlay') return emit({ contextOverlay: !!value })
     emit({ settings: { ...state.settings, [key]: value } as BrushSettings })
   },
   setActiveSheet(id: string | null) {
@@ -73,12 +83,17 @@ export const session = {
     syncStrokes()
   },
   /** Live erasing during a gesture; call commitErase at pen-up. */
-  eraseLive(ids: ReadonlySet<string>): { stroke: Stroke; index: number }[] {
+  /** Accept a prediction for a committed stroke (M3). Undoable; the stroke's ink stays. */
+  commitDecision(decision: AcceptedDecision, command: Command | null) {
+    history.commit(decision, command)
+    syncStrokes()
+  },
+  eraseLive(ids: ReadonlySet<string>): Removed[] {
     const removed = history.removeLive(ids)
     if (removed.length) syncStrokes(false)
     return removed
   },
-  commitErase(removed: { stroke: Stroke; index: number }[]) {
+  commitErase(removed: Removed[]) {
     if (!removed.length) return
     history.commitErase(removed)
     syncStrokes()
@@ -90,14 +105,14 @@ export const session = {
     if (history.redo()) syncStrokes()
   },
   /** New document: replace strokes, clear history, no save. */
-  reset(strokes: readonly Stroke[] = []) {
-    history.reset(strokes)
+  reset(strokes: readonly Stroke[] = [], accepted: readonly AcceptedDecision[] = [], commands: readonly Command[] = []) {
+    history.reset(strokes, accepted, commands)
     emit({ activeSheetId: null, saved: 'idle' })
     syncStrokes(false)
   },
   /** Dev/test: bulk insert without history (perf fixtures). */
   bulkLoad(strokes: readonly Stroke[]) {
-    history.reset([...history.strokes(), ...strokes])
+    history.reset([...history.strokes(), ...strokes], history.accepted(), history.commands())
     syncStrokes()
   },
 }
@@ -109,13 +124,18 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null
 let saving: Promise<void> = Promise.resolve()
 const SAVE_DEBOUNCE_MS = 300
 
-export function sessionFileFor(key: SidecarKey, strokes: readonly Stroke[]): SessionFile {
+export function sessionFileFor(
+  key: SidecarKey,
+  strokes: readonly Stroke[],
+  accepted: readonly AcceptedDecision[] = [],
+  commands: readonly Command[] = [],
+): SessionFile {
   return {
     schemaVersion: SESSION_SCHEMA_VERSION,
     pdf: { name: key.name, size: key.size },
     strokes: strokes.slice(),
-    accepted: [],
-    commands: [],
+    accepted: accepted.slice(),
+    commands: commands.slice(),
     savedAt: Date.now(),
   }
 }
@@ -135,7 +155,7 @@ export function flushSave(): Promise<void> {
   } else if (state.saved !== 'pending') return saving
   const key = sidecarKey
   if (!key) return saving
-  const file = sessionFileFor(key, history.strokes())
+  const file = sessionFileFor(key, history.strokes(), history.accepted(), history.commands())
   saving = saving
     .then(() => getPlatform())
     .then((p) => p.writeSidecar(key, file))
@@ -155,16 +175,21 @@ export async function openSession(key: SidecarKey, sheetIds: readonly string[]):
   sidecarKey = null
   session.reset()
   let restored: Stroke[] = []
+  let accepted: AcceptedDecision[] = []
+  let commands: Command[] = []
   try {
     const file = await (await getPlatform()).readSidecar(key)
     if (file && file.schemaVersion === SESSION_SCHEMA_VERSION && Array.isArray(file.strokes)) {
       const ids = new Set(sheetIds)
       restored = file.strokes.filter((s) => ids.has(s.sheetId) && Array.isArray(s.points))
+      const strokeIds = new Set(restored.map((s) => s.id))
+      accepted = (file.accepted ?? []).filter((d) => strokeIds.has(d.strokeId))
+      commands = (file.commands ?? []).filter((c) => strokeIds.has(c.strokeId))
     }
   } catch (e) {
     console.warn('could not read sidecar', e)
   }
-  session.reset(restored)
+  session.reset(restored, accepted, commands)
   sidecarKey = key
 }
 

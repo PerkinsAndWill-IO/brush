@@ -5,7 +5,11 @@
  * window.__brushDev holds extra dev hooks that are not part of the frozen
  * BrushTestApi contract (autosave flush, recordings, bulk strokes, camera set).
  */
-import type { BrushTestApi, Stroke, StrokeRecording } from '@core/types'
+import type { BrushTestApi, Command, DecisionKind, Hypothesis, Stroke, StrokeRecording } from '@core/types'
+import { contextFor } from './brain/contextStore'
+import { getLive, type LiveState } from './brain/live'
+import { acceptReading } from './brain/predictEngine'
+import { secondPassMs, setSecondPassRescorer, syntheticCassetteRescorer } from './brain/secondPass'
 import { boardView, getViewportEl } from './board/Board'
 import { sheetToScreen, type Camera } from './board/layout'
 import { getCamera, setCamera } from './camera'
@@ -25,6 +29,19 @@ export interface BrushDevApi {
   recordings(): { fileName: string; json: string; saved: boolean }[]
   isStrokeRecording(v: unknown): boolean
   setRecording(on: boolean, kind?: StrokeRecording['label']['kind']): void
+  /** Live reading state of the current/last stroke (phase, chips, snap markers, decision). */
+  live(): LiveState
+  /** Tap a chip / pick a reading for the pending stroke. */
+  accept(kind: DecisionKind): void
+  /** Accepted decisions in the session. */
+  accepted(): unknown[]
+  /**
+   * M4: run the second pass on a cassette replayer whose reply has these probabilities, after `latencyMs`
+   * (policy overrides like ambiguousBelow / timeoutMs / weight / suggestMin optional). null = off.
+   */
+  useCassetteRescorer(opts: { probs: Partial<Record<DecisionKind, number>>; latencyMs: number; weight?: number; settings?: Record<string, number> } | null): void
+  /** Latencies of answered second-pass calls, ms. */
+  secondPassMs(): number[]
   /** Resolves after `n` animation frames. */
   frames(n?: number): Promise<void>
 }
@@ -109,8 +126,8 @@ export function createTestApi(): BrushTestApi {
     sheets: () => getDocState().sheets.map((s) => ({ ...s, sizePt: { ...s.sizePt } })),
     replayStroke,
     strokes: () => structuredClone(getSession().strokes) as Stroke[],
-    hypotheses: () => [], // M3
-    commands: () => [], // M5
+    hypotheses: () => structuredClone(getLive().history) as Hypothesis[],
+    commands: () => structuredClone(getSession().commands) as Command[],
     metrics: () => ({
       inkLatencyMs: [...metrics.inkLatencyMs],
       firstHypothesisMs: [...metrics.firstHypothesisMs],
@@ -121,9 +138,7 @@ export function createTestApi(): BrushTestApi {
       else session.setSetting(key, value)
     },
     camera: () => ({ ...getCamera() }),
-    async contextFor() {
-      return null // M2
-    },
+    contextFor: (sheetId: string) => contextFor(sheetId),
     undo: () => session.undo(),
     redo: () => session.redo(),
     setTool: (tool) => session.setTool(tool),
@@ -144,6 +159,14 @@ function createDevApi(): BrushDevApi {
       recorder.setEnabled(on)
       if (kind) recorder.setKind(kind)
     },
+    live: () => structuredClone(getLive()),
+    accept: (k) => acceptReading(k),
+    accepted: () => structuredClone(getSession().accepted) as unknown[],
+    useCassetteRescorer(opts) {
+      if (!opts) return setSecondPassRescorer(null)
+      setSecondPassRescorer(syntheticCassetteRescorer({ probs: opts.probs, latencyMs: opts.latencyMs, weight: opts.weight }), opts.settings ?? {})
+    },
+    secondPassMs,
     async frames(n = 1) {
       for (let i = 0; i < n; i++) await nextFrame()
     },

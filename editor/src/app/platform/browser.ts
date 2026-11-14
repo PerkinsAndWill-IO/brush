@@ -43,7 +43,7 @@ export function fileToOpened(file: File): Promise<OpenedFile> {
   return file.arrayBuffer().then((bytes) => ({ name: file.name, size: file.size, bytes }))
 }
 
-export function pickFile(accept = 'application/pdf,.pdf'): Promise<File | null> {
+export function pickFile(accept = 'application/pdf,.pdf,.drawing,application/json,application/zip'): Promise<File | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input')
     input.type = 'file'
@@ -62,9 +62,78 @@ export function pickFile(accept = 'application/pdf,.pdf'): Promise<File | null> 
   })
 }
 
+// ───────────── File System Access (Chromium) ─────────────
+// Picker types are not in lib.dom yet; minimal local declarations.
+interface PickerType {
+  description: string
+  accept: Record<string, string[]>
+}
+interface FsWindow {
+  showOpenFilePicker?: (o: { types?: PickerType[]; multiple?: boolean; excludeAcceptAllOption?: boolean }) => Promise<FileSystemFileHandle[]>
+  showDirectoryPicker?: (o: { mode?: 'read' | 'readwrite'; id?: string }) => Promise<FileSystemDirectoryHandle>
+  showSaveFilePicker?: (o: { suggestedName?: string; types?: PickerType[] }) => Promise<FileSystemFileHandle>
+}
+type Permissioned = FileSystemHandle & {
+  queryPermission?: (o: { mode: 'readwrite' }) => Promise<PermissionState>
+  requestPermission?: (o: { mode: 'readwrite' }) => Promise<PermissionState>
+}
+
+const fsw = (): FsWindow => window as unknown as FsWindow
+/** Real pickers only for people: automated browsers (Playwright) use the <input type=file> / download fallback. */
+export const fsAccessAvailable = (): boolean => typeof window !== 'undefined' && typeof fsw().showOpenFilePicker === 'function' && !navigator.webdriver
+
+const DRAWING_TYPES: PickerType[] = [{ description: 'PDF or .drawing package', accept: { 'application/pdf': ['.pdf'], 'application/json': ['.drawing'] } }]
+
+/** Folder chosen for "Save to file" this session (one permission prompt). */
+let saveDir: FileSystemDirectoryHandle | null = null
+
+async function writable(h: Permissioned): Promise<boolean> {
+  if (!h.queryPermission) return true
+  if ((await h.queryPermission({ mode: 'readwrite' })) === 'granted') return true
+  return (await h.requestPermission?.({ mode: 'readwrite' })) === 'granted'
+}
+
+async function writeHandle(h: FileSystemFileHandle, text: string) {
+  const w = await h.createWritable()
+  await w.write(text)
+  await w.close()
+}
+
+/**
+ * Write files to disk with the File System Access API: into a folder the user picks once
+ * per session (e.g. next to the PDF), or, without a directory picker, one save dialog per file.
+ * Returns false when the API is missing or the user declined; callers then fall back to downloads.
+ */
+export async function saveFilesToDisk(files: { name: string; text: string }[]): Promise<boolean> {
+  if (!fsAccessAvailable()) return false
+  try {
+    const w = fsw()
+    if (w.showDirectoryPicker) {
+      if (!saveDir || !(await writable(saveDir as Permissioned))) saveDir = await w.showDirectoryPicker({ mode: 'readwrite', id: 'brush-save' })
+      for (const f of files) await writeHandle(await saveDir.getFileHandle(f.name, { create: true }), f.text)
+      return true
+    }
+    if (!w.showSaveFilePicker) return false
+    for (const f of files) await writeHandle(await w.showSaveFilePicker({ suggestedName: f.name, types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }] }), f.text)
+    return true
+  } catch (e) {
+    if ((e as DOMException)?.name !== 'AbortError') console.warn('save to disk failed', e)
+    return false
+  }
+}
+
 export const browserPlatform: Platform = {
   kind: 'web',
   async openPdf() {
+    if (fsAccessAvailable()) {
+      try {
+        const [h] = await fsw().showOpenFilePicker!({ types: DRAWING_TYPES, multiple: false })
+        return h ? fileToOpened(await h.getFile()) : null
+      } catch (e) {
+        if ((e as DOMException)?.name === 'AbortError') return null
+        console.warn('file picker failed, using the file input', e)
+      }
+    }
     const file = await pickFile()
     return file ? fileToOpened(file) : null
   },
@@ -82,6 +151,7 @@ export const browserPlatform: Platform = {
   async onFileDrop() {
     return () => {}
   },
+  saveFilesToDisk,
   async saveTextFile(suggestedName: string, text: string) {
     const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }))
     const a = document.createElement('a')

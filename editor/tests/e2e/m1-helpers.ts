@@ -13,8 +13,13 @@ export function readRecording(rel: string): StrokeRecording {
   return JSON.parse(readFileSync(fixturePath(`strokes/${rel}`), 'utf8')) as StrokeRecording
 }
 
-export async function openWith(page: Page, pdf: 'office-1-sheet.pdf' | 'office-6-sheets.pdf') {
+/**
+ * Open the app with a fixture. `live` defaults to false: the M1 specs exercise the plain sketching
+ * surface (Live off = pure M1 ink, no predictions committing elements); M2/M3 specs pass true.
+ */
+export async function openWith(page: Page, pdf: string, opts: { live?: boolean } = {}) {
   await openApp(page)
+  await page.evaluate((live) => window.__brush!.setSetting('live', live), opts.live ?? false)
   await page.evaluate((u) => window.__brush!.loadPdf(u), `/fixtures/pdfs/${pdf}`)
   await page.waitForFunction(() => document.querySelectorAll('[data-testid="sheet"][data-rendered="true"]').length === window.__brush!.sheets().length)
 }

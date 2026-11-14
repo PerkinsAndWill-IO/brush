@@ -452,7 +452,7 @@ test('M1-10: work autosaves to the sidecar and is restored when the same PDF is 
   await page.screenshot({ path: screenPath('m1-10-restored') })
 })
 
-test('M1-11: left sidebar shows the active tool’s options; sections collapse; Mode, Snapping, Commit disabled “coming later”', async ({ page }) => {
+test('M1-11: left sidebar shows the active tool’s options; sections collapse; Mode, Snapping, Commit present (enabled from M2/M3; Mode off with Live off)', async ({ page }) => {
   await openWith(page, SIX)
   const side = page.getByTestId('left-sidebar')
   await expect(side.locator('.tool-name')).toHaveText('Brush')
@@ -460,15 +460,19 @@ test('M1-11: left sidebar shows the active tool’s options; sections collapse; 
   await expect(side.locator('#brush-smoothing')).toBeEnabled()
   for (const id of ['section-mode', 'section-snapping', 'section-commit']) {
     const sec = side.getByTestId(id)
-    await expect(sec).toContainText('Coming later')
+    await expect(sec).toBeVisible()
     if ((await sec.getAttribute('data-open')) === 'false') await sec.getByRole('button').first().click()
-    const controls = sec.locator('.section-body button, .section-body input')
-    expect(await controls.count()).toBeGreaterThan(0)
-    for (const c of await controls.all()) await expect(c).toBeDisabled()
+    expect(await sec.locator('.section-body button, .section-body input').count()).toBeGreaterThan(0)
   }
-  // right sidebar: only the session list (no Reading panel in M1)
+  // Live off is the plain M1 surface: Mode is disabled and labeled, the Reading panel says so
+  await expect(side.getByTestId('section-mode')).toContainText('Live off')
+  for (const c of await side.locator('[data-testid="section-mode"] .section-body button').all()) await expect(c).toBeDisabled()
+  await expect(page.getByTestId('section-reading')).toContainText('Live reading is off')
   await expect(page.getByTestId('right-sidebar')).toContainText('This session')
-  await expect(page.getByText('Reading your stroke')).toHaveCount(0)
+  // turning Live on enables Mode (M3)
+  await page.getByTestId('live-toggle').click()
+  await expect(side.locator('[data-mode="wall"]')).toBeEnabled()
+  await page.getByTestId('live-toggle').click()
   await page.screenshot({ path: screenPath('m1-11-sidebar-open') })
 
   // collapse Stroke

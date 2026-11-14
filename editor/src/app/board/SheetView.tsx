@@ -11,6 +11,7 @@ import { renderPageAt } from '../pdf/pdfjs'
 import { notifyPageRendered } from '../store'
 import { inkRender, type InkRender } from './ink'
 import { rectsIntersect, renderScaleFor, visibleBoardRect, type Placement } from './layout'
+import { ContextBadge } from '../brain/overlays'
 import { penGate } from './penGate'
 import { enqueueRender } from './renderQueue'
 
@@ -64,10 +65,13 @@ export function cachedInk(stroke: Stroke, smoothing: number, precomputed?: InkRe
 const pathCache = new WeakMap<Stroke, Path2D>()
 
 /** Draw strokes (sheet pts) into a 2D context already scaled to sheet points. */
-export function drawStrokes(g: CanvasRenderingContext2D, strokes: readonly Stroke[], smoothing: number) {
+export function drawStrokes(g: CanvasRenderingContext2D, strokes: readonly Stroke[], smoothing: number, faded?: ReadonlySet<string>) {
   g.lineCap = 'round'
   g.lineJoin = 'round'
   for (const s of strokes) {
+    if (s.tool === 'eraser') continue // an eraser pass kept as the source of a delete element: no ink
+    // ink of a committed element stays visible underneath it, faded (undo brings it back fully)
+    g.globalAlpha = faded?.has(s.id) ? 0.28 : 1
     const r = cachedInk(s, smoothing)
     let p = pathCache.get(s)
     if (!p) pathCache.set(s, (p = new Path2D(r.d)))
@@ -87,19 +91,21 @@ export function drawStrokes(g: CanvasRenderingContext2D, strokes: readonly Strok
 interface Props {
   sheet: Sheet
   placement: Placement
-  doc: PDFDocumentProxy
+  doc?: PDFDocumentProxy
   loadId: number
   strokes: readonly Stroke[]
+  /** Strokes that became elements (M3): their ink is drawn faded. */
+  faded: ReadonlySet<string>
   smoothing: number
   active: boolean
   viewport: () => { w: number; h: number }
 }
 
-export const SheetView = memo(function SheetView({ sheet, placement, doc, loadId, strokes, smoothing, active, viewport }: Props) {
+export const SheetView = memo(function SheetView({ sheet, placement, doc, loadId, strokes, faded, smoothing, active, viewport }: Props) {
   const pageRef = useRef<HTMLDivElement>(null)
   const inkRef = useRef<SVGSVGElement>(null)
   const inkCanvasRef = useRef<HTMLCanvasElement>(null)
-  const drawn = useRef<{ strokes: readonly Stroke[]; scale: number }>({ strokes: [], scale: 0 })
+  const drawn = useRef<{ strokes: readonly Stroke[]; scale: number; faded?: ReadonlySet<string> }>({ strokes: [], scale: 0 })
   const [inkScale, setInkScale] = useState(0)
   const wetRef = useRef<SVGPathElement>(null)
   const overlayRef = useRef<SVGSVGElement>(null)
@@ -118,6 +124,16 @@ export const SheetView = memo(function SheetView({ sheet, placement, doc, loadId
     let first = true
     const key = `${loadId}:${sheet.id}`
     const request = () => {
+      if (!doc) {
+        // package without a PDF: blank paper, nothing to render
+        if (first) {
+          first = false
+          current = 1
+          setRenderScale(1)
+          notifyPageRendered(loadId, sheet.pageIndex)
+        }
+        return
+      }
       const cam = getCamera()
       const vp = viewport()
       const visible = rectsIntersect(visibleBoardRect(cam, vp.w, vp.h), placement)
@@ -165,15 +181,15 @@ export const SheetView = memo(function SheetView({ sheet, placement, doc, loadId
     if (!c || inkScale === 0) return
     const prev = drawn.current
     const g = c.getContext('2d')!
-    const appended = prev.scale === inkScale && prev.strokes.length <= strokes.length && prev.strokes.every((s, i) => strokes[i] === s)
+    const appended = prev.scale === inkScale && prev.faded === faded && prev.strokes.length <= strokes.length && prev.strokes.every((s, i) => strokes[i] === s)
     if (!appended) {
       c.width = Math.max(1, Math.floor(sheet.sizePt.w * inkScale))
       c.height = Math.max(1, Math.floor(sheet.sizePt.h * inkScale))
     }
     g.setTransform(inkScale, 0, 0, inkScale, 0, 0)
-    drawStrokes(g, appended ? strokes.slice(prev.strokes.length) : strokes, smoothing)
-    drawn.current = { strokes, scale: inkScale }
-  }, [strokes, inkScale, smoothing, sheet.sizePt])
+    drawStrokes(g, appended ? strokes.slice(prev.strokes.length) : strokes, smoothing, faded)
+    drawn.current = { strokes, scale: inkScale, faded }
+  }, [strokes, faded, inkScale, smoothing, sheet.sizePt])
 
   const { w, h } = sheet.sizePt
   return (
@@ -189,11 +205,12 @@ export const SheetView = memo(function SheetView({ sheet, placement, doc, loadId
         {active && <span className="dot" aria-hidden="true" />}
         {sheet.number && <span className="num">{sheet.number}</span>}
         {sheet.name !== sheet.number && <span className="name">{sheet.name}</span>}
+        <ContextBadge sheetId={sheet.id} />
       </div>
       <div className="paper">
         <div className="page" ref={pageRef} />
         {renderScale === 0 && <div className="placeholder" aria-label="Loading sheet" />}
-        <canvas className="ink-canvas" ref={inkCanvasRef} data-layer="ink" data-ink-count={strokes.length} data-ink-scale={inkScale} />
+        <canvas className="ink-canvas" ref={inkCanvasRef} data-layer="ink" data-ink-count={strokes.filter((s) => s.tool !== 'eraser').length} data-ink-scale={inkScale} />
         <svg className="ink" ref={inkRef} viewBox={`0 0 ${w} ${h}`} width={w} height={h} data-layer="wet-ink">
           <path ref={wetRef} className="wet" data-layer="wet" />
         </svg>

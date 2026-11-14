@@ -4,11 +4,14 @@
  */
 import { lazy, Suspense, useEffect, useState, type DragEvent } from 'react'
 import { Board } from './board/Board'
+import { installBrain } from './brain'
 import { getPlatform } from './platform'
 import { fileToOpened } from './platform/browser'
 import { openFile, useDocState } from './store'
 import { EmptyIllustration } from './ui/icons'
 import { chooseFile, LeftSidebar, RightSidebar, ToolCapsule, TopBar } from './ui/Chrome'
+
+installBrain()
 
 const TldrawSmoke = lazy(() => import('./dev/TldrawSmoke'))
 
@@ -79,7 +82,7 @@ export function App() {
     )
   }
 
-  const ready = st.status === 'ready' && st.doc
+  const ready = st.status === 'ready'
   return (
     <div
       className={`app${dragOver ? ' drag-over' : ''}`}
@@ -98,7 +101,7 @@ export function App() {
         {ready && <LeftSidebar />}
         <main className="canvas-area">
           {ready ? (
-            <Board doc={st.doc!} loadId={st.loadId} sheets={st.sheets} placements={st.placements} fileName={st.fileName ?? ''} />
+            <Board doc={st.doc} loadId={st.loadId} sheets={st.sheets} placements={st.placements} fileName={st.fileName ?? ''} />
           ) : (
             <EmptyState error={st.status === 'error' ? st.error : undefined} loading={st.status === 'loading' ? st.fileName : undefined} />
           )}

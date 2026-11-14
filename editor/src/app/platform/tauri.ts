@@ -20,7 +20,7 @@ async function readPdfAt(path: string): Promise<OpenedFile> {
 export const tauriPlatform: Platform = {
   kind: 'tauri',
   async openPdf() {
-    const path = await open({ multiple: false, directory: false, filters: [{ name: 'PDF', extensions: ['pdf'] }] })
+    const path = await open({ multiple: false, directory: false, filters: [{ name: 'Drawings', extensions: ['pdf', 'drawing'] }] })
     return path ? readPdfAt(path) : null
   },
   async readSidecar(key: SidecarKey) {
@@ -38,7 +38,7 @@ export const tauriPlatform: Platform = {
   async onFileDrop(cb) {
     return getCurrentWebview().onDragDropEvent(async (event) => {
       if (event.payload.type !== 'drop') return
-      const pdf = event.payload.paths.find((p) => /\.pdf$/i.test(p)) ?? event.payload.paths[0]
+      const pdf = event.payload.paths.find((p) => /\.(pdf|drawing)$/i.test(p)) ?? event.payload.paths[0]
       if (pdf) cb(await readPdfAt(pdf))
     })
   },

@@ -6,9 +6,11 @@ import { useSyncExternalStore } from 'react'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 import type { Sheet } from '@core/types'
 import { layoutSheets, type Placement } from './board/layout'
-import { loadPdf, type PdfSource } from './pdf/pdfjs'
 import type { OpenedFile } from './platform'
 import { closeSession, openSession } from './session'
+import { closeContexts, openContexts, type ContextProvider } from './brain/contextStore'
+import { openSource, type DrawingSource } from './source'
+import { resetLive } from './brain/live'
 
 export type DocStatus = 'empty' | 'loading' | 'ready' | 'error'
 
@@ -16,7 +18,10 @@ export interface DocState {
   status: DocStatus
   fileName?: string
   fileSize?: number
+  /** pdf.js document for the sheet images; undefined for a package without a PDF (sheets draw blank). */
   doc?: PDFDocumentProxy
+  /** The open source (M5): PDF or `.drawing` package. */
+  source?: DrawingSource
   destroy?: () => Promise<void>
   sheets: Sheet[]
   placements: Placement[]
@@ -82,28 +87,62 @@ export interface OpenOptions {
   path?: string
 }
 
-/** Open a PDF. Errors keep the empty state and set `error` (M1-02). */
-export async function openDocument(src: PdfSource, fileName: string, opts: OpenOptions = {}): Promise<number> {
+const contextsFrom = (src: DrawingSource): ContextProvider => ({
+  open: async () => {},
+  getContext: (id) => src.contextFor(id),
+  close: () => {},
+})
+
+/**
+ * Open a PDF or a `.drawing` package (M5 source: sniffed by content). Errors keep the
+ * empty state and set `error` (M1-02). Sheets come from the source, contexts from
+ * `source.contextFor` (inferred for PDFs, from the manifest for packages).
+ */
+export async function openDocument(input: string | ArrayBuffer | Uint8Array, fileName: string, opts: OpenOptions = {}): Promise<number> {
   const loadId = state.loadId + 1
-  const prev = state.destroy
-  const size = opts.size ?? (typeof src === 'string' ? 0 : src.byteLength)
+  const prev = state.source
+  const size = opts.size ?? (typeof input === 'string' ? 0 : input.byteLength)
   set({ status: 'loading', fileName, fileSize: size, loadId, error: undefined })
+  let source: DrawingSource | undefined
   try {
-    if (typeof src !== 'string' && !looksLikePdf(fileName, src)) {
-      throw new Error(`“${fileName}” is not a PDF. Choose a .pdf file.`)
+    // copy: pdf.js may transfer (detach) the buffer it is given
+    const bytes = typeof input === 'string' ? null : input instanceof Uint8Array ? input.slice() : new Uint8Array(input.slice(0))
+    // own copy for the context worker: PdfDrawingSource hands the same buffer to pdf.js, which detaches it
+    const ctxBytes = bytes?.slice()
+    source = await openSource(bytes ? { name: fileName, bytes } : (input as string))
+    const { sheets, pdf } = await source.load()
+    if (sheets.length === 0) throw new Error(`“${fileName}” has no sheets.`)
+    if (loadId !== state.loadId) {
+      void source.close()
+      return loadId
     }
-    const { doc, sheets, destroy } = await loadPdf(src)
-    if (sheets.length === 0) throw new Error(`“${fileName}” has no pages.`)
-    void prev?.()
-    await openSession({ name: fileName, size, path: opts.path }, sheets.map((s) => s.id))
-    set({ status: 'ready', doc, sheets, placements: layoutSheets(sheets), destroy })
+    void prev?.close()
+    resetLive()
+    await openSession({ name: source.name, size, path: opts.path }, sheets.map((s) => s.id))
+    set({
+      status: 'ready',
+      fileName: source.name,
+      doc: pdf?.doc,
+      source,
+      sheets,
+      placements: layoutSheets(sheets),
+      destroy: () => source!.close(),
+    })
+    const ids = sheets.map((s) => s.id)
+    if (source.kind === 'pdf') void openContexts(ctxBytes ?? (input as string), ids) // inferred in the context worker
+    else void openContexts('', ids, contextsFrom(source)) // from the package manifest
     return loadId
   } catch (e) {
-    void prev?.()
+    void source?.close()
+    void prev?.close()
     closeSession()
+    closeContexts()
+    resetLive()
     const msg = (e as Error).message ?? String(e)
-    const error = msg.startsWith('“') ? msg : `Could not read “${fileName}”. It may be damaged or not a PDF. (${msg})`
-    set({ status: 'error', doc: undefined, destroy: undefined, sheets: [], placements: [], error })
+    const error = /not a PDF/i.test(msg)
+      ? `“${fileName}” is not a PDF or a .drawing package. Choose a .pdf or .drawing file.`
+      : `Could not read “${fileName}”. It may be damaged. (${msg})`
+    set({ status: 'error', doc: undefined, source: undefined, destroy: undefined, sheets: [], placements: [], error })
     throw e
   }
 }

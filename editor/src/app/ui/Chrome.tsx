@@ -4,13 +4,20 @@
  * Reading panel, host status, latency readout and Live toggle arrive in M3.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { DECISION_KINDS, type DecisionKind } from '@core/types'
+import { DECISION_KINDS, type BrushMode, type DecisionKind } from '@core/types'
+import { KIND_LABEL } from '../brain/overlays'
+import { acceptReading } from '../brain/predictEngine'
+import { useLive } from '../brain/live'
+import { setSecondPassAdapter, useSecondPass } from '../brain/secondPass'
+import type { RescoreAdapterSetting } from '@core/rescore'
 import { useCameraZoom } from '../camera'
 import { boardView } from '../board/Board'
 import { getPlatform } from '../platform'
 import { recorder, recorderAvailable, useRecorder } from '../recording'
-import { session, useSession, type Tool } from '../session'
-import { openFile, useDocState } from '../store'
+import { getSession, session, sessionFileFor, useSession, type Tool } from '../session'
+import { getDocState, openFile, useDocState } from '../store'
+import { buildCommandFile, commandFileName, serializeCommandFile, writeCommandFile } from '../source'
+import { useContexts } from '../brain/contextStore'
 import { BrushIcon, ChevronDown, ChevronRight, EraserIcon, PanIcon, RedoIcon, SelectIcon, UndoIcon } from './icons'
 
 export async function chooseFile() {
@@ -85,6 +92,100 @@ function RecordToggle() {
   )
 }
 
+/** Plain PDFs have no host model; a `.drawing` package will report its host here (M5). */
+function HostStatus() {
+  const { source } = useDocState()
+  const pkg = source?.kind === 'package'
+  return (
+    <span className="pill" data-testid="host-status" title="Commands go to the session log until an Applier links a host">
+      <span className={`pill-dot${pkg ? ' pkg' : ''}`} aria-hidden="true" />
+      {pkg ? `Package · ${source?.project ?? 'no project'}` : 'No host linked'}
+    </span>
+  )
+}
+
+/** Write the command log next to nothing yet: a download / platform save of `<name>.commands.json` (M5). */
+export async function exportCommands(): Promise<string | null> {
+  const d = getDocState()
+  if (!d.source) return null
+  const file = buildCommandFile({
+    source: { name: d.source.name, kind: d.source.kind, project: d.source.project },
+    sheets: d.sheets,
+    commands: getSession().commands,
+  })
+  const platform = await getPlatform()
+  return writeCommandFile((name, text) => platform.saveTextFile(name, text), file)
+}
+
+/**
+ * "Save to file": the sidecar `<name>.brush.json` and `<name>.commands.json` written to disk through the
+ * File System Access API after one folder permission (Chromium); otherwise both are downloaded.
+ * The browser-storage autosave keeps running either way.
+ */
+export async function saveToFiles(): Promise<'disk' | 'download' | null> {
+  const d = getDocState()
+  if (!d.source || !d.fileName) return null
+  const base = d.fileName.replace(/\.(pdf|drawing)$/i, '')
+  const st = getSession()
+  const sidecar = JSON.stringify(sessionFileFor({ name: d.fileName, size: d.fileSize ?? 0 }, st.strokes, st.accepted, st.commands), null, 2)
+  const cmds = serializeCommandFile(buildCommandFile({ source: { name: d.source.name, kind: d.source.kind, project: d.source.project }, sheets: d.sheets, commands: st.commands }))
+  const files = [
+    { name: `${base}.brush.json`, text: sidecar },
+    { name: commandFileName(d.source.name), text: cmds },
+  ]
+  const platform = await getPlatform()
+  if (await platform.saveFilesToDisk?.(files)) return 'disk'
+  for (const f of files) await platform.saveTextFile(f.name, f.text)
+  return 'download'
+}
+
+function SaveButton() {
+  const [state, setState] = useState<string | null>(null)
+  return (
+    <button
+      type="button"
+      className="btn soft"
+      data-testid="save-to-file"
+      title="Write <name>.brush.json and <name>.commands.json to a folder you choose (downloads if your browser can't)"
+      onClick={() =>
+        void saveToFiles().then((r) => {
+          setState(r === 'disk' ? 'Saved to disk' : r === 'download' ? 'Downloaded' : null)
+          setTimeout(() => setState(null), 2500)
+        })
+      }
+    >
+      {state ?? 'Save to file'}
+    </button>
+  )
+}
+
+function ExportButton() {
+  const { commands } = useSession()
+  return (
+    <button
+      type="button"
+      className="btn soft"
+      data-testid="export-commands"
+      disabled={commands.length === 0}
+      title="Save the command log as <name>.commands.json"
+      onClick={() => void exportCommands()}
+    >
+      Export commands
+      <span className="mono-num">{commands.length}</span>
+    </button>
+  )
+}
+
+function LatencyReadout() {
+  const { lastFirstMs } = useLive()
+  return (
+    <span className="pill" data-testid="latency" title="Pen down to first guess on screen, last stroke">
+      <span className="secondary">First guess</span>
+      <span className="mono-num">{lastFirstMs === undefined ? '–' : `${Math.round(lastFirstMs)} ms`}</span>
+    </span>
+  )
+}
+
 export function TopBar() {
   const doc = useDocState()
   const { canUndo, canRedo, saved } = useSession()
@@ -92,7 +193,7 @@ export function TopBar() {
   return (
     <header className="topbar">
       <div className="title">
-        <span className="project">{ready ? doc.fileName?.replace(/\.pdf$/i, '') : 'No drawing open'}</span>
+        <span className="project">{ready ? doc.fileName?.replace(/\.(pdf|drawing)$/i, '') : 'No drawing open'}</span>
         {ready && (
           <span className="secondary" data-testid="sheet-count">
             {doc.sheets.length} {doc.sheets.length === 1 ? 'sheet' : 'sheets'}
@@ -106,6 +207,8 @@ export function TopBar() {
       </div>
       <div className="actions">
         {ready && recorderAvailable() && <RecordToggle />}
+        {ready && <HostStatus />}
+        {ready && <LatencyReadout />}
         {ready && (
           <>
             <button type="button" className="icon-btn" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!canUndo} onClick={() => session.undo()}>
@@ -115,6 +218,8 @@ export function TopBar() {
               <RedoIcon />
             </button>
             <ZoomMenu />
+            <SaveButton />
+            <ExportButton />
           </>
         )}
         <button type="button" className="btn solid-white" onClick={() => void chooseFile()}>
@@ -182,6 +287,28 @@ function ColorButton({ disabled }: { disabled: boolean }) {
   )
 }
 
+function LiveToggle({ disabled }: { disabled: boolean }) {
+  const { settings } = useSession()
+  const on = settings.live && !disabled
+  return (
+    <button
+      type="button"
+      className="live-toggle"
+      aria-label={`Live reading, ${on ? 'on' : 'off'}`}
+      aria-pressed={on}
+      disabled={disabled}
+      data-testid="live-toggle"
+      title="Read strokes as you draw (off: plain ink)"
+      onClick={() => session.setSetting('live', !settings.live)}
+    >
+      <span className={`switch${on ? ' on' : ''}`} aria-hidden="true">
+        <span />
+      </span>
+      Live
+    </button>
+  )
+}
+
 export function ToolCapsule({ disabled = false }: { disabled?: boolean }) {
   const { tool } = useSession()
   return (
@@ -203,6 +330,12 @@ export function ToolCapsule({ disabled = false }: { disabled?: boolean }) {
       ))}
       <span className="divider" aria-hidden="true" />
       <ColorButton disabled={disabled} />
+      {!disabled && (
+        <>
+          <span className="divider" aria-hidden="true" />
+          <LiveToggle disabled={disabled} />
+        </>
+      )}
     </nav>
   )
 }
@@ -237,17 +370,132 @@ function Slider({ id, label, value, min, max, step = 1, display, onChange }: { i
   )
 }
 
-const ComingLater = ({ when }: { when: string }) => (
-  <span className="later-tag" title={`Arrives in ${when}`}>
-    Coming later
-  </span>
-)
 
 const TOOL_META: Record<Tool, { label: string; icon: ReactNode }> = {
   select: { label: 'Select', icon: <SelectIcon /> },
   brush: { label: 'Brush', icon: <BrushIcon size={16} /> },
   eraser: { label: 'Eraser', icon: <EraserIcon size={16} /> },
   pan: { label: 'Pan', icon: <PanIcon size={16} /> },
+}
+
+const MODES: { mode: BrushMode; label: string }[] = [
+  { mode: 'auto', label: 'Auto' },
+  { mode: 'wall', label: 'Wall' },
+  { mode: 'door', label: 'Door' },
+  { mode: 'furniture', label: 'Furniture' },
+  { mode: 'markup', label: 'Markup' },
+]
+
+function ModeSection() {
+  const { settings } = useSession()
+  const off = !settings.live
+  return (
+    <Section title="Mode" aside={off ? <span className="later-tag">Live off</span> : undefined} testId="section-mode">
+      <span className="secondary">What the brush creates</span>
+      <div className="mode-grid">
+        {MODES.map((m) => (
+          <button
+            key={m.mode}
+            type="button"
+            disabled={off}
+            aria-pressed={settings.mode === m.mode}
+            data-mode={m.mode}
+            className={`mode-btn${m.mode === 'auto' ? ' wide' : ''}${settings.mode === m.mode ? ' on' : ''}`}
+            onClick={() => session.setSetting('mode', m.mode)}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+      <SecondPassRow disabled={off} />
+    </Section>
+  )
+}
+
+const SECOND_PASS: { id: RescoreAdapterSetting; label: string }[] = [
+  { id: 'off', label: 'Off' },
+  { id: 'local', label: 'Local' },
+  { id: 'hosted', label: 'Hosted' },
+  { id: 'jev', label: 'Jev' },
+]
+
+/** M4: which model (if any) rescores ambiguous readings. Never blocks a stroke. */
+function SecondPassRow({ disabled }: { disabled: boolean }) {
+  const sp = useSecondPass()
+  return (
+    <div className="field" data-testid="second-pass">
+      <div className="field-row">
+        <span>Second pass</span>
+        {sp.name?.startsWith('cassette') && <span className="secondary mono-num">{sp.name}</span>}
+      </div>
+      <div className="segmented" role="radiogroup" aria-label="Second pass">
+        {SECOND_PASS.map((o) => (
+          <button key={o.id} type="button" role="radio" aria-checked={sp.adapter === o.id} disabled={disabled} className={sp.adapter === o.id ? 'on' : ''} onClick={() => setSecondPassAdapter(o.id)}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function Toggle({ label, on, onChange, testId, disabled }: { label: ReactNode; on: boolean; onChange: (v: boolean) => void; testId?: string; disabled?: boolean }) {
+  return (
+    <button type="button" className="toggle-row" aria-pressed={on} data-testid={testId} disabled={disabled} onClick={() => onChange(!on)}>
+      {label}
+      <span className={`switch${on ? ' on' : ''}`} aria-hidden="true">
+        <span />
+      </span>
+    </button>
+  )
+}
+
+function SnappingSection() {
+  const { settings, contextOverlay } = useSession()
+  return (
+    <Section title="Snapping" aside={settings.snapping ? `${settings.snapRadiusPt} pt` : 'off'} defaultOpen={false} testId="section-snapping">
+      <Toggle label="Walls and grid lines" on={settings.snapping} onChange={(v) => session.setSetting('snapping', v)} testId="snap-toggle" />
+      <Slider
+        id="snap-radius"
+        label="Snap radius"
+        value={settings.snapRadiusPt}
+        min={2}
+        max={24}
+        display={`${settings.snapRadiusPt} pt`}
+        onChange={(v) => session.setSetting('snapRadiusPt', v)}
+      />
+      {recorderAvailable() && (
+        <Toggle
+          label={
+            <span>
+              Show detected context <span className="dev-tag">dev</span>
+            </span>
+          }
+          on={contextOverlay}
+          onChange={(v) => session.setSetting('contextOverlay', v)}
+          testId="context-overlay-toggle"
+        />
+      )}
+    </Section>
+  )
+}
+
+function CommitSection() {
+  const { settings } = useSession()
+  return (
+    <Section title="Commit" aside={<span className="mono-num">{settings.commitPauseMs} ms</span>} defaultOpen={false} testId="section-commit">
+      <Slider
+        id="brush-pause"
+        label="Commit after pause"
+        value={settings.commitPauseMs}
+        min={100}
+        max={1500}
+        step={50}
+        display={`${settings.commitPauseMs} ms`}
+        onChange={(v) => session.setSetting('commitPauseMs', v)}
+      />
+    </Section>
+  )
 }
 
 export function LeftSidebar() {
@@ -288,36 +536,17 @@ export function LeftSidebar() {
         </div>
       )}
 
-      <Section title="Mode" aside={<ComingLater when="M3" />} disabled testId="section-mode">
-        <span className="secondary">What the brush creates</span>
-        <div className="mode-grid">
-          {(['Auto', 'Wall', 'Door', 'Furniture', 'Markup'] as const).map((m) => (
-            <button key={m} type="button" disabled aria-pressed={m === 'Auto'} className={`mode-btn${m === 'Auto' ? ' on' : ''}`}>
-              {m}
-            </button>
-          ))}
-        </div>
-      </Section>
-      <Section title="Snapping" aside={<ComingLater when="M2" />} defaultOpen={false} disabled testId="section-snapping">
-        {['Grid lines', 'Wall ends', '45° angles'].map((s) => (
-          <button key={s} type="button" disabled className="toggle-row" aria-pressed={false}>
-            {s}
-            <span className="switch" aria-hidden="true">
-              <span />
-            </span>
-          </button>
-        ))}
-      </Section>
-      <Section title="Commit" aside={<ComingLater when="M3" />} defaultOpen={false} disabled testId="section-commit">
-        <label htmlFor="brush-pause">Commit after pause</label>
-        <input id="brush-pause" type="range" min={100} max={1500} defaultValue={400} disabled />
-      </Section>
+      <ModeSection />
+      <SnappingSection />
+      <CommitSection />
     </aside>
   )
 }
 
 function SessionList() {
-  const { strokes } = useSession()
+  const { strokes, accepted } = useSession()
+  const live = useLive()
+  const byStroke = new Map(accepted.map((a) => [a.strokeId, a]))
   const doc = useDocState()
   const names = new Map(doc.sheets.map((s) => [s.id, s.number ?? s.name]))
   const list = strokes.slice(-50).reverse()
@@ -326,16 +555,20 @@ function SessionList() {
       {list.length === 0 && <li className="empty-row">No strokes yet. Pick the brush and draw on a sheet.</li>}
       {list.map((s) => {
         const n = strokes.indexOf(s) + 1
+        const a = byStroke.get(s.id)
+        const reading = !a && live.strokeId === s.id && ['drawing', 'pending', 'offer'].includes(live.phase)
         return (
-          <li key={s.id} data-stroke-id={s.id}>
-            <span className="swatch sm" style={{ background: s.color ?? '#D7263D' }} aria-hidden="true" />
+          <li key={s.id} data-stroke-id={s.id} data-kind={a?.kind ?? 'ink'}>
+            <span className="swatch sm" style={{ background: a ? 'var(--accent)' : (s.color ?? '#D7263D') }} aria-hidden="true" />
             <div className="row-text">
-              <span className="row-title">Stroke {n}</span>
+              <span className="row-title">{a ? `1 ${a.kind}` : `Stroke ${n}`}</span>
               <span className="secondary">
-                {names.get(s.sheetId)} · {s.points.length} pts
+                {a?.type ? `${a.type} · ` : ''}
+                {names.get(s.sheetId)}
+                {a ? '' : ` · ${s.points.length} pts`}
               </span>
             </div>
-            <span className="row-status">Ink</span>
+            {reading ? <span className="row-status reading">Reading</span> : a ? <span className="row-status ok">Logged</span> : <span className="row-status">Ink</span>}
           </li>
         )
       })}
@@ -372,10 +605,143 @@ function RecordingsList() {
   )
 }
 
+function fmtLength(pts: { x: number; y: number }[], scale: number): string | undefined {
+  if (pts.length < 2) return undefined
+  let L = 0
+  for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y)
+  return `${((L / 72) * 0.0254 * scale).toFixed(2)} m`
+}
+
+function ReadingPanel() {
+  const live = useLive()
+  const { settings, commands } = useSession()
+  const { contexts } = useContexts()
+  const h = live.hypothesis
+  const scale = live.sheetId ? contexts.get(live.sheetId)?.scale : undefined
+  const status = !settings.live
+    ? 'Off'
+    : live.phase === 'committed'
+      ? 'Committed'
+      : live.phase === 'markup'
+        ? 'Ink'
+        : live.phase === 'idle'
+          ? ''
+          : 'Live'
+  const rows = h ? [{ kind: h.kind, confidence: h.confidence }, ...h.alternatives].slice(0, 3) : []
+  const pickable = live.phase === 'pending' || live.phase === 'offer'
+  const cmd = live.decision ? commands.find((c) => c.strokeId === live.decision!.strokeId) : undefined
+  const length = h && h.kind !== 'markup' && scale ? fmtLength(h.geometry.points, scale) : undefined
+  return (
+    <Section
+      title="Reading your stroke"
+      aside={
+        status ? (
+          <span className={`live-badge${status === 'Live' ? ' on' : ''}`} data-testid="reading-status">
+            {status === 'Live' && <span className="dot" aria-hidden="true" />}
+            {status}
+          </span>
+        ) : undefined
+      }
+      testId="section-reading"
+    >
+      {!settings.live ? (
+        <p className="hint">Live reading is off. Strokes stay plain ink.</p>
+      ) : !h ? (
+        <p className="hint">Draw on a sheet. The brush reads the stroke while you draw and commits when you pause.</p>
+      ) : (
+        <>
+          <div className="reading-rows" data-testid="reading-rows">
+            {rows.map((r, i) => (
+              <button
+                key={r.kind}
+                type="button"
+                className={`reading-row${i === 0 ? ' lead' : ''}`}
+                aria-pressed={i === 0}
+                data-kind={r.kind}
+                disabled={!pickable}
+                onClick={() => acceptReading(r.kind)}
+              >
+                <span className="k">{KIND_LABEL[r.kind]}</span>
+                <span className="bar" aria-hidden="true">
+                  <span style={{ width: `${Math.round(r.confidence * 100)}%` }} />
+                </span>
+                <span className="mono-num pct">{Math.round(r.confidence * 100)}%</span>
+              </button>
+            ))}
+          </div>
+          <div className="rule" />
+          <dl className="facts">
+            {h.type && (
+              <div>
+                <dt>Type</dt>
+                <dd>{h.type}</dd>
+              </div>
+            )}
+            {length && (
+              <div>
+                <dt>Length</dt>
+                <dd className="mono-num">{length}</dd>
+              </div>
+            )}
+            <div>
+              <dt>Snaps</dt>
+              <dd>{[live.snapStart, live.snapEnd].filter(Boolean).map((x) => x!.kind.replace('-', ' ')).join(', ') || 'none'}</dd>
+            </div>
+            {live.shapeOnly && (
+              <div>
+                <dt>Context</dt>
+                <dd>none, shape only</dd>
+              </div>
+            )}
+            {cmd && (
+              <div>
+                <dt>Command</dt>
+                <dd className="mono-num" data-testid="reading-command">
+                  {cmd.op} {cmd.id}
+                </dd>
+              </div>
+            )}
+          </dl>
+          <ul className="evidence" data-testid="reading-evidence">
+            {(h.evidence ?? []).slice(0, 6).map((e, i) => (
+              <li key={i}>{e}</li>
+            ))}
+          </ul>
+          {live.asking && (
+            <p className="hint second-note" data-testid="second-asking">
+              <span className="model-dot" aria-hidden="true" /> Asking the second pass…
+            </p>
+          )}
+          {live.origin === 'model' && live.phase !== 'committed' && (
+            <p className="hint second-note">
+              <span className="model-dot" aria-hidden="true" /> Reading refined by the second pass
+            </p>
+          )}
+          {live.suggestion && (
+            <p className="hint second-note" data-testid="second-suggestion">
+              <span className="model-dot" aria-hidden="true" /> Second pass suggests {KIND_LABEL[live.suggestion.kind].toLowerCase()} ({Math.round(live.suggestion.confidence * 100)}%). The committed element stays.
+            </p>
+          )}
+          <div className="commit-note" data-testid="commit-note">
+            {live.phase === 'offer'
+              ? 'Not sure. Pick a reading, or keep drawing to leave it as ink.'
+              : live.phase === 'committed'
+                ? `Committed as ${KIND_LABEL[live.decision!.kind].toLowerCase()}. Undo to revert.`
+                : live.phase === 'markup'
+                  ? 'Kept as ink'
+                  : `Commits when you pause (${settings.commitPauseMs} ms)`}
+          </div>
+        </>
+      )}
+    </Section>
+  )
+}
+
 export function RightSidebar() {
   const { strokes } = useSession()
   return (
     <aside className="sidebar right" aria-label="Inspector" data-testid="right-sidebar">
+      <ReadingPanel />
       <Section title="This session" aside={`${strokes.length} ${strokes.length === 1 ? 'stroke' : 'strokes'}`} testId="section-session">
         <SessionList />
       </Section>

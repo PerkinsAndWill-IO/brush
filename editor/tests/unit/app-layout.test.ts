@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { Stroke } from '@core/types'
-import { StrokeHistory } from '../../src/app/board/history'
+import { nextCommandId, StrokeHistory } from '../../src/app/board/history'
 import { eraserTouches, hasPressure, inkRender, pointsBBox, pressureWidth } from '../../src/app/board/ink'
 import {
   boardToSheet,
@@ -197,5 +197,29 @@ describe('M1-06: ink rendering', () => {
   })
   it('a single point still renders a dot', () => {
     expect(inkRender([{ x: 5, y: 5, t: 0 }], 3, 0.5).d).toMatch(/^M5 5L/)
+  })
+})
+
+describe('M3: commits in the undo history', () => {
+  it('a commit adds an accepted decision and a command; undo removes them and keeps the ink; erase takes them along', () => {
+    const h = new StrokeHistory()
+    const s = stroke('a', [[0, 0], [100, 0]])
+    h.add(s)
+    const d = { strokeId: 'a', sheetId: 'sheet-0', kind: 'wall' as const, geometry: { points: [{ x: 0, y: 0 }, { x: 100, y: 0 }], closed: false }, confidence: 0.8, committedAt: 1 }
+    const c = { op: 'create_wall' as const, id: nextCommandId([]), sheetId: 'sheet-0', path: d.geometry, strokeId: 'a' }
+    expect(c.id).toBe('cmd-0001')
+    h.commit(d, c)
+    expect(h.accepted()).toHaveLength(1)
+    expect(h.commands()).toHaveLength(1)
+    expect(nextCommandId(h.commands())).toBe('cmd-0002')
+    h.undo()
+    expect(h.accepted()).toHaveLength(0)
+    expect(h.commands()).toHaveLength(0)
+    expect(h.strokes()).toHaveLength(1)
+    h.redo()
+    h.erase(new Set(['a']))
+    expect([h.strokes().length, h.accepted().length, h.commands().length]).toEqual([0, 0, 0])
+    h.undo()
+    expect([h.strokes().length, h.accepted().length, h.commands().length]).toEqual([1, 1, 1])
   })
 })

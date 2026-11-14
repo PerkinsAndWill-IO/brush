@@ -12,6 +12,8 @@ import type { PDFDocumentProxy } from 'pdfjs-dist'
 import type { Point, Sheet, Stroke, StrokePoint } from '@core/types'
 import { appendPoint, createStroke } from '@core/stroke'
 import { getCamera, onCameraMoving, setCamera, subscribeCamera } from '../camera'
+import { LiveHud } from '../brain/overlays'
+import { dismissReading } from '../brain/predictEngine'
 import { callEngines } from '../engine'
 import { FrameMeter, pushMetric } from '../metrics'
 import { recorder } from '../recording'
@@ -30,6 +32,7 @@ import {
   type Placement,
 } from './layout'
 import { setPenDown } from './penGate'
+import type { Removed } from './history'
 import { cachedInk, getSheetLayers, SheetView } from './SheetView'
 
 // ───────────── board handle (top bar zoom menu, test API) ─────────────
@@ -75,6 +78,7 @@ export const boardView = {
 
 // ───────────── helpers ─────────────
 
+const NONE: ReadonlySet<string> = new Set()
 let strokeSeq = 0
 const newStrokeId = () => `s${Date.now().toString(36)}${(strokeSeq++).toString(36)}`
 
@@ -115,13 +119,14 @@ type Gesture =
       smoothing: number
       last?: InkRender
     }
-  | { kind: 'erase'; pointerId: number; last: Point; removed: { stroke: Stroke; index: number }[]; path: Stroke | null; t0: number; start: Placement | null }
+  | { kind: 'erase'; pointerId: number; last: Point; removed: Removed[]; path: Stroke | null; t0: number; start: Placement | null }
   | { kind: 'pan'; pointerId: number; lastX: number; lastY: number }
   | { kind: 'pinch'; d0: number; m0: Point; cam0: Camera }
   | { kind: 'ignore'; pointerId: number }
 
 interface BoardProps {
-  doc: PDFDocumentProxy
+  /** Undefined for a package without a PDF: sheets draw blank. */
+  doc?: PDFDocumentProxy
   loadId: number
   sheets: Sheet[]
   placements: Placement[]
@@ -131,7 +136,7 @@ interface BoardProps {
 export function Board({ doc, loadId, sheets, placements, fileName }: BoardProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const worldRef = useRef<HTMLDivElement>(null)
-  const { strokes, settings, activeSheetId, tool } = useSession()
+  const { strokes, accepted, settings, activeSheetId, tool } = useSession()
 
   const bySheet = useMemo(() => {
     const m = new Map<string, Stroke[]>()
@@ -139,6 +144,16 @@ export function Board({ doc, loadId, sheets, placements, fileName }: BoardProps)
     for (const s of strokes) m.get(s.sheetId)?.push(s)
     return m
   }, [strokes, sheets])
+
+  // Per sheet, so a commit only redraws the ink of the sheet it happened on.
+  const fadedBySheet = useMemo(() => {
+    const m = new Map<string, Set<string>>()
+    for (const a of accepted) {
+      if (!m.has(a.sheetId)) m.set(a.sheetId, new Set())
+      m.get(a.sheetId)!.add(a.strokeId)
+    }
+    return m
+  }, [accepted])
 
   const getViewport = useCallback(() => viewportSize(), [])
 
@@ -248,7 +263,7 @@ export function Board({ doc, loadId, sheets, placements, fileName }: BoardProps)
       gesture = g
       setPenDown(true)
       session.setActiveSheet(sheet.id)
-      callEngines('onStrokeStart', stroke, sheet)
+      callEngines('onStrokeStart', stroke, sheet, { downTs: e.timeStamp })
       scheduleWet(g)
     }
 
@@ -278,6 +293,7 @@ export function Board({ doc, loadId, sheets, placements, fileName }: BoardProps)
       const hit = new Set<string>()
       const pls = new Map(placementsNow().map((p) => [p.sheetId, p]))
       for (const s of getSession().strokes) {
+        if (s.tool === 'eraser') continue // kept only as the source of a delete element
         const pl = pls.get(s.sheetId)
         if (!pl) continue
         if (eraserTouches(s, strokeBBox(s), boardToSheet(pl, g.last), boardToSheet(pl, to), radius)) hit.add(s.id)
@@ -296,6 +312,8 @@ export function Board({ doc, loadId, sheets, placements, fileName }: BoardProps)
       const g: Extract<Gesture, { kind: 'erase' }> = { kind: 'erase', pointerId: e.pointerId, last: b, removed: [], path, t0: e.timeStamp, start }
       gesture = g
       eraseAlong(g, b, e)
+      // An eraser pass over the drawing itself (not over ink) can be read as a delete (M3 decision vocabulary).
+      if (path && start) callEngines('onStrokeStart', path, sheetById(start.sheetId), { downTs: e.timeStamp })
     }
 
     // ── pinch (two touches) ──
@@ -314,7 +332,10 @@ export function Board({ doc, loadId, sheets, placements, fileName }: BoardProps)
 
     const cancelGesture = () => {
       if (gesture?.kind === 'draw') endDraw(gesture, false)
-      if (gesture?.kind === 'erase') session.commitErase(gesture.removed)
+      if (gesture?.kind === 'erase') {
+        session.commitErase(gesture.removed)
+        if (gesture.path && gesture.start) callEngines('onStrokeEnd', gesture.path, sheetById(gesture.start.sheetId), { committed: false })
+      }
       gesture = null
     }
 
@@ -362,6 +383,7 @@ export function Board({ doc, loadId, sheets, placements, fileName }: BoardProps)
       } else if (g.kind === 'erase') {
         const evs = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : []
         for (const ce of evs.length ? evs : [e]) eraseAlong(g, screenToBoard(getCamera(), local(ce)), ce)
+        if (g.path && g.start) callEngines('onStrokeUpdate', g.path, sheetById(g.start.sheetId))
       } else if (g.kind === 'pan') {
         setCamera(panBy(getCamera(), e.clientX - g.lastX, e.clientY - g.lastY))
         g.lastX = e.clientX
@@ -390,7 +412,11 @@ export function Board({ doc, loadId, sheets, placements, fileName }: BoardProps)
         endDraw(g, e.type === 'pointerup')
       } else if (g.kind === 'erase') {
         session.commitErase(g.removed)
-        if (g.path && g.start) recorder.capture(g.path, fileName, sheetById(g.start.sheetId).pageIndex)
+        if (g.path && g.start) {
+          recorder.capture(g.path, fileName, sheetById(g.start.sheetId).pageIndex)
+          // erasing ink is just erasing; only a pass that removed no ink is offered to the brush engine
+          callEngines('onStrokeEnd', g.path, sheetById(g.start.sheetId), { committed: g.removed.length === 0 })
+        }
       } else if (g.kind === 'pan') vp.classList.remove('panning')
       gesture = null
     }
@@ -425,6 +451,8 @@ export function Board({ doc, loadId, sheets, placements, fileName }: BoardProps)
         e.preventDefault()
         if (e.shiftKey) session.redo()
         else session.undo()
+      } else if (e.key === 'Escape') {
+        dismissReading()
       } else if (mod && k === 'y') {
         e.preventDefault()
         session.redo()
@@ -467,22 +495,26 @@ export function Board({ doc, loadId, sheets, placements, fileName }: BoardProps)
   }, [fileName])
 
   return (
-    <div className={`viewport tool-${tool}`} ref={viewportRef} data-testid="board" aria-label="Sheets canvas">
-      <div className="world" ref={worldRef}>
-        {sheets.map((s, i) => (
-          <SheetView
-            key={`${loadId}:${s.id}`}
-            sheet={s}
-            placement={placements[i]}
-            doc={doc}
-            loadId={loadId}
-            strokes={bySheet.get(s.id) ?? []}
-            smoothing={settings.smoothing}
-            active={activeSheetId === s.id}
-            viewport={getViewport}
-          />
-        ))}
+    <>
+      <div className={`viewport tool-${tool}`} ref={viewportRef} data-testid="board" aria-label="Sheets canvas">
+        <div className="world" ref={worldRef}>
+          {sheets.map((s, i) => (
+            <SheetView
+              key={`${loadId}:${s.id}`}
+              sheet={s}
+              placement={placements[i]}
+              doc={doc}
+              loadId={loadId}
+              strokes={bySheet.get(s.id) ?? []}
+              faded={fadedBySheet.get(s.id) ?? NONE}
+              smoothing={settings.smoothing}
+              active={activeSheetId === s.id}
+              viewport={getViewport}
+            />
+          ))}
+        </div>
       </div>
-    </div>
+      <LiveHud />
+    </>
   )
 }

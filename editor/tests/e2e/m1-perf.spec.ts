@@ -9,8 +9,8 @@ import type { Stroke, StrokeRecording } from '../../src/core/types'
 import { p95, recordPerf, screenPath } from './helpers'
 import { fixturePath, inkCount, openWith, readRecording, settle } from './m1-helpers'
 
-test('M1-06 perf: ink latency, pointer event → painted stroke, p95 (budget inkLatencyP95Ms)', async ({ page }) => {
-  await openWith(page, 'office-6-sheets.pdf')
+test('M1-06 perf: ink latency, pointer event → painted stroke, p95 (budget inkLatencyP95Ms), with Live reading on', async ({ page }) => {
+  await openWith(page, 'office-6-sheets.pdf', { live: true })
   const files = readdirSync(fixturePath('strokes/wall')).filter((f) => f.endsWith('.json')).slice(0, 6)
   const recs: StrokeRecording[] = files.map((f) => readRecording(`wall/${f}`))
   await page.evaluate(() => window.__brushDev!.resetMetrics())

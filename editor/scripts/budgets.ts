@@ -27,7 +27,7 @@ export const BUDGETS: Budget[] = [
   { id: 'first-sheet', measure: 'First sheet visible after opening the 6-sheet fixture', budget: 2000, unit: 'ms', cmp: 'lte', from: 'M1', source: 'perf', key: 'firstSheetVisibleMs' },
   { id: 'context-build', measure: 'Context built for one sheet, off the main thread', budget: 1000, unit: 'ms', cmp: 'lte', from: 'M2', source: 'perf', key: 'contextBuildMs' },
   { id: 'snap-decision', measure: 'Snap decision per pointer move', budget: 2, unit: 'ms', cmp: 'lte', from: 'M2', source: 'perf', key: 'snapDecisionMs' },
-  { id: 'first-hypothesis', measure: 'First hypothesis after pen-down, p95', budget: 50, unit: 'ms', cmp: 'lte', from: 'M3', source: 'eval', key: 'firstHypothesisP95Ms' },
+  { id: 'first-hypothesis', measure: 'First hypothesis after pen-down, p95', budget: 50, unit: 'ms', cmp: 'lte', from: 'M3', source: 'perf', key: 'firstHypothesisP95Ms' },
   { id: 'refresh-rate', measure: 'Hypothesis refresh while drawing', budget: 10, unit: '/s', cmp: 'gte', from: 'M3', source: 'perf', key: 'hypothesisRefreshPerSec' },
   { id: 'top1', measure: 'Top-1 accuracy on the held-out corpus', budget: 0.85, unit: 'ratio', cmp: 'gte', from: 'M3', source: 'eval', key: 'top1Accuracy' },
   { id: 'flips', measure: 'Leading guess flips per stroke, mean', budget: 1, unit: 'flips', cmp: 'lt', from: 'M3', source: 'eval', key: 'flipsPerStrokeMean' },
