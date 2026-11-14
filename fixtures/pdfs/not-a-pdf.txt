@@ -1,0 +1,1 @@
+This is plain text, not a PDF. Used to test the loader error path.
