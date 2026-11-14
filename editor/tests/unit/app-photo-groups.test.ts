@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import type { AcceptedDecision, Command, Stroke } from '../../src/core/types'
 import { StrokeHistory } from '../../src/app/board/history'
 import { photoGroupOf, photoGroups } from '../../src/app/photo/groups'
-import { readStrokes } from '../../src/app/photo/interpret'
+import { numberCommands, readStrokes } from '../../src/app/photo/interpret'
 import { markupToStrokes } from '../../src/app/photo/toStrokes'
 import { PT_PER_M, polyStroke, scribbleStroke, settings, testContext } from './predict/helpers'
 
@@ -101,6 +101,16 @@ describe('P1-08 make elements from an import', () => {
     } else {
       expect(r.decisions).toHaveLength(0)
     }
+  })
+
+  it('P1-08: command ids are given at commit, after every command the session has by then', () => {
+    const r = readStrokes(imported('pa1-', [WALL, DOOR]), ctx, S, { committedAt: 1 })
+    // meanwhile the live brush committed cmd-0007 (and earlier ones)
+    const session = [{ id: 'cmd-0003' }, { id: 'cmd-0007' }] as unknown as Command[]
+    const numbered = numberCommands([...r.decisions, { decision: r.decisions[0].decision, command: null }], session, 'cmd')
+    expect(numbered.map((d) => d.command?.id ?? null)).toEqual(['cmd-0008', 'cmd-0009', null])
+    expect(numbered[0].decision).toBe(r.decisions[0].decision)
+    expect(r.decisions[0].command?.id).toBe('pending') // the input is not changed
   })
 
   it('P1-08: elements made together are one undo step', () => {

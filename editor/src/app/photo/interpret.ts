@@ -12,6 +12,7 @@
 import type { AcceptedDecision, BrushSettings, Command, DecisionKind, SheetContext, Stroke } from '@core/types'
 import { commandFromDecision } from '@core/commands'
 import { StrokeSession, chipsFor, type PredictorOptions } from '@core/predict'
+import { nextCommandId } from '../board/history'
 
 export type ReadOutcome = 'element' | 'unsure' | 'ink'
 
@@ -27,8 +28,8 @@ export interface ReadStrokesOptions {
   palette?: PredictorOptions['palette']
   /** Accepted decisions before these strokes (sequence priors); the new ones are appended as they are made. */
   history?: readonly AcceptedDecision[]
-  /** Command id for the next element (called once per command). */
-  nextCommandId: () => string
+  /** Command id for the next element (called once per command). Ids are final only via numberCommands. */
+  nextCommandId?: () => string
   /** Epoch ms recorded on the decisions. */
   committedAt: number
 }
@@ -63,11 +64,21 @@ export function readStrokes(strokes: readonly Stroke[], ctx: SheetContext, setti
       out.outcomes.set(stroke.id, 'ink')
       continue
     }
-    const command = commandFromDecision(decision, opts.nextCommandId(), ctx)
+    const command = commandFromDecision(decision, opts.nextCommandId?.() ?? 'pending', ctx)
     out.decisions.push({ decision, command })
     out.outcomes.set(stroke.id, 'element')
     out.byKind[decision.kind] = (out.byKind[decision.kind] ?? 0) + 1
     history.push(decision)
   }
   return out
+}
+
+/**
+ * Give the commands their ids after the session's `commands`, in order. Call it in the same synchronous step as the
+ * commit: ids taken while reading (which yields to the UI) could collide with commands committed meanwhile by the
+ * live brush or another import, and the Revit link skips a command whose id it has already applied.
+ */
+export function numberCommands<T extends { command: Command | null }>(items: readonly T[], commands: readonly Command[], prefix: string): T[] {
+  let n = Number(/-(\d+)$/.exec(nextCommandId(commands, prefix))?.[1] ?? 1)
+  return items.map((it) => (it.command ? { ...it, command: { ...it.command, id: `${prefix}-${String(n++).padStart(4, '0')}` } } : it))
 }

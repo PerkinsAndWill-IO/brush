@@ -5,11 +5,10 @@
 import { useSyncExternalStore } from 'react'
 import type { AcceptedDecision, Command, DecisionKind } from '@core/types'
 import { contextFor, emptyContext } from '../brain/contextStore'
-import { nextCommandId } from '../board/history'
 import { getSession, session } from '../session'
 import { getDocState } from '../store'
 import { photoGroups } from './groups'
-import { readStrokes } from './interpret'
+import { numberCommands, readStrokes } from './interpret'
 
 export interface MakeElementsResult {
   /** Strokes that became elements. */
@@ -45,12 +44,6 @@ export const usePhotoGroupUi = () => useSyncExternalStore(subscribe, () => ui)
 /** Strokes read between two yields to the UI. */
 const CHUNK = 12
 
-/** Command ids after the session's, one per call. */
-function commandIds(commands: readonly Command[], prefix: string): () => string {
-  let n = Number(/-(\d+)$/.exec(nextCommandId(commands, prefix))?.[1] ?? 1)
-  return () => `${prefix}-${String(n++).padStart(4, '0')}`
-}
-
 /** Remove every stroke of a photo import (and any element made from it). One undo step. */
 export function removePhotoGroup(groupId: string): number {
   const group = photoGroups(getSession().strokes, getSession().accepted).find((g) => g.id === groupId)
@@ -80,12 +73,11 @@ export async function makeElements(groupId: string): Promise<MakeElementsResult>
     const todo = start.strokes.filter((s) => ids.has(s.id) && !done.has(s.id))
     const ctx = (await contextFor(group.sheetId)) ?? emptyContext(group.sheetId)
     const settings = { ...getSession().settings }
-    const nextId = commandIds(getSession().commands, getSession().commandPrefix)
     const history: AcceptedDecision[] = getSession().accepted.slice()
     const decisions: { decision: AcceptedDecision; command: Command | null }[] = []
     const result: MakeElementsResult = { elements: 0, unsure: 0, ink: 0, byKind: {} }
     for (let i = 0; i < todo.length; i += CHUNK) {
-      const part = readStrokes(todo.slice(i, i + CHUNK), ctx, settings, { palette: doc.source?.palette, history, nextCommandId: nextId, committedAt: Date.now() })
+      const part = readStrokes(todo.slice(i, i + CHUNK), ctx, settings, { palette: doc.source?.palette, history, committedAt: Date.now() })
       for (const d of part.decisions) {
         decisions.push(d)
         history.push(d.decision)
@@ -95,11 +87,16 @@ export async function makeElements(groupId: string): Promise<MakeElementsResult>
       await new Promise((r) => setTimeout(r, 0))
       if (getDocState().loadId !== loadId) throw new Error('Another drawing was opened; nothing was changed.')
     }
-    // strokes erased or undone while reading are left out
+    // strokes erased or undone while reading are left out; command ids are given now, with the commit, so they follow
+    // whatever the brush or another import committed while these strokes were read
     const now = getSession()
     const present = new Set(now.strokes.map((s) => s.id))
     const taken = new Set(now.accepted.map((a) => a.strokeId))
-    const keep = decisions.filter((d) => present.has(d.decision.strokeId) && !taken.has(d.decision.strokeId))
+    const keep = numberCommands(
+      decisions.filter((d) => present.has(d.decision.strokeId) && !taken.has(d.decision.strokeId)),
+      now.commands,
+      now.commandPrefix,
+    )
     session.commitDecisions(keep)
     if (keep.length !== decisions.length) {
       result.elements = keep.length
