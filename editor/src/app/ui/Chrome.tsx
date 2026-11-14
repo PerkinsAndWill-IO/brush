@@ -20,6 +20,14 @@ import { DrawingFileSource, buildCommandFile, commandFileName, serializeCommandF
 import { ITEM_KINDS, categoriesOf, filters, isAnnotationCategory, useFilters } from '../drawing/filters'
 import { useContexts } from '../brain/contextStore'
 import { BrushIcon, ChevronDown, ChevronRight, EraserIcon, MeasureIcon, PanIcon, RedoIcon, SelectIcon, UndoIcon } from './icons'
+import brushLogo from './assets/brush-logo.png'
+import selectToolIcon from './assets/tool-select.png'
+import brushToolIcon from './assets/tool-brush.png'
+import eraserToolIcon from './assets/tool-eraser.png'
+import panToolIcon from './assets/tool-pan.png'
+import measureToolIcon from './assets/tool-measure.png'
+import inkOutlineIcon from './assets/tool-ink-outline.png'
+import inkPaintMask from './assets/tool-ink-paint.png'
 import { LABEL_SCALES, sheetScale, useView, view } from '../view'
 import { formatMetres, sheetDistanceMetres } from '../board/viewAids'
 import { RevitButton } from '../revit/RevitPanel'
@@ -208,6 +216,7 @@ export function TopBar() {
   return (
     <header className="topbar">
       <div className="title">
+        <img className="brand-logo" src={brushLogo} alt="Brush" />
         <span className="project">{ready ? doc.fileName?.replace(/\.(pdf|drawing)$/i, '') : 'No drawing open'}</span>
         {ready && (
           <span className="secondary" data-testid="sheet-count">
@@ -249,11 +258,11 @@ export function TopBar() {
 // ───────────── tool capsule ─────────────
 
 const TOOLS: { id: Tool; label: string; key: string; icon: ReactNode }[] = [
-  { id: 'select', label: 'Select', key: 'V', icon: <SelectIcon /> },
-  { id: 'brush', label: 'Brush', key: 'B', icon: <BrushIcon /> },
-  { id: 'eraser', label: 'Eraser', key: 'E', icon: <EraserIcon /> },
-  { id: 'pan', label: 'Pan', key: 'H', icon: <PanIcon /> },
-  { id: 'measure', label: 'Measure', key: 'M', icon: <MeasureIcon /> },
+  { id: 'select', label: 'Select', key: 'V', icon: <img className="tool-icon" src={selectToolIcon} alt="" /> },
+  { id: 'brush', label: 'Brush', key: 'B', icon: <img className="tool-icon" src={brushToolIcon} alt="" /> },
+  { id: 'eraser', label: 'Eraser', key: 'E', icon: <img className="tool-icon" src={eraserToolIcon} alt="" /> },
+  { id: 'pan', label: 'Pan', key: 'H', icon: <img className="tool-icon" src={panToolIcon} alt="" /> },
+  { id: 'measure', label: 'Measure', key: 'M', icon: <img className="tool-icon" src={measureToolIcon} alt="" /> },
 ]
 
 export const INK_COLORS = [
@@ -277,8 +286,12 @@ function ColorButton({ disabled }: { disabled: boolean }) {
   const name = INK_COLORS.find((c) => c.hex.toLowerCase() === settings.color.toLowerCase())?.name ?? settings.color
   return (
     <div className="menu-anchor" ref={ref}>
-      <button type="button" className="tool" aria-label={`Ink colour, ${name}`} aria-haspopup="true" aria-expanded={open} disabled={disabled} data-testid="ink-color" onClick={() => setOpen(!open)}>
-        <span className="swatch" style={{ background: settings.color }} />
+      <button type="button" className="tool ink" aria-label={`Ink colour, ${name}`} aria-haspopup="true" aria-expanded={open} disabled={disabled} data-testid="ink-color" onClick={() => setOpen(!open)}>
+        {/* the paint in the can takes the current ink colour: an outline image under a mask filled with it */}
+        <span className="ink-can" aria-hidden="true">
+          <img className="tool-icon" src={inkOutlineIcon} alt="" />
+          <span className="ink-paint" data-testid="ink-paint" style={{ backgroundColor: settings.color, maskImage: `url(${inkPaintMask})`, WebkitMaskImage: `url(${inkPaintMask})` }} />
+        </span>
       </button>
       {open && (
         <div className="swatches" role="radiogroup" aria-label="Ink colour">
