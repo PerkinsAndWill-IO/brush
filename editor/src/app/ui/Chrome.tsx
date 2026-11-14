@@ -537,7 +537,7 @@ export function LeftSidebar() {
       )}
       {(tool === 'select' || tool === 'pan') && (
         <div className="section-body hint-block">
-          <p className="hint">{tool === 'pan' ? 'Drag to move around the board. Ctrl-scroll or pinch to zoom.' : 'Nothing to select yet. Selection arrives with predictions.'}</p>
+          <p className="hint">{tool === 'pan' ? 'Drag to move around the board. Ctrl-scroll or pinch to zoom.' : 'Hover an element of a .drawing to see what it is. Click to pin its card, Esc or a click on empty paper to close it. Drag to move around.'}</p>
         </div>
       )}
 

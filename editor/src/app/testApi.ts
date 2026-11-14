@@ -13,6 +13,7 @@ import { secondPassMs, setSecondPassRescorer, syntheticCassetteRescorer } from '
 import { boardView, getViewportEl } from './board/Board'
 import { sheetToScreen, type Camera } from './board/layout'
 import { getCamera, setCamera } from './camera'
+import { indexBuildMs } from './drawing/pick'
 import { metrics, resetMetrics } from './metrics'
 import { getRecorder, recorder, isStrokeRecording } from './recording'
 import { flushSave, getSession, session, type Tool } from './session'
@@ -44,6 +45,8 @@ export interface BrushDevApi {
   secondPassMs(): number[]
   /** Resolves after `n` animation frames. */
   frames(n?: number): Promise<void>
+  /** Milliseconds of work the element-picking hit index of a sheet took to build (-1: not built). */
+  pickIndexMs(sheetId: string): number
 }
 
 declare global {
@@ -170,6 +173,7 @@ function createDevApi(): BrushDevApi {
     async frames(n = 1) {
       for (let i = 0; i < n; i++) await nextFrame()
     },
+    pickIndexMs: indexBuildMs,
   }
 }
 

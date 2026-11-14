@@ -13,6 +13,7 @@ import { appendPoint, createStroke } from '@core/stroke'
 import { getCamera, onCameraMoving, setCamera, subscribeCamera } from '../camera'
 import { LiveHud } from '../brain/overlays'
 import { dismissReading } from '../brain/predictEngine'
+import { elementAt, hitIndexReady, pick, type Picked } from '../drawing/pick'
 import { callEngines } from '../engine'
 import { FrameMeter, pushMetric } from '../metrics'
 import { recorder } from '../recording'
@@ -33,6 +34,7 @@ import {
 } from './layout'
 import { setPenDown } from './penGate'
 import type { Removed } from './history'
+import { PickCard } from './PickCard'
 import { cachedInk, getSheetLayers, setLiveZoom, SheetView } from './SheetView'
 import { ScaleBarHud, snapMeasurePoint } from './viewAidLayers'
 import { getView, view } from '../view'
@@ -80,6 +82,10 @@ export const boardView = {
 
 // ───────────── helpers ─────────────
 
+/** Select tool: how close a stroke must pass to be picked, and how far a press moves before it pans, screen px. */
+const PICK_RADIUS_PX = 4
+const PICK_DRAG_PX = 4
+
 const NONE: ReadonlySet<string> = new Set()
 let strokeSeq = 0
 const newStrokeId = () => `s${Date.now().toString(36)}${(strokeSeq++).toString(36)}`
@@ -125,6 +131,7 @@ type Gesture =
   | { kind: 'pan'; pointerId: number; lastX: number; lastY: number }
   | { kind: 'pinch'; d0: number; m0: Point; cam0: Camera }
   | { kind: 'measure'; pointerId: number; placement: Placement; downX: number; downY: number; dragged: boolean }
+  | { kind: 'select'; pointerId: number; downX: number; downY: number; lastX: number; lastY: number; dragged: boolean }
   | { kind: 'ignore'; pointerId: number }
 
 interface BoardProps {
@@ -196,6 +203,7 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
   useLayoutEffect(() => {
     viewportEl = viewportRef.current
     view.clearMeasurements() // measurements belong to the document on screen
+    pick.clear()
     boardView.fit()
     return () => {
       if (viewportEl === viewportRef.current) viewportEl = null
@@ -350,6 +358,31 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
       if (pl) view.moveMeasure(measurePoint(pl, e))
     }
 
+    // ── select: hover shows the element under the pointer, a click pins it, a drag pans ──
+    let lastHover: PointerEvent | null = null
+    /** The element under the pointer; null = none, undefined = the page's hit index is still being built. */
+    const pickUnder = (e: PointerEvent): Picked | null | undefined => {
+      const cam = getCamera()
+      const lp = local(e)
+      const b = screenToBoard(cam, lp)
+      const pl = sheetAt(placementsNow(), b)
+      if (!pl) return null
+      const el = elementAt(pl.sheetId, boardToSheet(pl, b), PICK_RADIUS_PX / cam.z)
+      if (el === undefined) {
+        void hitIndexReady(pl.sheetId).then(() => lastHover === e && !gesture && getSession().tool === 'select' && hoverSelect(e))
+        return undefined
+      }
+      return el === null ? null : { sheetId: pl.sheetId, el, x: lp.x, y: lp.y }
+    }
+    const hoverSelect = (e: PointerEvent) => {
+      lastHover = e
+      const hit = pickUnder(e)
+      if (hit !== undefined) pick.hover(hit)
+    }
+    const startSelect = (e: PointerEvent) => {
+      gesture = { kind: 'select', pointerId: e.pointerId, downX: e.clientX, downY: e.clientY, lastX: e.clientX, lastY: e.clientY, dragged: false }
+    }
+
     // ── pinch (two touches) ──
     const startPinch = () => {
       const [a, b] = [...touches.values()]
@@ -397,6 +430,7 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
       else if (t === 'brush') startDraw(e)
       else if (t === 'eraser') startErase(e)
       else if (t === 'measure') startMeasure(e)
+      else if (t === 'select') startSelect(e)
       else gesture = { kind: 'ignore', pointerId: e.pointerId }
       e.preventDefault()
     }
@@ -404,7 +438,11 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
     const onMove = (e: PointerEvent) => {
       if (e.pointerType === 'touch' && touches.has(e.pointerId)) touches.set(e.pointerId, local(e))
       const g = gesture
-      if (!g) return hoverMeasure(e)
+      if (!g) {
+        hoverMeasure(e)
+        if (getSession().tool === 'select') hoverSelect(e)
+        return
+      }
       if (g.kind === 'pinch') {
         if (touches.size >= 2) updatePinch(g)
         return
@@ -422,6 +460,15 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
       } else if (g.kind === 'measure') {
         if (Math.hypot(e.clientX - g.downX, e.clientY - g.downY) > 4) g.dragged = true
         view.moveMeasure(measurePoint(g.placement, e))
+      } else if (g.kind === 'select') {
+        if (!g.dragged && Math.hypot(e.clientX - g.downX, e.clientY - g.downY) > PICK_DRAG_PX) {
+          g.dragged = true
+          vp.classList.add('panning')
+          pick.hover(null)
+        }
+        if (g.dragged) setCamera(panBy(getCamera(), e.clientX - g.lastX, e.clientY - g.lastY))
+        g.lastX = e.clientX
+        g.lastY = e.clientY
       } else if (g.kind === 'pan') {
         setCamera(panBy(getCamera(), e.clientX - g.lastX, e.clientY - g.lastY))
         g.lastX = e.clientX
@@ -462,12 +509,25 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
           view.moveMeasure(measurePoint(g.placement, e))
           view.commitMeasure()
         }
+      } else if (g.kind === 'select') {
+        vp.classList.remove('panning')
+        if (e.type === 'pointerup' && !g.dragged) {
+          const hit = pickUnder(e)
+          if (hit) pick.pin(hit)
+          else if (hit === null) pick.unpin() // a click on empty paper closes the pinned card
+        }
       } else if (g.kind === 'pan') vp.classList.remove('panning')
       gesture = null
     }
 
+    const onLeave = () => {
+      lastHover = null
+      if (!gesture) pick.hover(null)
+    }
+
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
+      pick.hover(null) // the content moves under a still pointer
       const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? rect.height : 1
       let dx = e.deltaX * unit
       let dy = e.deltaY * unit
@@ -497,6 +557,7 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
         if (e.shiftKey) session.redo()
         else session.undo()
       } else if (e.key === 'Escape') {
+        if (pick.unpin()) return
         if (getView().draft) view.cancelMeasure()
         else dismissReading()
       } else if ((e.key === 'Backspace' || e.key === 'Delete') && getSession().tool === 'measure') {
@@ -527,6 +588,7 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
     vp.addEventListener('pointermove', onMove)
     vp.addEventListener('pointerup', onUp)
     vp.addEventListener('pointercancel', onUp)
+    vp.addEventListener('pointerleave', onLeave)
     vp.addEventListener('wheel', onWheel, { passive: false })
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
@@ -537,6 +599,7 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
       vp.removeEventListener('pointermove', onMove)
       vp.removeEventListener('pointerup', onUp)
       vp.removeEventListener('pointercancel', onUp)
+      vp.removeEventListener('pointerleave', onLeave)
       vp.removeEventListener('wheel', onWheel)
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
@@ -565,6 +628,7 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
         </div>
       </div>
       <ScaleBarHud viewport={getViewport} />
+      <PickCard viewport={getViewport} />
       <LiveHud />
     </>
   )

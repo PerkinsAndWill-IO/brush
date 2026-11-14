@@ -13,6 +13,7 @@ import { rectsIntersect, renderScaleFor, visibleBoardRect, type Placement } from
 import { ContextBadge } from '../brain/overlays'
 import { penGate } from './penGate'
 import { SheetGrid } from './viewAidLayers'
+import { PickLayer } from './PickLayer'
 import { enqueueRender } from './renderQueue'
 import { useFilters } from '../drawing/filters'
 
@@ -241,6 +242,7 @@ export const SheetView = memo(function SheetView({ sheet, placement, pages, load
         <svg className="ink" ref={inkRef} viewBox={`0 0 ${w} ${h}`} width={w} height={h} data-layer="wet-ink">
           <path ref={wetRef} className="wet" data-layer="wet" />
         </svg>
+        <PickLayer sheet={sheet} scale={inkScale} />
         <svg className="overlay" ref={overlayRef} viewBox={`0 0 ${w} ${h}`} width={w} height={h} data-layer="overlay">
           {overlayComponents.map((C, i) => (
             <C key={i} sheet={sheet} placement={placement} />
