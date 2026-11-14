@@ -2,7 +2,7 @@
 // a redraw is then one stroke() call per style, whatever the number of segments.
 import { toScreen, type View } from "./geom";
 import type { HitIndex } from "./hit";
-import type { Item, Scene } from "./scene";
+import type { Coords, Item, Scene } from "./scene";
 import { boxCorners, type TextLayout } from "./text";
 
 type Cmd =
@@ -30,7 +30,7 @@ function addStroke(path: Path2D, it: Item): void {
   }
 }
 
-function ringsPath(rings: Float64Array[]): Path2D {
+function ringsPath(rings: Coords[]): Path2D {
   const path = new Path2D();
   for (const r of rings) {
     if (r.length < 4) continue;
@@ -78,10 +78,7 @@ export class Renderer {
       else if (it.t === "text") cmds.push({ k: "text", item: i });
       else {
         cmds.push({ k: "image", item: i });
-        const bin = atob(it.png);
-        const bytes = new Uint8Array(bin.length);
-        for (let b = 0; b < bin.length; b++) bytes[b] = bin.charCodeAt(b);
-        createImageBitmap(new Blob([bytes], { type: "image/png" })).then(
+        createImageBitmap(new Blob([it.png as BlobPart], { type: "image/png" })).then(
           (bmp) => {
             if (this.scene !== scene) return;
             this.images.set(i, bmp);
