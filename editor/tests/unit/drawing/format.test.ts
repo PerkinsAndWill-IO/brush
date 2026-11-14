@@ -88,6 +88,25 @@ describe('M5-08 .drawing format reader (schema/schema/drawing-format.md)', () =>
     expect(err(buildPayload({ ...ok, pages: [page({ items: [{ t: 'path', pts: [0, 8], w: 0 }] })] }, f32(1, NaN)))).toMatch(/items\[0\]\.pts: coordinate 1 is not a finite number/)
   })
 
+  it('reads the same coordinates from a payload at any byte offset of its buffer', () => {
+    const b = new BlobBuffer()
+    const pts = b.xy(0.5, 1, 1.5, 0.5)
+    const header = { format: 'drawing', version: 1, pages: [page({ min: [0.5, -0.5], max: [2.5, 0.5], items: [{ t: 'path', pts, w: 0 }] })] }
+    const payload = buildPayload(header, b.bytes())
+    for (const shift of [0, 1, 2, 3]) {
+      const shifted = new Uint8Array(payload.length + shift + 8).subarray(shift, shift + payload.length)
+      shifted.set(payload)
+      const path = parseDrawingPayload(shifted).pages[0].items[0]
+      if (path.t !== 'path') throw new Error()
+      expect([...path.xy]).toEqual([0, -432, 864, 0])
+    }
+  })
+
+  it('rejects an infinite x coordinate, naming its index', () => {
+    const header = { format: 'drawing', version: 1, pages: [page({ items: [{ t: 'path', pts: [0, 16], w: 0 }] })] }
+    expect(() => parseDrawingPayload(buildPayload(header, f32(1, 2, Infinity, 4)))).toThrow(/items\[0\]\.pts: coordinate 2 is not a finite number/)
+  })
+
   it('sniffs gzip', () => {
     expect(isGzip(new Uint8Array([0x1f, 0x8b, 8]))).toBe(true)
     expect(isGzip(new TextEncoder().encode('{"a":1}'))).toBe(false)
