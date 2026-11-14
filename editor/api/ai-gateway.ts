@@ -6,7 +6,7 @@
  * and adds credentials, so no key ever reaches the bundle.
  *
  * Credentials, first found wins:
- *   - VERCEL_OIDC_TOKEN (automatic on Vercel deployments in the gateway's team)
+ *   - the x-vercel-oidc-token request header / VERCEL_OIDC_TOKEN (automatic on Vercel, same team as the gateway)
  *   - VERCEL_AI_GATEWAY_API_KEY / AI_GATEWAY_API_KEY (project env var)
  *
  * It is deliberately narrow so a deployed preview is not an open relay for credits:
@@ -27,7 +27,9 @@ function json(status: number, error: string): Response {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const token = process.env.VERCEL_OIDC_TOKEN || process.env.VERCEL_AI_GATEWAY_API_KEY || process.env.AI_GATEWAY_API_KEY
+  // Vercel passes a per-request OIDC token in this header (preview and production); the key env var is the fallback.
+  const token =
+    request.headers.get('x-vercel-oidc-token') || process.env.VERCEL_OIDC_TOKEN || process.env.VERCEL_AI_GATEWAY_API_KEY || process.env.AI_GATEWAY_API_KEY
   if (!token) return json(500, 'AI Gateway credentials are not configured')
 
   const raw = await request.text()
