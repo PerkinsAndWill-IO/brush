@@ -7,11 +7,13 @@ import {
   DEFAULT_PALETTE,
   contextFromDrawing,
   contextFromPackage,
+  furnitureSymbolsFromDrawing,
   paletteFromDrawing,
   paletteFromPackage,
   sheetsFromDrawing,
   sheetsFromPackage,
   type DrawingManifest,
+  type FurnitureSymbol,
   type TypePalette,
 } from '@core/context'
 import { DrawingFormatError, type DrawingDocument, type DrawingElement, type DrawingPage } from '@core/drawing'
@@ -78,6 +80,8 @@ export interface DrawingSource {
    * host vectors (`.drawing`, Revit) have it; undefined or null otherwise.
    */
   vectorPage?(sheetId: string): VectorPage | null
+  /** How each furniture type is drawn on plan (by type name), when the source knows. Built lazily, then cached. */
+  furnitureSymbols?(): ReadonlyMap<string, FurnitureSymbol>
   close(): Promise<void>
 }
 
@@ -234,6 +238,12 @@ export class DrawingFileSource implements DrawingSource {
   vectorPage(sheetId: string): VectorPage | null {
     const page = this.doc.pages.find((p) => p.id === sheetId)
     return page ? { page, elements: this.doc.elements } : null
+  }
+
+  private symbols?: Map<string, FurnitureSymbol>
+  furnitureSymbols(): ReadonlyMap<string, FurnitureSymbol> {
+    this.symbols ??= furnitureSymbolsFromDrawing(this.doc)
+    return this.symbols
   }
 
   async close(): Promise<void> {}
