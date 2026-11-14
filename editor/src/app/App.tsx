@@ -2,9 +2,12 @@
  * App shell: top bar, sidebars, the board (or the empty state) and the tool
  * capsule. Layout and look follow docs/design/project/{Main,Empty}.dc.html.
  */
-import { lazy, Suspense, useEffect, useState, type DragEvent } from 'react'
+import { lazy, Suspense, useEffect, useState, type CSSProperties, type DragEvent } from 'react'
 import { Board } from './board/Board'
 import { installBrain } from './brain'
+import { registerSheetOverlay } from './board/SheetView'
+import { MeasureOverlay } from './board/viewAidLayers'
+import { useView } from './view'
 import { getPlatform } from './platform'
 import { fileToOpened } from './platform/browser'
 import { openFile, useDocState } from './store'
@@ -12,6 +15,7 @@ import { EmptyIllustration } from './ui/icons'
 import { chooseFile, LeftSidebar, RightSidebar, ToolCapsule, TopBar } from './ui/Chrome'
 
 installBrain()
+registerSheetOverlay(MeasureOverlay) // above the brain overlays
 
 const TldrawSmoke = lazy(() => import('./dev/TldrawSmoke'))
 
@@ -54,6 +58,7 @@ function EmptyState({ error, loading }: { error?: string; loading?: string }) {
 
 export function App() {
   const st = useDocState()
+  const { labelScale } = useView()
   const [dragOver, setDragOver] = useState(false)
 
   useEffect(() => {
@@ -86,6 +91,7 @@ export function App() {
   return (
     <div
       className={`app${dragOver ? ' drag-over' : ''}`}
+      style={{ '--label-scale': labelScale } as CSSProperties}
       onDragOver={(e) => {
         e.preventDefault()
         setDragOver(true)
