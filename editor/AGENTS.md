@@ -30,6 +30,8 @@ The spec is `docs/spec.md`. Shared contracts are `src/core/types/index.ts` (froz
 | `pnpm verify` | check + e2e + eval + budget gates (`scripts/verify.ts`). **Definition of done.** | under 5 min |
 | `pnpm app` | Runs the Tauri shell (`tauri dev`). **Parked** (decision 0007): not part of verify or the demo | n/a |
 
+There is no GitHub CI (removed for iteration speed). Run `pnpm verify` locally before pushing. Every push that touches `editor/` gets a Vercel preview (project `perkinswill/brush-editor`).
+
 Sub-steps: `pnpm typecheck`, `pnpm lint`, `pnpm test:unit`, `pnpm budgets` (gates only, reads existing reports).
 First-time setup: `pnpm install` then `pnpm exec playwright install chromium`.
 
@@ -57,7 +59,7 @@ First-time setup: `pnpm install` then `pnpm exec playwright install chromium`.
 
 | Lane | Owns |
 |---|---|
-| Harness | `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, root configs (`tsconfig.json`, `vite.config.ts`, `vitest.config.ts`, `playwright.config.ts`, `eslint.config.js`), `index.html`, `scripts/**` (except `scripts/fixtures`), `tests/e2e/helpers.ts`, `tests/e2e/global-setup.ts`, `tests/eval/**`, `src-tauri/**`, `AGENTS.md`, `CLAUDE.md`, `docs/tasks/**`, CI workflow. Only this lane runs `pnpm add` / `pnpm install`. |
+| Harness | `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, root configs (`tsconfig.json`, `vite.config.ts`, `vitest.config.ts`, `playwright.config.ts`, `eslint.config.js`), `index.html`, `scripts/**` (except `scripts/fixtures`), `tests/e2e/helpers.ts`, `tests/e2e/global-setup.ts`, `tests/eval/**`, `src-tauri/**`, `AGENTS.md`, `CLAUDE.md`, `docs/tasks/**`. Only this lane runs `pnpm add` / `pnpm install`. |
 | Fixtures | `scripts/fixtures/**`, `fixtures/**` |
 | Canvas | `src/app/**` (board, sheets, PDF rendering, tools, sidebars, test API), its e2e specs |
 | Stroke core | `src/core/geometry/**`, `src/core/stroke/**`, `tests/unit/geometry/**`, `tests/unit/stroke/**` |
