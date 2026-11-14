@@ -32,6 +32,8 @@ export interface PhotoImportOptions {
 
 export interface PhotoImportSummary {
   sheetId: string
+  /** The import's stroke group (./groups.ts): the id prefix of its strokes. */
+  groupId: string
   /** "A102 Plans" */
   sheetLabel: string
   /** Strokes added to the session. */
@@ -162,22 +164,25 @@ export async function importPhotoMarkup(photo: Blob, opts: PhotoImportOptions = 
 
     // 3. into the session, unless the document changed meanwhile
     if (getDocState().loadId !== loadId) throw new PhotoImportError('Another file was opened while the photo was being read; nothing was imported.')
-    const strokes = markupToStrokes(result.layers, { sheetId: sheet.id, idPrefix: `p${Date.now().toString(36)}${(importSeq++).toString(36)}-`, startedAt: Date.now() })
+    // the id prefix is the import's group (./groups.ts): p<time><seq>-
+    const groupId = `p${Date.now().toString(36)}${(importSeq++).toString(36)}-`
+    const strokes = markupToStrokes(result.layers, { sheetId: sheet.id, idPrefix: groupId, startedAt: Date.now() })
     if (strokes.length) {
       session.addStrokes(strokes)
       session.setActiveSheet(sheet.id)
       if (!opts.keepCamera) boardView.focusSheet(sheet.pageIndex)
     }
-    return summarize(sheet, result, strokes.length, dpi, performance.now() - t0)
+    return summarize(sheet, groupId, result, strokes.length, dpi, performance.now() - t0)
   } finally {
     client.close()
   }
 }
 
-function summarize(sheet: Sheet, result: MarkupResult, strokes: number, dpi: number, ms: number): PhotoImportSummary {
+function summarize(sheet: Sheet, groupId: string, result: MarkupResult, strokes: number, dpi: number, ms: number): PhotoImportSummary {
   const r = result.report
   return {
     sheetId: sheet.id,
+    groupId,
     sheetLabel: sheetLabel(sheet),
     strokes,
     layers: result.layers.map((l) => ({ name: l.name, color: rgbToHex(l.color), strokes: l.strokes.length })),

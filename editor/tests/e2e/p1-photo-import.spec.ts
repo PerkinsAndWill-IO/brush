@@ -235,4 +235,51 @@ test.describe('P1 photo import', () => {
     expect(strokes.length).toBeGreaterThanOrEqual(2)
     expect(new Set(strokes.map((s) => s.sheetId))).toEqual(new Set(['sheet-0']))
   })
+
+  test('P1-07, P1-08: an import is one row in This session; Make elements and Remove act on all of it, each one undo step', async ({ page }) => {
+    await openWith(page, PDF)
+    const photo = await makePhoto(page, { pageIndex: PAGE, markup: true })
+    const sheets = await page.evaluate(() => window.__brush!.sheets())
+    await page.getByTestId('import-photo').click()
+    await page.getByTestId('photo-sheet').selectOption(sheets[PAGE].id)
+    await page.getByTestId('photo-file').setInputFiles({ name: 'markup.jpg', mimeType: 'image/jpeg', buffer: photo })
+    await page.getByTestId('photo-run').click()
+    await expect(page.getByTestId('photo-import')).toHaveAttribute('data-phase', 'done', { timeout: 200_000 })
+    await expect(page.getByTestId('photo-make-elements')).toBeVisible()
+    await page.getByTestId('photo-done').click()
+
+    // P1-07: one row for the whole import, not one per stroke
+    const strokes = (await page.evaluate(() => window.__brush!.strokes())) as Stroke[]
+    const row = page.getByTestId('photo-group')
+    await expect(row).toHaveCount(1)
+    await expect(row).toHaveAttribute('data-strokes', String(strokes.length))
+    await expect(page.getByTestId('session-list').locator('li[data-kind="ink"]')).toHaveCount(0)
+
+    // P1-08: read as the brush reads a stroke; whatever became an element is from this import, in one undo step
+    await row.getByTestId('photo-group-elements').click()
+    await expect(row.getByTestId('photo-group-elements')).not.toHaveText('Reading…', { timeout: 60_000 })
+    await expect(row.getByRole('alert')).toHaveCount(0)
+    const accepted = (await page.evaluate(() => window.__brushDev!.accepted())) as { strokeId: string; kind: string }[]
+    const ids = new Set(strokes.map((s) => s.id))
+    expect(accepted.every((a) => ids.has(a.strokeId))).toBe(true)
+    await expect(row).toHaveAttribute('data-elements', String(accepted.length))
+    await page.screenshot({ path: screenPath('p1-photo-group-elements.png') })
+    if (accepted.length) {
+      await page.evaluate(() => window.__brush!.undo())
+      expect(await page.evaluate(() => window.__brushDev!.accepted().length)).toBe(0)
+      expect(await page.evaluate(() => window.__brush!.strokes().length)).toBe(strokes.length)
+      await page.evaluate(() => window.__brush!.redo())
+      expect(await page.evaluate(() => window.__brushDev!.accepted().length)).toBe(accepted.length)
+    }
+
+    // P1-07: Remove takes every stroke of the import, and its elements; undo brings all of it back
+    await row.getByTestId('photo-group-remove').click()
+    await expect(page.getByTestId('photo-group')).toHaveCount(0)
+    expect(await page.evaluate(() => window.__brush!.strokes().length)).toBe(0)
+    expect(await page.evaluate(() => window.__brushDev!.accepted().length)).toBe(0)
+    await page.evaluate(() => window.__brush!.undo())
+    await expect(page.getByTestId('photo-group')).toHaveCount(1)
+    expect(await page.evaluate(() => window.__brush!.strokes().length)).toBe(strokes.length)
+    expect(await page.evaluate(() => window.__brushDev!.accepted().length)).toBe(accepted.length)
+  })
 })

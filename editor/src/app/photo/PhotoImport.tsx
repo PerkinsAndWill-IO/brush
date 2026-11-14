@@ -6,6 +6,7 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 import type { Sheet } from '@core/types'
 import { getDocState, useDocState } from '../store'
+import { makeElements } from './groupActions'
 import { importPhotoMarkup, type PhotoImportSummary } from './import'
 import type { InkChoice } from './pipeline'
 import { MAX_AUTO_SHEETS, knownSheetId, sheetLabel } from './plan'
@@ -116,7 +117,7 @@ function Summary({ s }: { s: PhotoImportSummary }) {
   return (
     <>
       <p data-testid="photo-summary">
-        Added <b>{s.strokes}</b> {s.strokes === 1 ? 'stroke' : 'strokes'} to <b>{s.sheetLabel}</b>. Undo (Ctrl+Z) removes them in one step.
+        Added <b>{s.strokes}</b> {s.strokes === 1 ? 'stroke' : 'strokes'} to <b>{s.sheetLabel}</b>. They are grouped under This session, where they can be removed or made into elements together.
       </p>
       <ul className="ink-list">
         {s.layers.map((l) => (
@@ -238,6 +239,21 @@ export function PhotoImportDialog() {
               <button type="button" className="btn soft" onClick={() => photoImport.open()}>
                 Import another
               </button>
+              {st.summary.strokes > 0 && (
+                <button
+                  type="button"
+                  className="btn soft"
+                  data-testid="photo-make-elements"
+                  title="Read the imported strokes the way the brush reads a stroke, and turn the ones it is sure of into elements"
+                  onClick={() => {
+                    const id = st.summary?.groupId
+                    photoImport.close()
+                    if (id) void makeElements(id).catch(() => undefined)
+                  }}
+                >
+                  Make elements
+                </button>
+              )}
               <button type="button" className="btn accent" data-testid="photo-done" onClick={() => photoImport.close()}>
                 Done
               </button>

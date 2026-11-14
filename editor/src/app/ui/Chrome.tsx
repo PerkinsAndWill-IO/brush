@@ -36,6 +36,8 @@ import { ElementPanel, useCanInspect } from '../drawing/InspectLayers'
 import { useInspect } from '../drawing/inspect'
 import { useRevit } from '../revit/controller'
 import { photoImport } from '../photo/PhotoImport'
+import { photoGroupOf, photoGroups, type PhotoGroup } from '../photo/groups'
+import { makeElements, removePhotoGroup, usePhotoGroupUi } from '../photo/groupActions'
 
 export async function chooseFile() {
   const f = await (await getPlatform()).openPdf()
@@ -766,14 +768,16 @@ function SessionList() {
   const names = new Map(doc.sheets.map((s) => [s.id, s.number ?? s.name]))
   // M3-11: a multi-stroke gesture is one row, on its last stroke
   const folded = new Set(Object.values(live.gestures).flatMap((ids) => ids.slice(0, -1)))
-  const list = strokes
-    .slice(-50)
-    .filter((s) => !folded.has(s.id))
-    .reverse()
+  // P1-07: a photo import is one row too, on its last stroke
+  const groupAt = new Map(photoGroups(strokes, accepted).map((g) => [g.strokeIds[g.strokeIds.length - 1], g]))
+  const rows = strokes.filter((s) => !folded.has(s.id) && (!photoGroupOf(s.id) || groupAt.has(s.id)))
+  const list = rows.slice(-50).reverse()
   return (
     <ol className="session-list" data-testid="session-list">
       {list.length === 0 && <li className="empty-row">No strokes yet. Pick the brush and draw on a sheet.</li>}
       {list.map((s) => {
+        const g = groupAt.get(s.id)
+        if (g) return <PhotoGroupRow key={g.id} group={g} sheetName={names.get(g.sheetId)} />
         const n = strokes.indexOf(s) + 1
         const a = byStroke.get(s.id)
         const parts = live.gestures[s.id]?.filter((id) => strokes.some((x) => x.id === id)).length ?? 1
@@ -793,8 +797,59 @@ function SessionList() {
           </li>
         )
       })}
-      {strokes.length > 50 && <li className="empty-row">and {strokes.length - 50} earlier strokes</li>}
+      {rows.length > 50 && <li className="empty-row">and {rows.length - 50} earlier strokes</li>}
     </ol>
+  )
+}
+
+/** P1-07/08: all strokes of one photo import, with what can be done to them together. */
+function PhotoGroupRow({ group: g, sheetName }: { group: PhotoGroup; sheetName?: string }) {
+  const { busy, results, errors } = usePhotoGroupUi()
+  const error = errors[g.id]
+  const reading = busy.has(g.id)
+  const r = results[g.id]
+  const n = g.strokeIds.length
+  const left = n - g.elements
+  const kept = r ? r.unsure + r.ink : 0
+  return (
+    <li className="photo-group" data-testid="photo-group" data-group-id={g.id} data-kind="photo" data-strokes={n} data-elements={g.elements}>
+      <span className="swatches-sm" aria-hidden="true">
+        {(g.colors.length ? g.colors : ['#D7263D']).slice(0, 3).map((c) => (
+          <span key={c} className="swatch sm" style={{ background: c }} />
+        ))}
+      </span>
+      <div className="row-text">
+        <span className="row-title">
+          Photo import · {n} {n === 1 ? 'stroke' : 'strokes'}
+        </span>
+        <span className="secondary" data-testid="photo-group-status">
+          {sheetName}
+          {g.elements ? ` · ${g.elements} ${g.elements === 1 ? 'element' : 'elements'}` : ''}
+          {r && kept ? ` · ${kept} kept as ink` : ''}
+          {r && !r.elements && !g.elements ? ' · no elements found' : ''}
+        </span>
+        {error && (
+          <span className="secondary error-text" role="alert">
+            {error}
+          </span>
+        )}
+        <span className="row-actions">
+          <button
+            type="button"
+            className="link-btn"
+            data-testid="photo-group-elements"
+            title="Read these strokes the way the brush reads a stroke, and turn the ones it is sure of into elements (one undo step)"
+            disabled={reading || left === 0}
+            onClick={() => void makeElements(g.id).catch(() => undefined)}
+          >
+            {reading ? 'Reading…' : left === 0 ? 'All elements' : 'Make elements'}
+          </button>
+          <button type="button" className="link-btn" data-testid="photo-group-remove" title="Remove every stroke of this import (one undo step)" disabled={reading} onClick={() => removePhotoGroup(g.id)}>
+            Remove
+          </button>
+        </span>
+      </div>
+    </li>
   )
 }
 
