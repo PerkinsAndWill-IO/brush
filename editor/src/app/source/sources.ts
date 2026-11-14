@@ -8,6 +8,7 @@ import {
   contextFromDrawing,
   contextFromPackage,
   furnitureSymbolsFromDrawing,
+  wallStylesFromDrawing,
   paletteFromDrawing,
   paletteFromPackage,
   sheetsFromDrawing,
@@ -15,6 +16,7 @@ import {
   type DrawingManifest,
   type FurnitureSymbol,
   type TypePalette,
+  type WallStyle,
 } from '@core/context'
 import { DrawingFormatError, type DrawingDocument, type DrawingElement, type DrawingPage } from '@core/drawing'
 import type { Sheet, SheetContext } from '@core/types'
@@ -82,6 +84,8 @@ export interface DrawingSource {
   vectorPage?(sheetId: string): VectorPage | null
   /** How each furniture type is drawn on plan (by type name), when the source knows. Built lazily, then cached. */
   furnitureSymbols?(): ReadonlyMap<string, FurnitureSymbol>
+  /** How each wall type is drawn on plan (by type name): faces, layer lines and fills across it. Lazy, then cached. */
+  wallStyles?(): ReadonlyMap<string, WallStyle>
   close(): Promise<void>
 }
 
@@ -244,6 +248,12 @@ export class DrawingFileSource implements DrawingSource {
   furnitureSymbols(): ReadonlyMap<string, FurnitureSymbol> {
     this.symbols ??= furnitureSymbolsFromDrawing(this.doc)
     return this.symbols
+  }
+
+  private walls?: Map<string, WallStyle>
+  wallStyles(): ReadonlyMap<string, WallStyle> {
+    this.walls ??= wallStylesFromDrawing(this.doc)
+    return this.walls
   }
 
   async close(): Promise<void> {}

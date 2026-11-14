@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { gunzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
-import { contextFromDrawing, furnitureSymbolsFromDrawing, paletteFromDrawing, roomAt, sheetInfo, sheetsFromDrawing } from '../../../src/core/context'
+import { contextFromDrawing, furnitureSymbolsFromDrawing, paletteFromDrawing, roomAt, sheetInfo, sheetsFromDrawing, wallStylesFromDrawing } from '../../../src/core/context'
 import { parseLegacyDrawingPayload } from '../../../src/core/drawing'
 import { BlobBuffer, buildPayload } from '../drawing/builder-legacy'
 
@@ -141,5 +141,45 @@ describe('M5 furniture symbols from a .drawing', () => {
     expect(desk.lines).toHaveLength(1)
     expect(desk.lines[0].closed).toBe(true)
     expect(desk.widthPt / desk.depthPt).toBeCloseTo(2.5, 1)
+  })
+})
+
+describe('M5 wall styles from a .drawing', () => {
+  const house = resolve(__dirname, '../../../../schema/public/examples/house.drawing')
+  it.skipIf(!existsSync(house))('M3-03: every wall type on the plan has its linework: heavy faces at ±0.5, layer lines between', () => {
+    const doc = parseLegacyDrawingPayload(new Uint8Array(gunzipSync(readFileSync(house))))
+    const styles = wallStylesFromDrawing(doc)
+    for (const w of paletteFromDrawing(doc).walls) expect(styles.has(w.name)).toBe(true)
+    for (const [, s] of styles) {
+      const offs = s.lines.map((l) => l.offset)
+      expect(offs[0]).toBe(-0.5)
+      expect(offs[offs.length - 1]).toBe(0.5)
+      expect(offs).toEqual([...offs].sort((a, b) => a - b))
+      for (const l of s.lines) expect(Math.abs(l.offset)).toBeLessThanOrEqual(0.5)
+    }
+    // Wall - Timber Clad on A102 (1:100): faces 5.72 pt apart (about 202 mm), drawn heavier than its five layer lines
+    // and its location line; white fills behind the layers
+    const timber = styles.get('Wall - Timber Clad')!
+    expect(timber.thicknessPt).toBeCloseTo(5.72, 0)
+    expect(timber.thicknessMm!).toBeGreaterThan(195)
+    expect(timber.thicknessMm!).toBeLessThan(210)
+    const faces = timber.lines.filter((l) => Math.abs(l.offset) === 0.5)
+    const inner = timber.lines.filter((l) => Math.abs(l.offset) < 0.5)
+    expect(faces).toHaveLength(2)
+    expect(inner.length).toBeGreaterThanOrEqual(5)
+    for (const l of inner) expect(l.weightPt).toBeLessThan(faces[0].weightPt)
+    expect(inner.some((l) => Math.abs(l.offset) < 0.02)).toBe(true) // the location line
+    expect(timber.fills.length).toBeGreaterThan(0)
+    expect(timber.fills.every((f) => f.color.every((c) => c === 255))).toBe(true)
+    // the 165 partition reads thinner than the timber wall
+    expect(styles.get('Interior - 165 Partition (1-hr)')!.thicknessMm!).toBeLessThan(timber.thicknessMm!)
+  })
+
+  it('M3-03: the wall of the built fixture: two faces and its solid poché across the whole thickness', () => {
+    const s = wallStylesFromDrawing(fixture()).get('Generic - 300mm')!
+    expect(s.lines.map((l) => l.offset)).toEqual([-0.5, 0.5])
+    expect(s.thicknessPt).toBeCloseTo(8.64, 1)
+    expect(s.thicknessMm).toBeCloseTo(304.8, 0)
+    expect(s.fills).toEqual([{ from: -0.5, to: 0.5, color: [0, 0, 0] }])
   })
 })
