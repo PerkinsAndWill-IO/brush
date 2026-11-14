@@ -1,7 +1,7 @@
 /**
- * M5 source wiring in the app: a `.drawing` package opens through the same flow as a
- * PDF (file dialog), its contexts come from the manifest (origin 'package', hostRef
- * set), the brush emits commands against it, and the log exports as a command file.
+ * M5 source wiring in the app: a `.drawing` (binary format, decision 0008) opens through the
+ * same flow as a PDF (file dialog), its contexts come from its host elements (origin 'package',
+ * hostRef set), the brush emits commands against it, and the log exports as a command file.
  */
 import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
@@ -15,10 +15,10 @@ test('M5: a .drawing package opens like a PDF; a wall stroke logs create_wall ag
   await (await chooser).setFiles(fixturePath('packages/office-1-sheet.drawing'))
   await expect(page.locator('[data-testid="sheet"][data-rendered="true"]')).toHaveCount(1)
   const sheets = await page.evaluate(() => window.__brush!.sheets())
-  expect(sheets.map((s) => s.id)).toEqual(['A-201'])
+  expect(sheets.map((s) => [s.id, s.number])).toEqual([['900000', 'A-201']])
   await expect(page.getByTestId('host-status')).toContainText('Package')
 
-  const ctx = await page.evaluate(() => window.__brush!.contextFor('A-201'))
+  const ctx = await page.evaluate(() => window.__brush!.contextFor('900000'))
   expect(ctx!.origin).toBe('package')
   const walls = ctx!.items.filter((i) => i.kind === 'wall')
   expect(walls.length).toBeGreaterThan(5)
@@ -32,7 +32,7 @@ test('M5: a .drawing package opens like a PDF; a wall stroke logs create_wall ag
   await page.waitForFunction(() => window.__brush!.commands().length > 0)
   const [cmd] = await page.evaluate(() => window.__brush!.commands())
   expect(cmd.op).toBe('create_wall')
-  expect(cmd.sheetId).toBe('A-201')
+  expect(cmd.sheetId).toBe('900000')
   if (cmd.op === 'create_wall') expect(cmd.wallType).toBeTruthy() // from the package palette
   await page.screenshot({ path: screenPath('m5-package-wall') })
 

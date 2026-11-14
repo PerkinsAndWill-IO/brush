@@ -4,10 +4,9 @@
  * coordinates (viewBox = PDF points), so strokes are drawn exactly as stored.
  */
 import { memo, useEffect, useLayoutEffect, useRef, useState, type ComponentType } from 'react'
-import type { PDFDocumentProxy } from 'pdfjs-dist'
 import type { Sheet, Stroke } from '@core/types'
 import { getCamera, onCameraSettled } from '../camera'
-import { renderPageAt } from '../pdf/pdfjs'
+import type { PageRenderer } from '../source'
 import { notifyPageRendered } from '../store'
 import { inkRender, type InkRender } from './ink'
 import { rectsIntersect, renderScaleFor, visibleBoardRect, type Placement } from './layout'
@@ -91,7 +90,7 @@ export function drawStrokes(g: CanvasRenderingContext2D, strokes: readonly Strok
 interface Props {
   sheet: Sheet
   placement: Placement
-  doc?: PDFDocumentProxy
+  pages?: PageRenderer
   loadId: number
   strokes: readonly Stroke[]
   /** Strokes that became elements (M3): their ink is drawn faded. */
@@ -101,7 +100,7 @@ interface Props {
   viewport: () => { w: number; h: number }
 }
 
-export const SheetView = memo(function SheetView({ sheet, placement, doc, loadId, strokes, faded, smoothing, active, viewport }: Props) {
+export const SheetView = memo(function SheetView({ sheet, placement, pages, loadId, strokes, faded, smoothing, active, viewport }: Props) {
   const pageRef = useRef<HTMLDivElement>(null)
   const inkRef = useRef<SVGSVGElement>(null)
   const inkCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -124,7 +123,7 @@ export const SheetView = memo(function SheetView({ sheet, placement, doc, loadId
     let first = true
     const key = `${loadId}:${sheet.id}`
     const request = () => {
-      if (!doc) {
+      if (!pages) {
         // package without a PDF: blank paper, nothing to render
         if (first) {
           first = false
@@ -144,7 +143,7 @@ export const SheetView = memo(function SheetView({ sheet, placement, doc, loadId
       const priority = (visible ? 0 : 1000) + sheet.pageIndex
       enqueueRender(key, priority, async (signal) => {
         const canvas = document.createElement('canvas')
-        await renderPageAt(doc, sheet.pageIndex, canvas, target, signal, penGate)
+        await pages.render(sheet.pageIndex, canvas, target, signal, penGate)
         if (signal.aborted || !pageRef.current) return
         pageRef.current.replaceChildren(canvas)
         current = target
@@ -160,7 +159,7 @@ export const SheetView = memo(function SheetView({ sheet, placement, doc, loadId
     request()
     const off = onCameraSettled(request)
     return () => off()
-  }, [doc, sheet, placement, loadId, viewport])
+  }, [pages, sheet, placement, loadId, viewport])
 
   // Ink raster scale follows the camera like the page does (sharp after zoom settles), but synchronously.
   useEffect(() => {

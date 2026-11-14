@@ -101,7 +101,7 @@ export function App() {
         {ready && <LeftSidebar />}
         <main className="canvas-area">
           {ready ? (
-            <Board doc={st.doc} loadId={st.loadId} sheets={st.sheets} placements={st.placements} fileName={st.fileName ?? ''} />
+            <Board pages={st.pages} loadId={st.loadId} sheets={st.sheets} placements={st.placements} fileName={st.fileName ?? ''} />
           ) : (
             <EmptyState error={st.status === 'error' ? st.error : undefined} loading={st.status === 'loading' ? st.fileName : undefined} />
           )}

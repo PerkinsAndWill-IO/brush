@@ -8,7 +8,6 @@
  * on pen-up the Stroke is committed to the session (undoable, autosaved).
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
-import type { PDFDocumentProxy } from 'pdfjs-dist'
 import type { Point, Sheet, Stroke, StrokePoint } from '@core/types'
 import { appendPoint, createStroke } from '@core/stroke'
 import { getCamera, onCameraMoving, setCamera, subscribeCamera } from '../camera'
@@ -19,6 +18,7 @@ import { FrameMeter, pushMetric } from '../metrics'
 import { recorder } from '../recording'
 import { getSession, session, useSession } from '../session'
 import { getDocState } from '../store'
+import type { PageRenderer } from '../source'
 import { eraserTouches, inkRender, pointsBBox, type InkRender } from './ink'
 import {
   boardBounds,
@@ -126,14 +126,14 @@ type Gesture =
 
 interface BoardProps {
   /** Undefined for a package without a PDF: sheets draw blank. */
-  doc?: PDFDocumentProxy
+  pages?: PageRenderer
   loadId: number
   sheets: Sheet[]
   placements: Placement[]
   fileName: string
 }
 
-export function Board({ doc, loadId, sheets, placements, fileName }: BoardProps) {
+export function Board({ pages, loadId, sheets, placements, fileName }: BoardProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const worldRef = useRef<HTMLDivElement>(null)
   const { strokes, accepted, settings, activeSheetId, tool } = useSession()
@@ -503,7 +503,7 @@ export function Board({ doc, loadId, sheets, placements, fileName }: BoardProps)
               key={`${loadId}:${s.id}`}
               sheet={s}
               placement={placements[i]}
-              doc={doc}
+              pages={pages}
               loadId={loadId}
               strokes={bySheet.get(s.id) ?? []}
               faded={fadedBySheet.get(s.id) ?? NONE}

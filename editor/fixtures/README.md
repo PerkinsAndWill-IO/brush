@@ -19,5 +19,14 @@ Both generators have zero dependencies and resolve paths relative to their own l
   furniture[{id, kind, shape, bbox{x,y,w,h}}], distractors{dimensions, hatches, titleBlock}}`.
   Double walls: two parallel lines 7 pt apart (thicknessPt 7); thick walls: one stroke, line width 2.5.
 
+## packages/
+`node scripts/fixtures/gen-package.mjs` (after gen-pdfs). Binary `.drawing` files (`schema/schema/drawing-format.md`,
+decision 0008) of the vector PDFs, drawn the way an exporter would, with host element ids on every item:
+- `office-6-sheets.drawing`, `office-1-sheet.drawing`: sheet ids `900000 + pageIndex`, element ids
+  `100000 + pageIndex * 10000 + offset + n` (walls 0, doors 1000, furniture 2000, rooms 3000, grids 4000,
+  labels 5000, dimensions 6000, title block 9000). No sheet scale is stored; walls carry `CURVE_ELEM_LENGTH` (mm).
+- `<name>.idmap.json` truth id (`<pageIndex>:<truthId>`) to host element id, used by `tests/eval/run-commands.ts`
+  to derive the expected `hostWallRef` and delete targets.
+
 ## strokes/
 Synthetic stroke corpus; see `strokes/README.md`.

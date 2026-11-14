@@ -77,17 +77,18 @@ function zip(files: Array<{ name: string; data: Uint8Array; deflate?: boolean }>
 }
 
 describe('M5 package parsing and sniffing', () => {
-  it('M5-01 sniffs pdf, json package and zip by content', () => {
+  it('M5-01 sniffs pdf, binary .drawing, legacy json package and zip by content', () => {
     expect(sniffBytes(fx('pdfs/office-1-sheet.pdf'))).toBe('pdf')
-    expect(sniffBytes(fx('packages/office-1-sheet.drawing'))).toBe('package-json')
+    expect(sniffBytes(fx('packages/office-1-sheet.drawing'))).toBe('drawing')
+    expect(sniffBytes(enc(serializePackage(tiny)), 'legacy.drawing')).toBe('package-json')
     expect(sniffBytes(zip([{ name: 'manifest.json', data: enc('{}') }]))).toBe('package-zip')
     expect(sniffBytes(fx('pdfs/not-a-pdf.txt'))).toBe('unknown')
   })
 
-  it('M5-02 parses the fixture package: manifest and embedded PDF', async () => {
-    const p = await parsePackage(fx('packages/office-6-sheets.drawing'))
-    expect(p.manifest.sheets).toHaveLength(6)
-    expect(p.manifest.sheets[0].number).toBe('A-101')
+  it('M5-02 parses a legacy envelope package: manifest and embedded PDF', async () => {
+    const p = await parsePackage(enc(serializePackage(tiny, { name: 'office-1-sheet.pdf', bytes: fx('pdfs/office-1-sheet.pdf') })))
+    expect(p.manifest.sheets).toHaveLength(1)
+    expect(p.manifest.sheets[0].id).toBe('A-1')
     expect(sniffBytes(p.pdf!.bytes!)).toBe('pdf')
   })
 
@@ -117,13 +118,16 @@ describe('M5 package parsing and sniffing', () => {
 })
 
 describe('M5 sources', () => {
-  it('M5-03 PackageSource: sheets from the manifest, contexts origin package with hostRefs', async () => {
+  it('M5-03 .drawing source: sheets from the file, contexts origin package with hostRefs', async () => {
     const src = await openSource({ name: 'office-6-sheets.drawing', bytes: fx('packages/office-6-sheets.drawing') })
     expect(src.kind).toBe('package')
-    const ctx = await src.contextFor('A-301')
+    const { sheets } = await src.load()
+    expect(sheets.map((s) => s.number)).toEqual(['A-101', 'A-201', 'A-301', 'A-401', 'A-501', 'A-601'])
+    expect(sheets.every((s) => s.scale === 100)).toBe(true)
+    const ctx = await src.contextFor(sheets[2].id)
     expect(ctx.origin).toBe('package')
     expect(ctx.items.length).toBeGreaterThan(50)
-    expect(ctx.items.every((i) => i.confidence === 1 && typeof i.hostRef === 'string')).toBe(true)
+    expect(ctx.items.filter((i) => i.id !== 'sheet-info').every((i) => i.confidence === 1 && typeof i.hostRef === 'string')).toBe(true)
     expect(ctx.items.find((i) => i.kind === 'wall')!.props?.typeName).toMatch(/mm$/)
     expect(src.palette.walls.length).toBeGreaterThan(0)
   })
