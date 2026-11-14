@@ -1,0 +1,54 @@
+# Lives at the REPO root; the Editor is in editor/.
+name: editor-verify
+
+on:
+  pull_request:
+    paths: ['editor/**', '.github/workflows/editor-verify.yml']
+  push:
+    branches: [main]
+    paths: ['editor/**', '.github/workflows/editor-verify.yml']
+
+defaults:
+  run:
+    working-directory: editor
+
+concurrency:
+  group: editor-verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: editor/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: editor/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium for Playwright
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: pnpm verify
+        run: pnpm verify
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: editor-reports
+          path: |
+            editor/reports/
+            editor/test-results/
+          if-no-files-found: ignore

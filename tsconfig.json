@@ -12,9 +12,9 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
-    "types": ["node"],
+    "types": ["node", "vite/client"],
     "baseUrl": ".",
     "paths": { "@core/*": ["src/core/*"], "@app/*": ["src/app/*"] }
   },
-  "include": ["src", "tests", "scripts"]
+  "include": ["src", "tests", "scripts", "*.config.ts"]
 }

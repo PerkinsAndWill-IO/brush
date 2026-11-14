@@ -130,10 +130,10 @@ export function buildRooms(
       cells.push(c)
       const x = c % gw
       const y = (c - x) / gw
-      if (x > 0 && !blocked[c - 1] && !label[c - 1]) (label[c - 1] = next), stack.push(c - 1)
-      if (x < gw - 1 && !blocked[c + 1] && !label[c + 1]) (label[c + 1] = next), stack.push(c + 1)
-      if (y > 0 && !blocked[c - gw] && !label[c - gw]) (label[c - gw] = next), stack.push(c - gw)
-      if (y < gh - 1 && !blocked[c + gw] && !label[c + gw]) (label[c + gw] = next), stack.push(c + gw)
+      if (x > 0 && !blocked[c - 1] && !label[c - 1]) { label[c - 1] = next; stack.push(c - 1) }
+      if (x < gw - 1 && !blocked[c + 1] && !label[c + 1]) { label[c + 1] = next; stack.push(c + 1) }
+      if (y > 0 && !blocked[c - gw] && !label[c - gw]) { label[c - gw] = next; stack.push(c - gw) }
+      if (y < gh - 1 && !blocked[c + gw] && !label[c + gw]) { label[c + gw] = next; stack.push(c + gw) }
     }
     comps.push({ cells })
   }

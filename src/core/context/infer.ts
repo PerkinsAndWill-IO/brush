@@ -145,7 +145,7 @@ export function inferContext(raw: RawPageContent, opts: InferOptions = {}): Shee
 
   // ---- walls ----
   const pairs = findWallPairs(segs, wallPool, wallLo, wallHi)
-  let pairRuns = mergeCollinear(pairs.runs)
+  const pairRuns = mergeCollinear(pairs.runs)
   const thickSegRuns: WallRun[] = []
   for (const i of wallPool) {
     const s = segs[i]

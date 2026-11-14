@@ -60,14 +60,14 @@ export class SpatialIndex {
       this.byId.set(it.id, idx)
       const pts = it.geometry.points
       if (pts.length === 1) {
-        ax.push(pts[0].x), ay.push(pts[0].y), bx.push(pts[0].x), by.push(pts[0].y), si.push(idx), sl.push(0)
+        ax.push(pts[0].x); ay.push(pts[0].y); bx.push(pts[0].x); by.push(pts[0].y); si.push(idx); sl.push(0)
         return
       }
       const n = it.geometry.closed && pts.length > 2 ? pts.length : pts.length - 1
       for (let i = 0; i < n; i++) {
         const a = pts[i]
         const b = pts[(i + 1) % pts.length]
-        ax.push(a.x), ay.push(a.y), bx.push(b.x), by.push(b.y), si.push(idx), sl.push(i)
+        ax.push(a.x); ay.push(a.y); bx.push(b.x); by.push(b.y); si.push(idx); sl.push(i)
         totalLen += Math.hypot(b.x - a.x, b.y - a.y)
       }
     })
