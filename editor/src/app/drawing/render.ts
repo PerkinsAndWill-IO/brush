@@ -4,7 +4,7 @@
  * style run (the schema viewer's approach), so even large sheets paint in a few stroke() calls.
  * Lines never draw thinner than one device pixel. Images decode once per page (createImageBitmap) and are cached.
  */
-import type { DrawItem, DrawingPage, DrawText } from '@core/drawing'
+import { CAP_EM, LINE_EM, wrapLines, type DrawItem, type DrawingPage, type DrawText } from '@core/drawing'
 
 type Cmd =
   | { k: 'stroke'; path: Path2D; w: number; css: string; dash: number[]; points: number }
@@ -80,40 +80,17 @@ function bitmap(png: Uint8Array): Promise<ImageBitmap | null> {
   return p
 }
 
-/** Arial cap height in em, and line height (as in the viewer's text layout). */
-const CAP_EM = 0.716
-const LINE_EM = 1.2
-
-function wrap(g: CanvasRenderingContext2D, text: string, maxWidth: number | null): string[] {
-  const out: string[] = []
-  for (const para of text.split('\n')) {
-    if (maxWidth === null) {
-      out.push(para)
-      continue
-    }
-    let line = ''
-    for (const word of para.split(' ')) {
-      const cand = line === '' ? word : `${line} ${word}`
-      if (line !== '' && g.measureText(cand).width > maxWidth) {
-        out.push(line)
-        line = word
-      } else line = cand
-    }
-    out.push(line)
-  }
-  return out
-}
-
-function drawText(g: CanvasRenderingContext2D, t: DrawText, minPx: number) {
+/** Draw a text item; `color` overrides its own (the pick highlight). */
+export function drawText(g: CanvasRenderingContext2D, t: DrawText, minPx: number, color?: string) {
   const em = t.size / CAP_EM
   if (em < 2 * minPx) return // below ~2 device px: unreadable, skip
   g.save()
   g.font = `${t.bold ? 'bold ' : ''}${em}px Arial, sans-serif`
-  g.fillStyle = css(t.c)
+  g.fillStyle = color ?? css(t.c)
   g.textBaseline = 'alphabetic'
   const h = t.anchor[0]
   g.textAlign = h === 'l' ? 'left' : h === 'r' ? 'right' : 'center'
-  const lines = wrap(g, t.text, t.maxWidth)
+  const lines = wrapLines(t.text, t.maxWidth, (s) => g.measureText(s).width)
   const lineH = em * LINE_EM
   const height = lines.length * lineH
   const fy = t.anchor[1] === 't' ? 0 : t.anchor[1] === 'b' ? 1 : 0.5

@@ -6,7 +6,7 @@
  * sidecar or the command log. Choices are remembered per browser by category name, so they carry across files.
  */
 import { useSyncExternalStore } from 'react'
-import type { DrawingDocument, DrawingElement, DrawItem } from '@core/drawing'
+import { classLabel, type DrawingDocument, type DrawingElement, type DrawItem } from '@core/drawing'
 
 export type ItemKind = 'lines' | 'fills' | 'text' | 'images'
 
@@ -22,12 +22,6 @@ export const NO_CATEGORY = 'No category'
 
 export function kindOf(it: DrawItem): ItemKind {
   return it.t === 'fill' ? 'fills' : it.t === 'text' ? 'text' : it.t === 'image' ? 'images' : 'lines'
-}
-
-/** "LinearDimString" → "Linear dim string" (as the schema viewer labels a class). */
-function classLabel(cls: string): string {
-  const words = cls.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-  return words.charAt(0).toUpperCase() + words.slice(1).toLowerCase()
 }
 
 /** The element's category, else its class, else NO_CATEGORY. */
