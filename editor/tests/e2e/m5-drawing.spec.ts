@@ -56,3 +56,70 @@ test('M5-08: a binary .drawing opens, its pages render from vectors, contexts ca
   if (cmd.op === 'create_wall') expect(MODEL_WALL_TYPES).toContain(cmd.wallType)
   await page.screenshot({ path: screenPath('m5-drawing-house') })
 })
+
+test('M1-05: zoomed in past the page raster budget, a .drawing sheet stays sharp (detail raster at zoom × dpr)', async ({ page }) => {
+  await openApp(page)
+  const chooser = page.waitForEvent('filechooser')
+  await page.getByRole('button', { name: 'Choose file' }).click()
+  await (await chooser).setFiles(HOUSE)
+  await expect(page.locator('[data-testid="sheet"][data-rendered="true"]').first()).toBeVisible()
+  await page.evaluate(() => window.__brushDev!.focusSheet(0, 1))
+  await settle(page)
+  const sel = '[data-sheet-id="382617"]'
+  // at 1× the page raster is sharp enough: no detail layer
+  await expect(page.locator(`${sel} .page-detail canvas`)).toHaveCount(0)
+  const z = 6
+  await page.evaluate((z) => {
+    const c = window.__brush!.camera()
+    const vp = document.querySelector('[data-testid="board"]')!.getBoundingClientRect()
+    const bx = vp.width / 2 / c.z - c.x
+    const by = vp.height / 2 / c.z - c.y
+    window.__brushDev!.setCamera({ x: vp.width / 2 / z - bx, y: vp.height / 2 / z - by, z })
+  }, z)
+  const detail = page.locator(`${sel} .page-detail canvas`)
+  await expect(detail).toHaveCount(1)
+  const r = await page.evaluate((sel) => {
+    const page = document.querySelector<HTMLCanvasElement>(`${sel} .page canvas`)!
+    const d = document.querySelector<HTMLCanvasElement>(`${sel} .page-detail canvas`)!
+    const box = d.getBoundingClientRect()
+    return { pagePx: page.width, detailPxPerCss: d.width / box.width, dpr: window.devicePixelRatio }
+  }, sel)
+  // the detail raster maps 1:1 to device pixels; the page raster alone would be stretched
+  expect(r.detailPxPerCss).toBeCloseTo(r.dpr, 1)
+  await page.screenshot({ path: screenPath('m1-05-drawing-zoomed-sharp') })
+  // zooming back out drops the detail layer again
+  await page.evaluate(() => window.__brushDev!.focusSheet(0, 1))
+  await expect(detail).toHaveCount(0)
+})
+
+test('M5-08: the start page offers the schema sample drawings and opens one', async ({ page }) => {
+  await openApp(page)
+  const picker = page.getByTestId('sample-picker')
+  await expect(picker).toBeVisible()
+  await expect(picker.locator('option[value="house.drawing"]')).toHaveCount(1)
+  await picker.selectOption('house.drawing')
+  await expect(page.locator('[data-testid="sheet"][data-rendered="true"]').first()).toBeVisible()
+  const sheets = await page.evaluate(() => window.__brush!.sheets())
+  expect(sheets.map((s) => s.number ?? s.name)).toEqual(['A102', 'A103', '{3D}'])
+  await page.screenshot({ path: screenPath('m5-sample-picker-house') })
+})
+
+test('M5-08: a file opened while a sample downloads is not replaced by the late sample', async ({ page }) => {
+  let release!: () => void
+  const held = new Promise<void>((r) => (release = r))
+  await page.route('**/samples/house.drawing', async (route) => {
+    await held
+    await route.continue()
+  })
+  await openApp(page)
+  await page.getByTestId('sample-picker').selectOption('house.drawing')
+  await page.evaluate(() => window.__brush!.loadPdf('/fixtures/pdfs/office-1-sheet.pdf'))
+  const sampleDone = page.waitForResponse('**/samples/house.drawing')
+  release()
+  await sampleDone
+  await page.waitForTimeout(500)
+  const sheets = await page.evaluate(() => window.__brush!.sheets())
+  expect(sheets.map((s) => s.number ?? s.name)).not.toContain('A102')
+  expect(sheets.length).toBe(1)
+  await page.screenshot({ path: screenPath('m5-sample-late-download') })
+})

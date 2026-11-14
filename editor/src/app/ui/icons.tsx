@@ -65,3 +65,16 @@ export const EmptyIllustration = () => (
     <path d="M70 52V64M65 59l5 5 5-5" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 )
+export const MeasureIcon = ({ size = 20 }: { size?: number }) => (
+  <Icon size={size}>
+    <path d="M2.5 13.5l11-11 4 4-11 11z" />
+    <path d="M6 10l1.5 1.5M8.5 7.5l1.5 1.5M11 5l1.5 1.5" />
+  </Icon>
+)
+export const MenuIcon = () => (
+  <Icon size={18}>
+    <path d="M3.5 5.5h13" />
+    <path d="M3.5 10h13" />
+    <path d="M3.5 14.5h13" />
+  </Icon>
+)

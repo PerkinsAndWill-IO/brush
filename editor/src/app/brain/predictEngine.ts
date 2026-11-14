@@ -11,12 +11,17 @@
  * chips are offered and the user taps one (state 6); otherwise the ink stays.
  * Below chipLow the reading is markup and the ink stays ink (rule 7).
  *
+ * M3-11 grouping: a stroke that starts soon after and close to a reading that
+ * has not become an element (pending, offer or markup) joins it. The session is
+ * rebuilt on the joined points, so the gesture is read as one stroke, and the
+ * decision goes on the gesture's last stroke. See GESTURE in ./live.
+ *
  * M4 seam: `setRescorer()` — called after pen-up with the context packet,
  * never awaited by the brush; its answer only adds a suggestion (rule 6).
  */
 import type { BrushSettings, DecisionKind, Hypothesis, Sheet, SheetContext, Stroke, StrokePoint } from '@core/types'
 import { resolveAnswer } from '@core/rescore'
-import { snapPoint } from '@core/geometry'
+import { closestPointOnPolyline, snapPoint } from '@core/geometry'
 import { commandFromDecision } from '@core/commands'
 import { withDrawnWalls } from '@core/context'
 import { StrokeSession, buildContextPacket, chipsFor, prepareContext } from '@core/predict'
@@ -26,7 +31,7 @@ import { pushMetric } from '../metrics'
 import { getSession, session as doc } from '../session'
 import { getDocState } from '../store'
 import { contextNow, emptyContext } from './contextStore'
-import { getLive, setLive } from './live'
+import { GESTURE, commitPauseFor, getLive, setLive } from './live'
 import { considerSecondPass, onSecondPassResult } from './secondPass'
 
 const TICK_MS = 50
@@ -38,7 +43,14 @@ interface Current {
   ctx: SheetContext
   settings: BrushSettings
   fed: number
+  /** Clock origin of the session's point times (performance.now clock): pen-down minus `offset`. */
   downTs: number
+  /** Added to this stroke's point times: where it starts in the gesture's time line (0 for a lone stroke). */
+  offset: number
+  /** Ids of the earlier strokes of the gesture, oldest first (empty for a lone stroke). */
+  members: string[]
+  /** Pen-up time (performance.now clock), once the stroke ended. */
+  upTs?: number
   timer: ReturnType<typeof setInterval> | null
   /** A second-pass answer applied before commit (M4): commits instead of the rules' leader. */
   applied?: Hypothesis
@@ -91,7 +103,10 @@ function publish(c: Current, h: Hypothesis | null | undefined, extra: Parameters
 
 function feed(c: Current, stroke: Readonly<Stroke>): Hypothesis | null {
   let h: Hypothesis | null = null
-  for (let i = c.fed; i < stroke.points.length; i++) h = c.session.addPoint(stroke.points[i]) ?? h
+  for (let i = c.fed; i < stroke.points.length; i++) {
+    const p = stroke.points[i]
+    h = c.session.addPoint(c.offset ? { ...p, t: p.t + c.offset } : p) ?? h
+  }
   c.fed = stroke.points.length
   return h
 }
@@ -110,7 +125,7 @@ function commitNow(c: Current, d = c.session.commit(Date.now())) {
   }
   // an eraser pass that reads as delete is kept (as an inkless eraser stroke) so the element has a source
   if (eraser && !getSession().strokes.some((s) => s.id === c.stroke.id)) doc.addStroke({ ...c.session.stroke, points: c.session.stroke.points.slice() })
-  const command = commandFromDecision(d, nextCommandId(getSession().commands), c.ctx)
+  const command = commandFromDecision(d, nextCommandId(getSession().commands, getSession().commandPrefix), c.ctx)
   doc.commitDecision(d, command)
   const shown = [c.applied, c.session.current, getLive().hypothesis].find((h) => h?.kind === d.kind) ?? getLive().hypothesis
   setLive({ phase: 'committed', decision: d, chips: [], hypothesis: shown && { ...shown, stable: true } })
@@ -138,7 +153,7 @@ function startTimer(c: Current) {
       return
     }
     const nowT = performance.now() - c.downTs
-    if (nowT - c.session.lastPointT < c.settings.commitPauseMs) return
+    if (nowT - c.session.lastPointT < commitPauseFor(c.settings, c.members.length + 1)) return
     const h = c.applied ?? c.session.current
     if (h && chipsFor(h, c.settings).length === 2) {
       stopTimer(c)
@@ -146,7 +161,7 @@ function startTimer(c: Current) {
       return
     }
     if (c.applied && c.applied.kind !== c.session.current?.kind) return commitNow(c, forcedDecision(c, c.applied.kind, c.applied.confidence))
-    const d = c.session.tick(nowT, (c.stroke.startedAt ?? Date.now()) + nowT)
+    const d = c.session.tick(nowT, Date.now())
     if (d) commitNow(c, d)
   }, TICK_MS)
 }
@@ -173,24 +188,60 @@ onSecondPassResult((r, rs) => {
   }
 })
 
+/** M3-11: may `stroke` (just put down) join the previous reading as one gesture? */
+function joinable(prev: Current | null, stroke: Readonly<Stroke>, sheet: Sheet, downTs: number): prev is Current {
+  if (!prev || prev.upTs === undefined || !liveOn()) return false
+  const live = getLive()
+  if (live.strokeId !== prev.stroke.id || !['pending', 'offer', 'markup'].includes(live.phase)) return false
+  if (prev.applied) return false // a second-pass answer was applied to it: let that commit
+  if (prev.sheet.id !== sheet.id || stroke.tool === 'eraser' || prev.stroke.tool === 'eraser') return false
+  if (downTs - prev.upTs > GESTURE.gapMs) return false
+  const start = stroke.points[0]
+  if (!start) return false
+  const ids = [...prev.members, prev.stroke.id]
+  const ink = getSession().strokes.filter((s) => ids.includes(s.id))
+  if (ink.length !== ids.length) return false // a member was undone or erased
+  return ink.some((s) => closestPointOnPolyline(start, s.points).distance <= GESTURE.distPt)
+}
+
 export const predictEngine: BrushEngine = {
   onStrokeStart(stroke, sheet, { downTs }) {
-    settlePrevious()
+    const prev = cur
+    const join = joinable(prev, stroke, sheet, downTs)
+    if (join) {
+      stopTimer(prev)
+      cur = null
+    } else settlePrevious()
     if (!liveOn()) {
-      setLive({ phase: 'idle', strokeId: stroke.id, sheetId: sheet.id, history: [], hypothesis: undefined, chips: [], snapStart: undefined, snapEnd: undefined, decision: undefined, suggestion: undefined, origin: 'rules' })
+      setLive({ phase: 'idle', strokeId: stroke.id, sheetId: sheet.id, gesture: [stroke.id], history: [], hypothesis: undefined, chips: [], snapStart: undefined, snapEnd: undefined, decision: undefined, suggestion: undefined, origin: 'rules' })
       return
     }
     const settings = { ...getSession().settings }
     const ctx = contextWithDrawn(contextNow(sheet.id) ?? emptyContext(sheet.id))
     const history = getSession().accepted
     const palette = getDocState().source?.palette
-    const session = new StrokeSession({ ...stroke, points: [] }, ctx, settings, { history, palette })
-    const c: Current = { session, stroke, sheet, ctx, settings, fed: 0, downTs, timer: null }
+    let c: Current
+    if (join) {
+      // continue the previous gesture's time line: its points, the pause, then this stroke
+      const before = prev.session.stroke
+      const offset = before.points.length ? before.points[before.points.length - 1].t + (downTs - prev.upTs!) : 0
+      const joined: Stroke = { ...stroke, startedAt: before.startedAt ?? stroke.startedAt, points: before.points.slice() }
+      const session = new StrokeSession(joined, prev.ctx, settings, { history, palette })
+      c = { session, stroke, sheet, ctx: prev.ctx, settings, fed: 0, downTs: downTs - offset, offset, members: [...prev.members, prev.stroke.id], timer: null }
+      const gestures = { ...getLive().gestures }
+      delete gestures[prev.stroke.id]
+      gestures[stroke.id] = [...c.members, stroke.id]
+      setLive({ gestures })
+    } else {
+      const session = new StrokeSession({ ...stroke, points: [] }, ctx, settings, { history, palette })
+      c = { session, stroke, sheet, ctx, settings, fed: 0, downTs, offset: 0, members: [], timer: null }
+    }
     cur = c
     const h = feed(c, stroke)
     publish(c, h, {
       phase: 'drawing',
       strokeId: stroke.id,
+      gesture: [...c.members, stroke.id],
       sheetId: sheet.id,
       downTs,
       decision: undefined,
@@ -227,6 +278,7 @@ export const predictEngine: BrushEngine = {
       return
     }
     feed(c, stroke)
+    c.upTs = performance.now()
     const h = c.session.end()
     publish(c, h, { phase: 'pending', ...snapEnds(c, 'both') })
     if (h) askSecondPass(c, h)

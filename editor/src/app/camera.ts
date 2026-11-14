@@ -55,3 +55,12 @@ export function onCameraMoving(l: (moving: boolean) => void): () => void {
 export function useCameraZoom(): number {
   return useSyncExternalStore(subscribeCamera, () => camera.z)
 }
+
+/** Zoom as of the last time the camera settled (re-renders once per gesture, not per frame). */
+export function useSettledZoom(): number {
+  return useSyncExternalStore(
+    (l) => onCameraSettled(() => l()),
+    () => (moving ? settledZ : (settledZ = camera.z)),
+  )
+}
+let settledZ = camera.z

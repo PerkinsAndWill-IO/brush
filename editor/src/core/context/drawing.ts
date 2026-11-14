@@ -493,3 +493,89 @@ export function paletteFromDrawing(doc: DrawingDocument): TypePalette {
     furniture: furnDefs.length ? furnDefs : DEFAULT_PALETTE.furniture,
   }
 }
+
+// ───────────────────────────── furniture symbols ─────────────────────────────
+
+/** One line of a symbol, in the symbol's unit frame: u across its width, v across its depth, both -0.5..0.5. */
+export interface SymbolLine {
+  pts: Point[]
+  closed: boolean
+}
+
+/** How a furniture type is drawn on plan, taken from one placed instance, normalised to its box. */
+export interface FurnitureSymbol {
+  /** Box of the instance it was taken from, sheet points (width along u). */
+  widthPt: number
+  depthPt: number
+  lines: SymbolLine[]
+}
+
+/**
+ * Plan symbol of each furniture type in the document, from the first plan instance of it that draws any lines.
+ * The frame is the one the context item's box uses (principal axis), except for near-square pieces, whose principal
+ * axis is noise: those use the sheet axes, which is how they are almost always placed.
+ */
+export function furnitureSymbolsFromDrawing(doc: DrawingDocument): Map<string, FurnitureSymbol> {
+  const out = new Map<string, FurnitureSymbol>()
+  for (const page of doc.pages) {
+    const { ctx } = analyse(doc, page)
+    const wanted = new Map<string, string>() // `${el}|${view}` -> typeName
+    for (const it of ctx.items) {
+      const p = it.props
+      if (it.kind !== 'fixture' || p?.category !== 'Furniture' || !p.typeName || out.has(p.typeName) || !it.hostRef) continue
+      wanted.set(`${it.hostRef}|${p.view ?? ''}`, p.typeName)
+    }
+    if (!wanted.size) continue
+    for (const g of groupsOf(page)) {
+      const type = wanted.get(`${g.el}|${g.view}`)
+      if (!type || out.has(type)) continue
+      const sym = symbolOf(g.items)
+      if (sym) out.set(type, sym)
+    }
+  }
+  return out
+}
+
+function symbolOf(items: DrawItem[]): FurnitureSymbol | null {
+  const pb = orientedBox(pointsOf(items))
+  if (!pb) return null
+  let b = pb
+  if (Math.max(pb.maxU - pb.minU, pb.maxV - pb.minV) <= 1.15 * Math.min(pb.maxU - pb.minU, pb.maxV - pb.minV)) {
+    // axis-aligned box around the same points
+    const pts = pointsOf(items)
+    const xs = pts.map((p) => p.x)
+    const ys = pts.map((p) => p.y)
+    const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
+    const c = { x: (x0 + x1) / 2, y: (y0 + y1) / 2 }
+    b = { c, u: { x: 1, y: 0 }, v: { x: 0, y: 1 }, minU: x0 - c.x, maxU: x1 - c.x, minV: y0 - c.y, maxV: y1 - c.y }
+  }
+  const w = b.maxU - b.minU
+  const d = b.maxV - b.minV
+  if (!(w > 0) || !(d > 0)) return null
+  const mu = (b.minU + b.maxU) / 2
+  const mv = (b.minV + b.maxV) / 2
+  const local = (x: number, y: number): Point => {
+    const dx = x - b.c.x
+    const dy = y - b.c.y
+    return { x: r4(((dx * b.u.x + dy * b.u.y) - mu) / w), y: r4(((dx * b.v.x + dy * b.v.y) - mv) / d) }
+  }
+  const lines: SymbolLine[] = []
+  for (const it of items) {
+    if (it.t === 'path') {
+      const pts: Point[] = []
+      for (let k = 0; k + 1 < it.xy.length; k += 2) pts.push(local(it.xy[k], it.xy[k + 1]))
+      if (pts.length >= 2) lines.push({ pts, closed: it.closed })
+    } else if (it.t === 'segs') {
+      for (let k = 0; k + 3 < it.xy.length; k += 4) lines.push({ pts: [local(it.xy[k], it.xy[k + 1]), local(it.xy[k + 2], it.xy[k + 3])], closed: false })
+    } else if (it.t === 'fill') {
+      for (const ring of it.rings) {
+        const pts: Point[] = []
+        for (let k = 0; k + 1 < ring.length; k += 2) pts.push(local(ring[k], ring[k + 1]))
+        if (pts.length >= 3) lines.push({ pts, closed: true })
+      }
+    }
+  }
+  return lines.length ? { widthPt: r2(w), depthPt: r2(d), lines } : null
+}
+
+const r4 = (n: number) => Math.round(n * 1e4) / 1e4

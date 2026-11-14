@@ -99,6 +99,26 @@ export async function openContexts(source: string | Uint8Array, sheetIds: readon
   }
 }
 
+/**
+ * The open document changed in place (M6): drop contexts of sheets that are gone, rebuild `changed` ones with the
+ * current provider. The brush keeps the old context of a changed sheet until the new one is ready.
+ */
+export function refreshContexts(sheetIds: readonly string[], changed: readonly string[]): void {
+  if (!provider) return
+  const gen = state.generation
+  const keep = new Set(sheetIds)
+  const contexts = new Map([...state.contexts].filter(([id]) => keep.has(id)))
+  const status = new Map([...state.status].filter(([id]) => keep.has(id)))
+  for (const id of sheetIds) if (!status.has(id)) status.set(id, 'pending')
+  emit({ contexts, status })
+  void (async () => {
+    for (const id of changed) {
+      if (gen !== state.generation) return
+      if (keep.has(id)) await load(id, gen)
+    }
+  })()
+}
+
 export function closeContexts() {
   provider?.close()
   provider = null

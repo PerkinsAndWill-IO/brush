@@ -7,14 +7,16 @@
 import type { DrawItem, DrawingPage, DrawText } from '@core/drawing'
 
 type Cmd =
-  | { k: 'stroke'; path: Path2D; w: number; css: string; dash: number[] }
+  | { k: 'stroke'; path: Path2D; w: number; css: string; dash: number[]; points: number }
   | { k: 'fill'; path: Path2D; css: string }
   | { k: 'text'; item: DrawText }
   | { k: 'image'; item: Extract<DrawItem, { t: 'image' }> }
 
 const css = (c: number[]) => `rgb(${c[0]},${c[1]},${c[2]})`
+/** Points per stroke batch: Chrome's GPU canvas silently draws nothing for one Path2D of millions of points. */
+const BATCH_POINTS = 100_000
 
-function compile(page: DrawingPage): Cmd[] {
+function compile(page: DrawingPage, hide: ((it: DrawItem) => boolean) | null): Cmd[] {
   const cmds: Cmd[] = []
   // consecutive stroke items merge per style; any other item ends the run, so draw order across kinds is kept
   let run = new Map<string, Cmd & { k: 'stroke' }>()
@@ -23,11 +25,17 @@ function compile(page: DrawingPage): Cmd[] {
     run = new Map()
   }
   for (const it of page.items) {
+    if (hide?.(it)) continue
     if (it.t === 'path' || it.t === 'segs') {
       const key = `${it.w}|${it.c.join(',')}|${it.dash.join(',')}`
       let cmd = run.get(key)
-      if (!cmd) run.set(key, (cmd = { k: 'stroke', path: new Path2D(), w: it.w, css: css(it.c), dash: it.dash }))
+      if (cmd && cmd.points >= BATCH_POINTS) {
+        cmds.push(cmd) // same style, so drawing it ahead of the rest of the run keeps the picture
+        cmd = undefined
+      }
+      if (!cmd) run.set(key, (cmd = { k: 'stroke', path: new Path2D(), w: it.w, css: css(it.c), dash: it.dash, points: 0 }))
       const xy = it.xy
+      cmd.points += xy.length / 2
       if (it.t === 'path') {
         if (xy.length < 4) continue
         cmd.path.moveTo(xy[0], xy[1])
@@ -58,7 +66,8 @@ function compile(page: DrawingPage): Cmd[] {
   return cmds
 }
 
-const compiled = new WeakMap<DrawingPage, Cmd[]>()
+/** Compiled commands per page, for the filter version they were built with. */
+const compiled = new WeakMap<DrawingPage, { key: number; cmds: Cmd[] }>()
 const bitmaps = new WeakMap<Uint8Array, Promise<ImageBitmap | null>>()
 
 function bitmap(png: Uint8Array): Promise<ImageBitmap | null> {
@@ -118,6 +127,9 @@ function drawText(g: CanvasRenderingContext2D, t: DrawText, minPx: number) {
 /**
  * Render a page into `canvas` at `pxPerPt` device pixels per sheet point (sets the backing size only; the board
  * sizes the canvas with CSS). Awaits the page's images. `gate` pauses between chunks while the pen is down.
+ * `filter` drops items from the drawing (display filters); its `key` must change whenever `hide` does.
+ * `region` (sheet points) renders only that part of the page, so a zoomed-in view can be drawn at full resolution
+ * without a page-sized backing store; the canvas then covers exactly `region`.
  */
 export async function renderDrawingPage(
   page: DrawingPage,
@@ -125,17 +137,22 @@ export async function renderDrawingPage(
   pxPerPt: number,
   signal?: AbortSignal,
   gate?: () => Promise<void> | null,
+  filter?: { key: number; hide: ((it: DrawItem) => boolean) | null },
+  region?: { x: number; y: number; w: number; h: number },
 ): Promise<void> {
-  let cmds = compiled.get(page)
-  if (!cmds) compiled.set(page, (cmds = compile(page)))
+  const key = filter?.key ?? -1
+  let entry = compiled.get(page)
+  if (!entry || entry.key !== key) compiled.set(page, (entry = { key, cmds: compile(page, filter?.hide ?? null) }))
+  const cmds = entry.cmds
   const images = new Map<DrawItem, ImageBitmap | null>()
   await Promise.all(cmds.filter((c) => c.k === 'image').map(async (c) => images.set(c.item, await bitmap(c.item.png))))
   const wait = gate?.()
   if (wait) await wait
   if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
 
-  const w = Math.max(1, Math.floor(page.sizePt.w * pxPerPt))
-  const h = Math.max(1, Math.floor(page.sizePt.h * pxPerPt))
+  const r0 = region ?? { x: 0, y: 0, w: page.sizePt.w, h: page.sizePt.h }
+  const w = Math.max(1, Math.round(r0.w * pxPerPt))
+  const h = Math.max(1, Math.round(r0.h * pxPerPt))
   const g = canvas.getContext('2d')
   if (!g) throw new Error('renderDrawingPage: no 2D context')
   canvas.width = w
@@ -143,7 +160,7 @@ export async function renderDrawingPage(
   g.setTransform(1, 0, 0, 1, 0, 0)
   g.fillStyle = '#fff'
   g.fillRect(0, 0, w, h)
-  g.setTransform(pxPerPt, 0, 0, pxPerPt, 0, 0)
+  g.setTransform(pxPerPt, 0, 0, pxPerPt, -r0.x * pxPerPt, -r0.y * pxPerPt)
   g.lineJoin = 'round'
   g.lineCap = 'butt'
   const minPx = 1 / pxPerPt // one device pixel in points

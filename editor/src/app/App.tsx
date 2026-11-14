@@ -2,16 +2,24 @@
  * App shell: top bar, sidebars, the board (or the empty state) and the tool
  * capsule. Layout and look follow docs/design/project/{Main,Empty}.dc.html.
  */
-import { lazy, Suspense, useEffect, useState, type DragEvent } from 'react'
+import { lazy, Suspense, useEffect, useState, type CSSProperties, type DragEvent } from 'react'
+import samples from 'virtual:brush-samples'
 import { Board } from './board/Board'
 import { installBrain } from './brain'
+import { registerSheetOverlay } from './board/SheetView'
+import { MeasureOverlay } from './board/viewAidLayers'
+import { InspectOverlay } from './drawing/InspectLayers'
+import { useView } from './view'
 import { getPlatform } from './platform'
 import { fileToOpened } from './platform/browser'
-import { openFile, useDocState } from './store'
+import { getDocState, openFile, useDocState } from './store'
 import { EmptyIllustration } from './ui/icons'
 import { chooseFile, LeftSidebar, RightSidebar, ToolCapsule, TopBar } from './ui/Chrome'
+import { RevitHud, RevitStart } from './revit/RevitPanel'
 
 installBrain()
+registerSheetOverlay(MeasureOverlay) // above the brain overlays
+registerSheetOverlay(InspectOverlay) // element highlight (V3), on top
 
 const TldrawSmoke = lazy(() => import('./dev/TldrawSmoke'))
 
@@ -19,6 +27,62 @@ async function openDropped(e: DragEvent) {
   e.preventDefault()
   const f = e.dataTransfer.files?.[0]
   if (f) await openFile(await fileToOpened(f))
+}
+
+const formatSize = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} kB`)
+
+/**
+ * Sample `.drawing` files from `schema/public/examples` (served by the `sampleDrawings` plugin in vite.config.ts).
+ * Picking one fetches it and opens it like a chosen file. Hidden when there are no samples.
+ */
+function SamplePicker({ disabled }: { disabled: boolean }) {
+  const [fetching, setFetching] = useState<string>()
+  const [fetchError, setFetchError] = useState<string>()
+  if (!samples.length) return null
+
+  async function open(name: string) {
+    const sample = samples.find((s) => s.name === name)
+    if (!sample) return
+    setFetching(sample.name)
+    setFetchError(undefined)
+    // a file opened while the sample downloads (picker, Ctrl O, drop) bumps loadId; it wins over the late sample
+    const loadIdAtStart = getDocState().loadId
+    try {
+      const res = await fetch(sample.url)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const bytes = await res.arrayBuffer()
+      setFetching(undefined)
+      if (getDocState().loadId !== loadIdAtStart) return
+      await openFile({ name: sample.name, size: bytes.byteLength, bytes })
+    } catch (e) {
+      setFetching(undefined)
+      if (getDocState().loadId !== loadIdAtStart) return
+      setFetchError(`Could not download the sample “${sample.name}”. (${(e as Error).message})`)
+    }
+  }
+
+  return (
+    <>
+      <label className="samples">
+        <span className="secondary">{fetching ? `Downloading ${fetching}…` : 'or open a sample'}</span>
+        <select data-testid="sample-picker" aria-label="Open a sample drawing" value="" disabled={disabled || !!fetching} onChange={(e) => void open(e.target.value)}>
+          <option value="" disabled>
+            Choose a sample…
+          </option>
+          {samples.map((s) => (
+            <option key={s.name} value={s.name}>
+              {s.label} ({s.name}, {formatSize(s.size)})
+            </option>
+          ))}
+        </select>
+      </label>
+      {fetchError && (
+        <p className="error" role="alert" data-testid="sample-error">
+          {fetchError}
+        </p>
+      )}
+    </>
+  )
 }
 
 function EmptyState({ error, loading }: { error?: string; loading?: string }) {
@@ -31,7 +95,7 @@ function EmptyState({ error, loading }: { error?: string; loading?: string }) {
             Drop a <span className="mono">PDF</span> to start
           </h1>
           <p>
-            Each page opens here as a sheet, side by side, ready to sketch on. Exported <span className="mono">.drawing</span> packages arrive later.
+            Each page opens here as a sheet, side by side, ready to sketch on. Exported <span className="mono">.drawing</span> packages open too.
           </p>
         </div>
         <div className="cta">
@@ -42,6 +106,8 @@ function EmptyState({ error, loading }: { error?: string; loading?: string }) {
             or press <kbd>Ctrl O</kbd>
           </span>
         </div>
+        <SamplePicker disabled={!!loading} />
+        <RevitStart />
         {error && (
           <p className="error" role="alert" data-testid="load-error">
             {error}
@@ -54,6 +120,7 @@ function EmptyState({ error, loading }: { error?: string; loading?: string }) {
 
 export function App() {
   const st = useDocState()
+  const { labelScale } = useView()
   const [dragOver, setDragOver] = useState(false)
 
   useEffect(() => {
@@ -86,6 +153,7 @@ export function App() {
   return (
     <div
       className={`app${dragOver ? ' drag-over' : ''}`}
+      style={{ '--label-scale': labelScale } as CSSProperties}
       onDragOver={(e) => {
         e.preventDefault()
         setDragOver(true)
@@ -105,6 +173,7 @@ export function App() {
           ) : (
             <EmptyState error={st.status === 'error' ? st.error : undefined} loading={st.status === 'loading' ? st.fileName : undefined} />
           )}
+          {ready && <RevitHud />}
           <ToolCapsule disabled={!ready} />
         </main>
         {ready && <RightSidebar />}

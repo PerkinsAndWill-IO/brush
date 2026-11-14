@@ -7,14 +7,16 @@ import {
   DEFAULT_PALETTE,
   contextFromDrawing,
   contextFromPackage,
+  furnitureSymbolsFromDrawing,
   paletteFromDrawing,
   paletteFromPackage,
   sheetsFromDrawing,
   sheetsFromPackage,
   type DrawingManifest,
+  type FurnitureSymbol,
   type TypePalette,
 } from '@core/context'
-import { DrawingFormatError, type DrawingDocument } from '@core/drawing'
+import { DrawingFormatError, type DrawingDocument, type DrawingElement, type DrawingPage } from '@core/drawing'
 import type { Sheet, SheetContext } from '@core/types'
 import type { LoadedPdf, PdfSource as PdfInput } from '../pdf/pdfjs'
 import { parseDrawingFile } from './drawing-file'
@@ -27,6 +29,18 @@ export interface PageRenderer {
    * size only. `gate` returns a promise while rendering must pause (pen down).
    */
   render(pageIndex: number, canvas: HTMLCanvasElement, pxPerPt: number, signal?: AbortSignal, gate?: () => Promise<void> | null): Promise<void>
+  /**
+   * Render only `region` (sheet points) of page `pageIndex` at `pxPerPt`; the canvas covers exactly that region.
+   * Used for the sharp detail layer when zoomed in past what a whole-page raster can hold.
+   */
+  renderRegion(
+    pageIndex: number,
+    canvas: HTMLCanvasElement,
+    pxPerPt: number,
+    region: { x: number; y: number; w: number; h: number },
+    signal?: AbortSignal,
+    gate?: () => Promise<void> | null,
+  ): Promise<void>
 }
 
 function pdfRenderer(pdf: LoadedPdf): PageRenderer {
@@ -34,6 +48,10 @@ function pdfRenderer(pdf: LoadedPdf): PageRenderer {
     render: async (i, canvas, pxPerPt, signal, gate) => {
       const m = await import('../pdf/pdfjs')
       return m.renderPageAt(pdf.doc, i, canvas, pxPerPt, signal, gate)
+    },
+    renderRegion: async (i, canvas, pxPerPt, region, signal, gate) => {
+      const m = await import('../pdf/pdfjs')
+      return m.renderPageRegion(pdf.doc, i, canvas, pxPerPt, region, signal, gate)
     },
   }
 }
@@ -57,7 +75,20 @@ export interface DrawingSource {
   load(): Promise<LoadedSource>
   /** Context of one sheet (cached). Package: origin 'package', confidence 1, hostRef set. PDF: inferred. */
   contextFor(sheetId: string): Promise<SheetContext>
+  /**
+   * The vector page and element metadata behind a sheet, for inspecting elements (V3). Only sources whose sheets are
+   * host vectors (`.drawing`, Revit) have it; undefined or null otherwise.
+   */
+  vectorPage?(sheetId: string): VectorPage | null
+  /** How each furniture type is drawn on plan (by type name), when the source knows. Built lazily, then cached. */
+  furnitureSymbols?(): ReadonlyMap<string, FurnitureSymbol>
   close(): Promise<void>
+}
+
+/** A sheet's host vectors: the page (sheet points) and the elements its items refer to. */
+export interface VectorPage {
+  page: DrawingPage
+  elements: Record<string, DrawingElement>
 }
 
 export class SourceError extends Error {
@@ -187,8 +218,14 @@ export class DrawingFileSource implements DrawingSource {
     const pages = this.doc.pages
     const renderer: PageRenderer = {
       render: async (i, canvas, pxPerPt, signal, gate) => {
-        const m = await import('../drawing/render')
-        return m.renderDrawingPage(pages[i], canvas, pxPerPt, signal, gate)
+        const [m, f] = await Promise.all([import('../drawing/render'), import('../drawing/filters')])
+        const fs = f.getFilters()
+        return m.renderDrawingPage(pages[i], canvas, pxPerPt, signal, gate, { key: fs.version, hide: f.hiddenPredicate(this.doc, fs) })
+      },
+      renderRegion: async (i, canvas, pxPerPt, region, signal, gate) => {
+        const [m, f] = await Promise.all([import('../drawing/render'), import('../drawing/filters')])
+        const fs = f.getFilters()
+        return m.renderDrawingPage(pages[i], canvas, pxPerPt, signal, gate, { key: fs.version, hide: f.hiddenPredicate(this.doc, fs) }, region)
       },
     }
     return { sheets: this.sheets, pdf: null, pages: renderer }
@@ -196,6 +233,17 @@ export class DrawingFileSource implements DrawingSource {
 
   async contextFor(sheetId: string): Promise<SheetContext> {
     return contextFromDrawing(this.doc, sheetId)
+  }
+
+  vectorPage(sheetId: string): VectorPage | null {
+    const page = this.doc.pages.find((p) => p.id === sheetId)
+    return page ? { page, elements: this.doc.elements } : null
+  }
+
+  private symbols?: Map<string, FurnitureSymbol>
+  furnitureSymbols(): ReadonlyMap<string, FurnitureSymbol> {
+    this.symbols ??= furnitureSymbolsFromDrawing(this.doc)
+    return this.symbols
   }
 
   async close(): Promise<void> {}

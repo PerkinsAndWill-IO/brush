@@ -62,7 +62,7 @@ function Strike({ items, opacity, dash }: { items: ContextItem[]; opacity: numbe
 }
 
 /** Geometry of a reading: committed (solid) or ghost (lighter; dashed while unstable). */
-export function ReadingShape({ kind, geometry, targets, sheetId, ghost, stable }: { kind: DecisionKind; geometry: Path; targets?: string[]; sheetId: string; ghost: boolean; stable: boolean }) {
+export function ReadingShape({ kind, geometry, type, targets, sheetId, ghost, stable }: { kind: DecisionKind; geometry: Path; type?: string; targets?: string[]; sheetId: string; ghost: boolean; stable: boolean }) {
   const dash = ghost && !stable ? '6 4' : undefined
   const op = ghost ? 0.85 : 1
   const pts = geometry.points
@@ -80,12 +80,27 @@ export function ReadingShape({ kind, geometry, targets, sheetId, ghost, stable }
           <DoorSymbol path={geometry} dash={dash} opacity={op} />
         </g>
       ) : null
-    case 'furniture':
+    case 'furniture': {
+      const sym = type !== undefined && pts.length === 4 ? getDocState().source?.furnitureSymbols?.().get(type) : undefined
+      if (sym) {
+        // the type's own plan symbol (as drawn on the sheet), fitted to the placed box: pts[0]->pts[1] is its width
+        const [o, a, , b] = pts
+        const c = { x: (pts[0].x + pts[2].x) / 2, y: (pts[0].y + pts[2].y) / 2 }
+        const U = { x: a.x - o.x, y: a.y - o.y }
+        const V = { x: b.x - o.x, y: b.y - o.y }
+        const at = (q: Point): Point => ({ x: c.x + U.x * q.x + V.x * q.y, y: c.y + U.y * q.x + V.y * q.y })
+        return (
+          <g data-kind="furniture" data-symbol={type} opacity={op}>
+            <path d={sym.lines.map((l) => d(l.pts.map(at), l.closed)).join('')} fill="none" stroke={ACCENT} style={{ strokeWidth: px(1.4) }} strokeDasharray={dash} />
+          </g>
+        )
+      }
       return (
         <g data-kind="furniture" opacity={op}>
           <path d={d(pts, true)} fill={ACCENT} fillOpacity={0.16} stroke={ACCENT} style={{ strokeWidth: px(1.4) }} strokeDasharray={dash} />
         </g>
       )
+    }
     case 'delete': {
       const ctx = contextNow(sheetId)
       const items = (targets ?? []).map((id) => ctx?.items.find((i) => i.id === id)).filter((x): x is ContextItem => !!x)
@@ -103,14 +118,15 @@ export function ReadingShape({ kind, geometry, targets, sheetId, ghost, stable }
 // ───────────── overlays ─────────────
 
 export function ElementsOverlay({ sheet }: { sheet: Sheet; placement: Placement }) {
-  const { accepted } = useSession()
+  const { accepted, hidden } = useSession()
   useContexts() // delete targets resolve once the context is in
-  const mine = accepted.filter((a) => a.sheetId === sheet.id)
+  // hidden: landed in the linked model (M6-04), the sheet draws the real element now
+  const mine = accepted.filter((a) => a.sheetId === sheet.id && !hidden.has(a.strokeId))
   return (
     <g data-layer="elements">
       {mine.map((a: AcceptedDecision) => (
         <g key={a.strokeId} data-element={a.kind} data-stroke-id={a.strokeId}>
-          <ReadingShape kind={a.kind} geometry={a.geometry} targets={a.targets} sheetId={sheet.id} ghost={false} stable />
+          <ReadingShape kind={a.kind} geometry={a.geometry} type={a.type} targets={a.targets} sheetId={sheet.id} ghost={false} stable />
         </g>
       ))}
     </g>
@@ -133,14 +149,40 @@ export function LiveOverlay({ sheet }: { sheet: Sheet; placement: Placement }) {
   const h = live.hypothesis
   return (
     <g data-layer="live">
+      <GestureBox ids={live.gesture} />
       {h && h.kind !== 'markup' && h.geometry.points.length > 0 && (
         <g data-ghost={h.kind} data-stable={h.stable}>
-          <ReadingShape kind={h.kind} geometry={h.geometry} targets={h.targets} sheetId={sheet.id} ghost stable={h.stable} />
+          <ReadingShape kind={h.kind} geometry={h.geometry} type={h.type} targets={h.targets} sheetId={sheet.id} ghost stable={h.stable} />
         </g>
       )}
       {live.snapStart && <SnapMarker snap={live.snapStart} which="start" />}
       {live.snapEnd && <SnapMarker snap={live.snapEnd} which="end" />}
     </g>
+  )
+}
+
+/** M3-11: a dashed box around the strokes read together, once there are two or more. */
+function GestureBox({ ids }: { ids?: readonly string[] }) {
+  const { strokes } = useSession()
+  if (!ids || ids.length < 2) return null
+  const pts = strokes.filter((s) => ids.includes(s.id)).flatMap((s) => s.points)
+  if (!pts.length) return null
+  const pad = 6
+  const xs = pts.map((p) => p.x)
+  const ys = pts.map((p) => p.y)
+  const [x0, y0, x1, y1] = [Math.min(...xs) - pad, Math.min(...ys) - pad, Math.max(...xs) + pad, Math.max(...ys) + pad]
+  return (
+    <rect
+      data-gesture-box={ids.length}
+      x={x0}
+      y={y0}
+      width={x1 - x0}
+      height={y1 - y0}
+      fill="none"
+      stroke={ACCENT}
+      opacity={0.6}
+      style={{ strokeWidth: px(1), strokeDasharray: `${px(4)} ${px(3)}` }}
+    />
   )
 }
 

@@ -6,13 +6,15 @@ import type { Coords, Item, Scene } from "./scene";
 import { boxCorners, type TextLayout } from "./text";
 
 type Cmd =
-  | { k: "stroke"; path: Path2D; w: number; css: string; dash: number[] }
+  | { k: "stroke"; path: Path2D; w: number; css: string; dash: number[]; points: number }
   | { k: "fill"; path: Path2D; css: string }
   | { k: "text"; item: number }
   | { k: "image"; item: number };
 
 export const ACCENT = "#e8590c";
 const css = (c: number[]) => `rgb(${c[0]},${c[1]},${c[2]})`;
+/** Points per stroke batch. Chrome's GPU canvas silently draws nothing for one Path2D of millions of points. */
+const BATCH_POINTS = 100_000;
 
 function addStroke(path: Path2D, it: Item): void {
   if (it.t === "path") {
@@ -66,11 +68,16 @@ export class Renderer {
       if (it.t === "path" || it.t === "segs") {
         const key = `${it.w}|${it.c.join(",")}|${it.dash.join(",")}`;
         let cmd = run.get(key);
+        if (cmd && cmd.points >= BATCH_POINTS) {
+          cmds.push(cmd); // same style, so drawing it ahead of the rest of the run keeps the picture
+          cmd = undefined;
+        }
         if (!cmd) {
-          cmd = { k: "stroke", path: new Path2D(), w: it.w, css: css(it.c), dash: it.dash };
+          cmd = { k: "stroke", path: new Path2D(), w: it.w, css: css(it.c), dash: it.dash, points: 0 };
           run.set(key, cmd);
         }
         addStroke(cmd.path, it);
+        cmd.points += it.xy.length / 2;
         return;
       }
       flush();

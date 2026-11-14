@@ -39,6 +39,30 @@ function nearbyWall(ev: Evidence, p: Point, radius = 40): ContextItem | undefine
   return ev.pc.lines.itemsNear(p, radius, (i) => i.kind === 'wall')[0]?.item
 }
 
+/**
+ * Type of the nearest placed furniture (centre within 2.5 m of `p`) of roughly the sketch's size (longest side
+ * within a factor 1.8), when that type is in the palette.
+ */
+function nearbyFurnitureType(ev: Evidence, p: Point, sizePt: number, palette: TypePalette): string | undefined {
+  if (!ev.hasContext || !ev.scaleKnown) return undefined
+  const names = new Set(palette.furniture.map((f) => f.name))
+  const radius = 2.5 * ev.ptPerM
+  let best: string | undefined
+  let bd = Infinity
+  for (const { item, box } of ev.pc.fixtures) {
+    const type = item.props?.typeName
+    if (!type || !names.has(type)) continue
+    const size = Math.max(box.w, box.h)
+    if (size > 1.8 * sizePt || sizePt > 1.8 * size) continue
+    const d = Math.hypot(box.x + box.w / 2 - p.x, box.y + box.h / 2 - p.y)
+    if (d <= radius && d < bd) {
+      bd = d
+      best = type
+    }
+  }
+  return best
+}
+
 function snapEnd(ev: Evidence, p: Point, s: BrushSettings): { p: Point; ids: string[] } {
   if (!s.snapping || !ev.hasContext) return { p, ids: [] }
   const r = snapPoint(p, ev.pc.lines, { radius: s.snapRadiusPt })
@@ -172,47 +196,66 @@ function shapeFurniture(ev: Evidence, _s: BrushSettings, palette: TypePalette): 
   const pts = ev.stroke.points.map((p) => ({ x: p.x, y: p.y }))
   const r = minAreaRect(pts)
   if (!r) return { geometry: { points: pts, closed: true }, evidence }
-  // snap orientation to the axes (or the nearest wall direction) within 8 degrees
+  // orientation: the axes or the nearest wall direction, within 8 degrees (always, for a near-square piece)
   let th = r.angle
   const c = { x: (r.corners[0].x + r.corners[2].x) / 2, y: (r.corners[0].y + r.corners[2].y) / 2 }
   const wall = nearbyWall(ev, c, 120)
   const candidates = [0, Math.PI / 2]
   if (wall && wall.geometry.points.length >= 2) candidates.push(angle(sub(wall.geometry.points[1], wall.geometry.points[0])))
+  // a near-square sketch (a stool, a chair, a round table) has no meaningful axis of its own: the box of a hand-drawn
+  // blob tilts at random, so square it up to the nearest axis or wall. Elongated pieces keep a deliberate angle.
+  const squarish = Math.max(r.w, r.h) <= 1.3 * Math.min(r.w, r.h)
+  let bestD = Infinity
+  let bestTh = th
   for (const cand of candidates) {
     const d = angleDiffMod(th, cand, Math.PI / 2)
-    if (d <= 8 * DEG) {
-      const k = Math.round((th - cand) / (Math.PI / 2))
-      th = cand + k * (Math.PI / 2)
-      break
+    if (d < bestD) {
+      bestD = d
+      bestTh = cand + Math.round((th - cand) / (Math.PI / 2)) * (Math.PI / 2)
+    }
+  }
+  if (squarish || bestD <= 8 * DEG) th = bestTh
+  const wM = r.w / ev.ptPerM
+  const hM = r.h / ev.ptPerM
+  // room label shifts the family prior (MEETING -> tables, OFFICE -> desks)
+  const label = ev.room.label ?? ''
+  const prefer = /MEETING|CONFERENCE/i.test(label) ? /table/i : /OFFICE|STUDIO/i.test(label) ? /desk/i : /BED/i.test(label) ? /bed/i : /LIVING|LOUNGE/i.test(label) ? /sofa/i : null
+  // a piece sketched next to placed ones of about its size is most likely another of them (one more stool in a row)
+  const neighbour = nearbyFurnitureType(ev, c, Math.max(r.w, r.h), palette)
+  const sizeFam = nearestFurnitureFamily(palette, wM, hM)
+  let fam = sizeFam
+  if (prefer || neighbour) {
+    const a = Math.max(wM, hM) * 1000
+    const b = Math.min(wM, hM) * 1000
+    let bd = Infinity
+    for (const f of palette.furniture) {
+      let d = Math.hypot(Math.max(f.widthMm, f.depthMm) - a, Math.min(f.widthMm, f.depthMm) - b)
+      if (prefer?.test(f.name)) d *= 0.6
+      if (f.name === neighbour) d *= 0.4
+      if (d < bd) {
+        bd = d
+        fam = f
+      }
+    }
+    if (fam && fam !== sizeFam) evidence.push(fam.name === neighbour ? `next to ${neighbour}` : `room ${label} favours ${fam.name}`)
+  }
+  // the placed instance is the family at its own size, so show it that size (on a sheet of known scale)
+  let w = r.w
+  let h = r.h
+  if (fam && ev.scaleKnown) {
+    const fw = (fam.widthMm / 1000) * ev.ptPerM
+    const fd = (fam.depthMm / 1000) * ev.ptPerM
+    if (fw > 0 && fd > 0) {
+      // keep the family's width along the sketch's longer side
+      if (Math.abs(fw - fd) > 1e-6 && fw > fd !== r.w > r.h) th += Math.PI / 2
+      w = fw
+      h = fd
     }
   }
   const ux = { x: Math.cos(th), y: Math.sin(th) }
   const uy = { x: -Math.sin(th), y: Math.cos(th) }
-  const hw = r.w / 2
-  const hh = r.h / 2
-  const corner = (sx: number, sy: number): Point => add(c, add(scale(ux, sx * hw), scale(uy, sy * hh)))
+  const corner = (sx: number, sy: number): Point => add(c, add(scale(ux, (sx * w) / 2), scale(uy, (sy * h) / 2)))
   const geometry: Path = { points: [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)], closed: true }
-  const wM = r.w / ev.ptPerM
-  const hM = r.h / ev.ptPerM
-  let fam = nearestFurnitureFamily(palette, wM, hM)
-  // room label shifts the family prior (MEETING -> tables, OFFICE -> desks)
-  const label = ev.room.label ?? ''
-  const prefer = /MEETING|CONFERENCE/i.test(label) ? /table/i : /OFFICE|STUDIO/i.test(label) ? /desk/i : /BED/i.test(label) ? /bed/i : /LIVING|LOUNGE/i.test(label) ? /sofa/i : null
-  if (prefer) {
-    const a = Math.max(wM, hM) * 1000
-    const b = Math.min(wM, hM) * 1000
-    let best = fam
-    let bd = Infinity
-    for (const f of palette.furniture) {
-      const d = Math.hypot(Math.max(f.widthMm, f.depthMm) - a, Math.min(f.widthMm, f.depthMm) - b) * (prefer.test(f.name) ? 0.6 : 1)
-      if (d < bd) {
-        bd = d
-        best = f
-      }
-    }
-    if (best && best !== fam) evidence.push(`room ${label} favours ${best.name}`)
-    fam = best
-  }
   return { geometry, type: fam?.name, evidence }
 }
 
