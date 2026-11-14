@@ -175,6 +175,9 @@ importers:
       '@tauri-apps/plugin-fs':
         specifier: 2.7.1
         version: 2.7.1
+      '@techstark/opencv-js':
+        specifier: 4.11.0-release.1
+        version: 4.11.0-release.1
       pdfjs-dist:
         specifier: 6.5.438
         version: 6.5.438
@@ -1480,6 +1483,9 @@ packages:
 
   '@tauri-apps/plugin-fs@2.7.1':
     resolution: {integrity: sha512-4TBVjpi/q8PuNzjpkAc2iBGXMTLjOrAyfTiiOL8ORaJCZJRG3tjzmQ4sqs2CMG75FvLyRkOkERfP7AyY4iBNwQ==}
+
+  '@techstark/opencv-js@4.11.0-release.1':
+    resolution: {integrity: sha512-d5h8cMiSbbnme5+I1ta4++EJ3mkca1zkVNh0A4+5ASJYOmO5OhVPRX3oPnNzs9I3KyGVX7QeFU8gVoI7I0w8RQ==}
 
   '@tiptap/core@3.34.0':
     resolution: {integrity: sha512-PwpE5MAXt586AxIO5bW2RyJ3OUXdPfG5M1M5v/LIMCkDwIgRKegx8uERlABoI6575mWqaH/P6Xm+tequJ5UUnw==}
@@ -3676,6 +3682,8 @@ snapshots:
   '@tauri-apps/plugin-fs@2.7.1':
     dependencies:
       '@tauri-apps/api': 2.12.4
+
+  '@techstark/opencv-js@4.11.0-release.1': {}
 
   '@tiptap/core@3.34.0(@tiptap/pm@3.34.0)':
     dependencies:

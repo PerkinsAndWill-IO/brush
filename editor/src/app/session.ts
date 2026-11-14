@@ -93,6 +93,12 @@ export const session = {
     history.add(stroke)
     syncStrokes()
   },
+  /** Add several strokes as one undo step (photo import). */
+  addStrokes(strokes: readonly Stroke[]) {
+    if (!strokes.length) return
+    history.addMany(strokes)
+    syncStrokes()
+  },
   /** Live erasing during a gesture; call commitErase at pen-up. */
   /** Accept a prediction for a committed stroke (M3). Undoable; the stroke's ink stays. */
   commitDecision(decision: AcceptedDecision, command: Command | null) {

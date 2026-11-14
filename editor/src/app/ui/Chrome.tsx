@@ -32,6 +32,7 @@ import { LABEL_SCALES, sheetScale, useView, view } from '../view'
 import { formatMetres, sheetDistanceMetres } from '../board/viewAids'
 import { RevitButton } from '../revit/RevitPanel'
 import { useRevit } from '../revit/controller'
+import { photoImport } from '../photo/PhotoImport'
 
 export async function chooseFile() {
   const f = await (await getPlatform()).openPdf()
@@ -130,7 +131,7 @@ export async function saveToFiles(): Promise<'disk' | 'download' | null> {
 }
 
 /**
- * Hamburger at the top right: file actions (open, save, export), the dev recorder and "Clear session".
+ * Hamburger at the top right: file actions (open, import photo, save, export), the dev recorder and "Clear session".
  * Save stays open to show its result; the other actions close the menu.
  */
 function AppMenu() {
@@ -175,6 +176,9 @@ function AppMenu() {
           </button>
           {ready && (
             <>
+              <button type="button" role="menuitem" data-testid="import-photo" title="Trace pen and marker markup from a photo of the printed sheet and add it as brush strokes" onClick={() => run(() => photoImport.open())}>
+                Import photo…
+              </button>
               <div className="menu-sep" role="separator" />
               <button
                 type="button"

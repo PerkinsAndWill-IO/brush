@@ -4,6 +4,7 @@
  *
  * Operations:
  *  - add:    one stroke
+ *  - addMany: several strokes at once (an import); one undo step
  *  - erase:  a set of strokes (one eraser gesture); their accepted decisions and
  *            commands go with them and come back on undo
  *  - commit: an accepted decision (and its command, if it emits one) for a stroke.
@@ -20,6 +21,7 @@ export interface Removed {
 
 export type HistoryOp =
   | { type: 'add'; stroke: Stroke }
+  | { type: 'addMany'; strokes: Stroke[] }
   | { type: 'erase'; removed: Removed[] }
   | { type: 'commit'; decision: AcceptedDecision; command: Command | null }
 
@@ -55,6 +57,13 @@ export class StrokeHistory {
   add(stroke: Stroke): void {
     this.list = [...this.list, stroke]
     this.push({ type: 'add', stroke })
+  }
+
+  /** Add several strokes as one undo step (photo import, P1-05). */
+  addMany(strokes: readonly Stroke[]): void {
+    if (!strokes.length) return
+    this.list = [...this.list, ...strokes]
+    this.push({ type: 'addMany', strokes: strokes.slice() })
   }
 
   /** Accept a decision for a stroke already in the list (M3 commit). */
@@ -97,7 +106,10 @@ export class StrokeHistory {
     const op = this.undoStack.pop()
     if (!op) return false
     if (op.type === 'add') this.list = this.list.filter((s) => s.id !== op.stroke.id)
-    else if (op.type === 'commit') {
+    else if (op.type === 'addMany') {
+      const ids = new Set(op.strokes.map((s) => s.id))
+      this.list = this.list.filter((s) => !ids.has(s.id))
+    } else if (op.type === 'commit') {
       this.acc = this.acc.filter((d) => d !== op.decision)
       if (op.command) this.cmds = this.cmds.filter((c) => c !== op.command)
     } else {
@@ -123,6 +135,7 @@ export class StrokeHistory {
     const op = this.redoStack.pop()
     if (!op) return false
     if (op.type === 'add') this.list = [...this.list, op.stroke]
+    else if (op.type === 'addMany') this.list = [...this.list, ...op.strokes]
     else if (op.type === 'commit') {
       this.acc = [...this.acc, op.decision]
       if (op.command) this.cmds = [...this.cmds, op.command]
