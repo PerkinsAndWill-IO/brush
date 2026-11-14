@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>Brush Link</Name>
+    <Assembly>Brush\Brush.Revit.dll</Assembly>
+    <AddInId>6d0e3f6a-2b8c-4c55-9a8e-7f1b3c2d9e41</AddInId>
+    <FullClassName>Brush.Revit.App</FullClassName>
+    <VendorId>PerkinsWill</VendorId>
+    <VendorDescription>Perkins&amp;Will Brush: live link to the Brush Editor</VendorDescription>
+  </AddIn>
+</RevitAddIns>

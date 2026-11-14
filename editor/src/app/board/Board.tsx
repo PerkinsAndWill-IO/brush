@@ -33,7 +33,9 @@ import {
 } from './layout'
 import { setPenDown } from './penGate'
 import type { Removed } from './history'
-import { cachedInk, getSheetLayers, SheetView } from './SheetView'
+import { cachedInk, getSheetLayers, setLiveZoom, SheetView } from './SheetView'
+import { ScaleBarHud, snapMeasurePoint } from './viewAidLayers'
+import { getView, view } from '../view'
 
 // ───────────── board handle (top bar zoom menu, test API) ─────────────
 
@@ -122,6 +124,7 @@ type Gesture =
   | { kind: 'erase'; pointerId: number; last: Point; removed: Removed[]; path: Stroke | null; t0: number; start: Placement | null }
   | { kind: 'pan'; pointerId: number; lastX: number; lastY: number }
   | { kind: 'pinch'; d0: number; m0: Point; cam0: Camera }
+  | { kind: 'measure'; pointerId: number; placement: Placement; downX: number; downY: number; dragged: boolean }
   | { kind: 'ignore'; pointerId: number }
 
 interface BoardProps {
@@ -165,6 +168,7 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
       raf = 0
       const c = getCamera()
       world.style.transform = `translate(${c.x * c.z}px, ${c.y * c.z}px) scale(${c.z})`
+      setLiveZoom(c.z)
     }
     apply()
     world.style.setProperty('--z', String(getCamera().z))
@@ -191,6 +195,7 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
   // Fit all sheets when a document opens.
   useLayoutEffect(() => {
     viewportEl = viewportRef.current
+    view.clearMeasurements() // measurements belong to the document on screen
     boardView.fit()
     return () => {
       if (viewportEl === viewportRef.current) viewportEl = null
@@ -316,6 +321,35 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
       if (path && start) callEngines('onStrokeStart', path, sheetById(start.sheetId), { downTs: e.timeStamp })
     }
 
+    // ── measure (V1-02): drag from A to B, or click A then click B ──
+    const measurePoint = (pl: Placement, e: PointerEvent): Point => snapMeasurePoint(pl.sheetId, boardToSheet(pl, screenToBoard(getCamera(), local(e))))
+    const startMeasure = (e: PointerEvent) => {
+      const draft = getView().draft
+      const pls = placementsNow()
+      if (draft) {
+        // second click of click-click: finish on the draft's sheet
+        const pl = pls.find((p) => p.sheetId === draft.sheetId)
+        if (pl) view.moveMeasure(measurePoint(pl, e))
+        view.commitMeasure()
+        gesture = { kind: 'ignore', pointerId: e.pointerId }
+        return
+      }
+      const pl = sheetAt(pls, screenToBoard(getCamera(), local(e)))
+      if (!pl) {
+        gesture = { kind: 'ignore', pointerId: e.pointerId }
+        return
+      }
+      view.startMeasure(pl.sheetId, measurePoint(pl, e))
+      gesture = { kind: 'measure', pointerId: e.pointerId, placement: pl, downX: e.clientX, downY: e.clientY, dragged: false }
+    }
+    // hover after the first click of click-click moves the draft's end
+    const hoverMeasure = (e: PointerEvent) => {
+      const draft = getView().draft
+      if (!draft || gesture || getSession().tool !== 'measure') return
+      const pl = placementsNow().find((p) => p.sheetId === draft.sheetId)
+      if (pl) view.moveMeasure(measurePoint(pl, e))
+    }
+
     // ── pinch (two touches) ──
     const startPinch = () => {
       const [a, b] = [...touches.values()]
@@ -362,6 +396,7 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
       } else if (e.button !== 0) return
       else if (t === 'brush') startDraw(e)
       else if (t === 'eraser') startErase(e)
+      else if (t === 'measure') startMeasure(e)
       else gesture = { kind: 'ignore', pointerId: e.pointerId }
       e.preventDefault()
     }
@@ -369,7 +404,7 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
     const onMove = (e: PointerEvent) => {
       if (e.pointerType === 'touch' && touches.has(e.pointerId)) touches.set(e.pointerId, local(e))
       const g = gesture
-      if (!g) return
+      if (!g) return hoverMeasure(e)
       if (g.kind === 'pinch') {
         if (touches.size >= 2) updatePinch(g)
         return
@@ -384,6 +419,9 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
         const evs = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : []
         for (const ce of evs.length ? evs : [e]) eraseAlong(g, screenToBoard(getCamera(), local(ce)), ce)
         if (g.path && g.start) callEngines('onStrokeUpdate', g.path, sheetById(g.start.sheetId))
+      } else if (g.kind === 'measure') {
+        if (Math.hypot(e.clientX - g.downX, e.clientY - g.downY) > 4) g.dragged = true
+        view.moveMeasure(measurePoint(g.placement, e))
       } else if (g.kind === 'pan') {
         setCamera(panBy(getCamera(), e.clientX - g.lastX, e.clientY - g.lastY))
         g.lastX = e.clientX
@@ -416,6 +454,13 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
           recorder.capture(g.path, fileName, sheetById(g.start.sheetId).pageIndex)
           // erasing ink is just erasing; only a pass that removed no ink is offered to the brush engine
           callEngines('onStrokeEnd', g.path, sheetById(g.start.sheetId), { committed: g.removed.length === 0 })
+        }
+      } else if (g.kind === 'measure') {
+        // a drag measures at once; a click leaves the draft following the pointer until the second click
+        if (e.type !== 'pointerup') view.cancelMeasure()
+        else if (g.dragged) {
+          view.moveMeasure(measurePoint(g.placement, e))
+          view.commitMeasure()
         }
       } else if (g.kind === 'pan') vp.classList.remove('panning')
       gesture = null
@@ -452,7 +497,11 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
         if (e.shiftKey) session.redo()
         else session.undo()
       } else if (e.key === 'Escape') {
-        dismissReading()
+        if (getView().draft) view.cancelMeasure()
+        else dismissReading()
+      } else if ((e.key === 'Backspace' || e.key === 'Delete') && getSession().tool === 'measure') {
+        e.preventDefault()
+        view.removeLastMeasurement()
       } else if (mod && k === 'y') {
         e.preventDefault()
         session.redo()
@@ -461,6 +510,7 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
         else if (k === 'b') session.setTool('brush')
         else if (k === 'e') session.setTool('eraser')
         else if (k === 'h') session.setTool('pan')
+        else if (k === 'm') session.setTool('measure')
         else if (k === '0' && e.shiftKey === false) boardView.fit()
         else if (k === '=' || k === '+') boardView.zoomBy(1.25)
         else if (k === '-') boardView.zoomBy(0.8)
@@ -514,6 +564,7 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
           ))}
         </div>
       </div>
+      <ScaleBarHud viewport={getViewport} />
       <LiveHud />
     </>
   )
