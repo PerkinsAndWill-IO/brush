@@ -18,6 +18,7 @@ import type { BrushSettings, DecisionKind, Hypothesis, Sheet, SheetContext, Stro
 import { resolveAnswer } from '@core/rescore'
 import { snapPoint } from '@core/geometry'
 import { commandFromDecision } from '@core/commands'
+import { withDrawnWalls } from '@core/context'
 import { StrokeSession, buildContextPacket, chipsFor, prepareContext } from '@core/predict'
 import { nextCommandId } from '../board/history'
 import { registerBrushEngine, type BrushEngine } from '../engine'
@@ -46,6 +47,21 @@ interface Current {
 let cur: Current | null = null
 
 const liveOn = () => getSession().settings.live
+
+/**
+ * The sheet's context plus the walls drawn on it, so new walls snap to them and doors land in them.
+ * Memoised on (context, accepted list) so the prepared context is only rebuilt when either changes.
+ */
+let drawnMemo: { base: SheetContext; accepted: readonly unknown[]; out: SheetContext } | null = null
+function contextWithDrawn(base: SheetContext): SheetContext {
+  const { accepted, commands } = getSession()
+  if (drawnMemo && drawnMemo.base === base && drawnMemo.accepted === accepted) return drawnMemo.out
+  const refs = new Map<string, string>()
+  for (const c of commands) if (c.op === 'create_wall' && c.strokeId) refs.set(c.strokeId, c.id)
+  const out = withDrawnWalls(base, accepted, { palette: getDocState().source?.palette, refs })
+  drawnMemo = { base, accepted, out }
+  return out
+}
 
 function snapEnds(c: Current, which: 'start' | 'end' | 'both') {
   const { settings, ctx } = c
@@ -165,7 +181,7 @@ export const predictEngine: BrushEngine = {
       return
     }
     const settings = { ...getSession().settings }
-    const ctx = contextNow(sheet.id) ?? emptyContext(sheet.id)
+    const ctx = contextWithDrawn(contextNow(sheet.id) ?? emptyContext(sheet.id))
     const history = getSession().accepted
     const palette = getDocState().source?.palette
     const session = new StrokeSession({ ...stroke, points: [] }, ctx, settings, { history, palette })
