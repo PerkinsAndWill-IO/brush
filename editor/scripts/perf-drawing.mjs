@@ -3,6 +3,7 @@
 // Usage (from editor/, with `vite --port 5310` running): node scripts/perf-drawing.mjs /fixtures/perf/kro-test-lean.drawing ...
 // (Git Bash rewrites a leading-slash argument into a Windows path: prefix the command with MSYS_NO_PATHCONV=1.)
 // Files are served by the dev server's /fixtures route. Prints one JSON object per file.
+/* global window, document, requestAnimationFrame -- page.evaluate callbacks run in the browser */
 import { chromium } from '@playwright/test'
 
 const BASE = process.env.BRUSH_URL ?? 'http://127.0.0.1:5310/'
