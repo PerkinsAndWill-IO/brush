@@ -144,6 +144,10 @@ input[type='range'] { width: 100%; margin: 0; accent-color: var(--accent); heigh
 .dropzone p { margin: 0; max-width: 380px; color: var(--muted); font-size: 12.5px; line-height: 1.5; text-wrap: pretty; }
 .dropzone .cta { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px; }
 .dropzone .cta .secondary { font-size: 11.5px; }
+.dropzone .samples { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; }
+.dropzone .samples .secondary { font-size: 11.5px; }
+.dropzone .samples select { min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: inherit; font: inherit; cursor: pointer; max-width: 100%; }
+.dropzone .samples select:disabled { opacity: 0.6; cursor: default; }
 .dropzone .error { color: var(--error); background: #fdf0ee; border-radius: 10px; padding: 10px 14px; font-size: 12px; max-width: 440px; }
 /* While the camera moves, drop the blurred shadows: re-rastering big blurs at a new zoom stalls frames. */
 .world.moving .paper, .world.moving .sheet.active .paper { box-shadow: 0 0 0 calc(1px / var(--z)) rgba(24, 30, 46, 0.16); }
