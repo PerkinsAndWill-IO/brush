@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { contextFromDrawing, furnitureSymbolsFromDrawing, paletteFromDrawing, roomAt, sheetInfo, sheetsFromDrawing, wallStylesFromDrawing } from '../../../src/core/context'
+import { contextFromDrawing, drawingPageType, furnitureSymbolsFromDrawing, paletteFromDrawing, roomAt, sheetInfo, sheetsFromDrawing, wallStylesFromDrawing } from '../../../src/core/context'
 import { parseDrawingFile } from '../../../src/app/source/drawing-file'
-import { parseLegacyDrawingPayload } from '../../../src/core/drawing'
+import { type DrawingPage, parseLegacyDrawingPayload } from '../../../src/core/drawing'
 import { BlobBuffer, buildPayload } from '../drawing/builder-legacy'
 
 /** Rectangle outline as a closed path blob (feet). */
@@ -55,6 +55,21 @@ describe('M5-09 context from a .drawing (decision 0008)', () => {
     ])
     expect(sheets[0].sizePt).toEqual({ w: 1728, h: 864 })
     expect(sheets[0].scale).toBe(100)
+  })
+
+  it('PERF-02: sheets can list every page while reading the items of only the first ones', () => {
+    const doc = fixture()
+    doc.pages[1].scale = '1 : 50'
+    Object.defineProperty(doc.pages[1], 'items', {
+      get: () => {
+        throw new Error('page 901 was decoded')
+      },
+    })
+    const sheets = sheetsFromDrawing(doc, 1)
+    expect(sheets.map((s) => [s.id, s.scale])).toEqual([
+      ['900', 100],
+      ['901', 50],
+    ])
   })
 
   it('plan context: wall centerline + thickness, door on its host wall, room, fixture, grid, labels; all host refs', () => {
@@ -183,5 +198,34 @@ describe('M5 wall styles from a .drawing', () => {
     expect(s.thicknessPt).toBeCloseTo(8.64, 1)
     expect(s.thicknessMm).toBeCloseTo(304.8, 0)
     expect(s.fills).toEqual([{ from: -0.5, to: 0.5, color: [0, 0, 0] }])
+  })
+})
+
+describe('M2 scale from wall lengths written in metres', () => {
+  const kro = resolve(__dirname, '../../../../schema/public/examples/kro/kro-sample.drawing')
+  it.skipIf(!existsSync(kro))('M2-05: kro-sample (CURVE_ELEM_LENGTH in m) gets a scale, so the palette and wall styles are its own types', async () => {
+    const doc = await parseDrawingFile(new Uint8Array(readFileSync(kro)))
+    const plan = sheetsFromDrawing(doc)[0]
+    expect(contextFromDrawing(doc, plan.id).scale).toBeGreaterThan(0)
+    const walls = paletteFromDrawing(doc).walls
+    expect(walls.every((w) => /^MUR[ _]/.test(w.name))).toBe(true)
+    // the type a sketched wall gets is one whose linework the editor can draw
+    const styles = wallStylesFromDrawing(doc)
+    expect(walls.filter((w) => styles.has(w.name)).length).toBeGreaterThan(10)
+    expect(styles.get('MUR_BA 30cm')!.thicknessMm).toBeCloseTo(300, -1)
+  })
+})
+
+describe('drawing page view type', () => {
+  const page = (name: string, viewType?: 'plan' | 'section' | 'ceiling'): DrawingPage => ({
+    id: '1', kind: 'view', number: null, name, scale: null, sizePt: { w: 10, h: 10 }, items: [], ...(viewType ? { viewType } : {}),
+  })
+  it('the file view type decides the sheet type over the title words', () => {
+    expect(drawingPageType(page('Level 1', 'section'))).toBe('section')
+    expect(drawingPageType(page('Section A', 'plan'))).toBe('plan')
+  })
+  it('a type the table does not cover, or none, falls back to the title words', () => {
+    expect(drawingPageType(page('Level 1 Elevation', 'ceiling'))).toBe('elevation')
+    expect(drawingPageType(page('Level 1 Elevation'))).toBe('elevation')
   })
 })

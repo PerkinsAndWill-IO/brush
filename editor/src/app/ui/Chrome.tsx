@@ -27,6 +27,7 @@ import eraserToolIcon from './assets/tool-eraser.png'
 import panToolIcon from './assets/tool-pan.png'
 import measureToolIcon from './assets/tool-measure.png'
 import inkOutlineIcon from './assets/tool-ink-outline.png'
+import photoToolIcon from './assets/tool-photo.png'
 import inkPaintMask from './assets/tool-ink-paint.png'
 import { LABEL_SCALES, sheetScale, useView, view } from '../view'
 import { formatMetres, sheetDistanceMetres } from '../board/viewAids'
@@ -34,6 +35,9 @@ import { RevitButton } from '../revit/RevitPanel'
 import { ElementPanel, useCanInspect } from '../drawing/InspectLayers'
 import { useInspect } from '../drawing/inspect'
 import { useRevit } from '../revit/controller'
+import { photoImport } from '../photo/PhotoImport'
+import { photoGroupOf, photoGroups, type PhotoGroup } from '../photo/groups'
+import { makeElements, removePhotoGroup, usePhotoGroupUi } from '../photo/groupActions'
 
 export async function chooseFile() {
   const f = await (await getPlatform()).openPdf()
@@ -132,7 +136,7 @@ export async function saveToFiles(): Promise<'disk' | 'download' | null> {
 }
 
 /**
- * Hamburger at the top right: file actions (open, save, export), the dev recorder and "Clear session".
+ * Hamburger at the top right: file actions (open, import photo, save, export), the dev recorder and "Clear session".
  * Save stays open to show its result; the other actions close the menu.
  */
 function AppMenu() {
@@ -403,6 +407,17 @@ export function ToolCapsule({ disabled = false }: { disabled?: boolean }) {
       ))}
       <span className="divider" aria-hidden="true" />
       <ColorButton disabled={disabled} />
+      <button
+        type="button"
+        className="tool photo"
+        aria-label="Import photo"
+        title="Import markup from a photo: trace pen and marker on a photo of the printed sheet and add it as brush strokes"
+        disabled={disabled}
+        data-testid="import-photo"
+        onClick={() => photoImport.open()}
+      >
+        <img className="tool-icon" src={photoToolIcon} alt="" />
+      </button>
       {!disabled && (
         <>
           <span className="divider" aria-hidden="true" />
@@ -628,7 +643,9 @@ export function LeftSidebar() {
 function FiltersSection() {
   const { source } = useDocState()
   const doc = source instanceof DrawingFileSource ? source.doc : null
-  const list = useMemo(() => (doc ? categoriesOf(doc) : []), [doc])
+  // counting reads every page: wait until the background context pass has decoded them all
+  const pending = [...useContexts().status.values()].includes('pending')
+  const list = useMemo(() => (doc && !pending ? categoriesOf(doc) : []), [doc, pending])
   const f = useFilters()
   if (!doc) return null
   const hiddenHere = list.filter((c) => f.hiddenCategories.has(c.name)).length + f.hiddenKinds.size
@@ -753,14 +770,16 @@ function SessionList() {
   const names = new Map(doc.sheets.map((s) => [s.id, s.number ?? s.name]))
   // M3-11: a multi-stroke gesture is one row, on its last stroke
   const folded = new Set(Object.values(live.gestures).flatMap((ids) => ids.slice(0, -1)))
-  const list = strokes
-    .slice(-50)
-    .filter((s) => !folded.has(s.id))
-    .reverse()
+  // P1-07: a photo import is one row too, on its last stroke
+  const groupAt = new Map(photoGroups(strokes, accepted).map((g) => [g.strokeIds[g.strokeIds.length - 1], g]))
+  const rows = strokes.filter((s) => !folded.has(s.id) && (!photoGroupOf(s.id) || groupAt.has(s.id)))
+  const list = rows.slice(-50).reverse()
   return (
     <ol className="session-list" data-testid="session-list">
       {list.length === 0 && <li className="empty-row">No strokes yet. Pick the brush and draw on a sheet.</li>}
       {list.map((s) => {
+        const g = groupAt.get(s.id)
+        if (g) return <PhotoGroupRow key={g.id} group={g} sheetName={names.get(g.sheetId)} />
         const n = strokes.indexOf(s) + 1
         const a = byStroke.get(s.id)
         const parts = live.gestures[s.id]?.filter((id) => strokes.some((x) => x.id === id)).length ?? 1
@@ -780,8 +799,59 @@ function SessionList() {
           </li>
         )
       })}
-      {strokes.length > 50 && <li className="empty-row">and {strokes.length - 50} earlier strokes</li>}
+      {rows.length > 50 && <li className="empty-row">and {rows.length - 50} earlier strokes</li>}
     </ol>
+  )
+}
+
+/** P1-07/08: all strokes of one photo import, with what can be done to them together. */
+function PhotoGroupRow({ group: g, sheetName }: { group: PhotoGroup; sheetName?: string }) {
+  const { busy, results, errors } = usePhotoGroupUi()
+  const error = errors[g.id]
+  const reading = busy.has(g.id)
+  const r = results[g.id]
+  const n = g.strokeIds.length
+  const left = n - g.elements
+  const kept = r ? r.unsure + r.ink : 0
+  return (
+    <li className="photo-group" data-testid="photo-group" data-group-id={g.id} data-kind="photo" data-strokes={n} data-elements={g.elements}>
+      <span className="swatches-sm" aria-hidden="true">
+        {(g.colors.length ? g.colors : ['#D7263D']).slice(0, 3).map((c) => (
+          <span key={c} className="swatch sm" style={{ background: c }} />
+        ))}
+      </span>
+      <div className="row-text">
+        <span className="row-title">
+          Photo import · {n} {n === 1 ? 'stroke' : 'strokes'}
+        </span>
+        <span className="secondary" data-testid="photo-group-status">
+          {sheetName}
+          {g.elements ? ` · ${g.elements} ${g.elements === 1 ? 'element' : 'elements'}` : ''}
+          {r && kept ? ` · ${kept} kept as ink` : ''}
+          {r && !r.elements && !g.elements ? ' · no elements found' : ''}
+        </span>
+        {error && (
+          <span className="secondary error-text" role="alert">
+            {error}
+          </span>
+        )}
+        <span className="row-actions">
+          <button
+            type="button"
+            className="link-btn"
+            data-testid="photo-group-elements"
+            title="Read these strokes the way the brush reads a stroke, and turn the ones it is sure of into elements (one undo step)"
+            disabled={reading || left === 0}
+            onClick={() => void makeElements(g.id).catch(() => undefined)}
+          >
+            {reading ? 'Reading…' : left === 0 ? 'All elements' : 'Make elements'}
+          </button>
+          <button type="button" className="link-btn" data-testid="photo-group-remove" title="Remove every stroke of this import (one undo step)" disabled={reading} onClick={() => removePhotoGroup(g.id)}>
+            Remove
+          </button>
+        </span>
+      </div>
+    </li>
   )
 }
 

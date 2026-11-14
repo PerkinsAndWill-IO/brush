@@ -4,10 +4,12 @@
  *
  * Operations:
  *  - add:    one stroke
+ *  - addMany: several strokes at once (an import); one undo step
  *  - erase:  a set of strokes (one eraser gesture); their accepted decisions and
  *            commands go with them and come back on undo
  *  - commit: an accepted decision (and its command, if it emits one) for a stroke.
  *            Undo removes the element and the command; the stroke's ink stays.
+ *  - commitMany: several of those at once (elements made from a photo import); one undo step
  */
 import type { AcceptedDecision, Command, Stroke } from '@core/types'
 
@@ -20,8 +22,10 @@ export interface Removed {
 
 export type HistoryOp =
   | { type: 'add'; stroke: Stroke }
+  | { type: 'addMany'; strokes: Stroke[] }
   | { type: 'erase'; removed: Removed[] }
   | { type: 'commit'; decision: AcceptedDecision; command: Command | null }
+  | { type: 'commitMany'; items: { decision: AcceptedDecision; command: Command | null }[] }
 
 export class StrokeHistory {
   private list: Stroke[] = []
@@ -57,11 +61,26 @@ export class StrokeHistory {
     this.push({ type: 'add', stroke })
   }
 
+  /** Add several strokes as one undo step (photo import, P1-05). */
+  addMany(strokes: readonly Stroke[]): void {
+    if (!strokes.length) return
+    this.list = [...this.list, ...strokes]
+    this.push({ type: 'addMany', strokes: strokes.slice() })
+  }
+
   /** Accept a decision for a stroke already in the list (M3 commit). */
   commit(decision: AcceptedDecision, command: Command | null): void {
     this.acc = [...this.acc, decision]
     if (command) this.cmds = [...this.cmds, command]
     this.push({ type: 'commit', decision, command })
+  }
+
+  /** Accept several decisions as one undo step (P1-08). */
+  commitMany(items: readonly { decision: AcceptedDecision; command: Command | null }[]): void {
+    if (!items.length) return
+    this.acc = [...this.acc, ...items.map((i) => i.decision)]
+    this.cmds = [...this.cmds, ...items.flatMap((i) => (i.command ? [i.command] : []))]
+    this.push({ type: 'commitMany', items: items.slice() })
   }
 
   /** Remove strokes by id without recording history (live erasing). Returns what was removed. */
@@ -97,9 +116,17 @@ export class StrokeHistory {
     const op = this.undoStack.pop()
     if (!op) return false
     if (op.type === 'add') this.list = this.list.filter((s) => s.id !== op.stroke.id)
-    else if (op.type === 'commit') {
+    else if (op.type === 'addMany') {
+      const ids = new Set(op.strokes.map((s) => s.id))
+      this.list = this.list.filter((s) => !ids.has(s.id))
+    } else if (op.type === 'commit') {
       this.acc = this.acc.filter((d) => d !== op.decision)
       if (op.command) this.cmds = this.cmds.filter((c) => c !== op.command)
+    } else if (op.type === 'commitMany') {
+      const ds = new Set<AcceptedDecision>(op.items.map((i) => i.decision))
+      const cs = new Set<Command>(op.items.flatMap((i) => (i.command ? [i.command] : [])))
+      this.acc = this.acc.filter((d) => !ds.has(d))
+      this.cmds = this.cmds.filter((c) => !cs.has(c))
     } else {
       const strokes = this.list.slice()
       const acc = this.acc.slice()
@@ -123,9 +150,13 @@ export class StrokeHistory {
     const op = this.redoStack.pop()
     if (!op) return false
     if (op.type === 'add') this.list = [...this.list, op.stroke]
+    else if (op.type === 'addMany') this.list = [...this.list, ...op.strokes]
     else if (op.type === 'commit') {
       this.acc = [...this.acc, op.decision]
       if (op.command) this.cmds = [...this.cmds, op.command]
+    } else if (op.type === 'commitMany') {
+      this.acc = [...this.acc, ...op.items.map((i) => i.decision)]
+      this.cmds = [...this.cmds, ...op.items.flatMap((i) => (i.command ? [i.command] : []))]
     } else {
       const ids = new Set(op.removed.map((r) => r.stroke.id))
       this.list = this.list.filter((s) => !ids.has(s.id))

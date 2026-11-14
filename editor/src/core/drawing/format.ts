@@ -23,6 +23,9 @@ import {
   type DrawingDocument,
   type DrawingElement,
   type DrawingPage,
+  type DrawingView,
+  type ViewType,
+  VIEW_TYPES,
 } from './format-legacy'
 
 export const DRAWING_FORMAT_VERSION = 1
@@ -124,6 +127,12 @@ function utf8Json(bytes: Uint8Array, what: string): unknown {
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
+/** A view type string; an unknown one reads as `other`. */
+const viewTypeOf = (v: unknown, what: string): ViewType => {
+  if (typeof v !== 'string') fail(what, `expected a string, got ${JSON.stringify(v)}`)
+  return (VIEW_TYPES as readonly string[]).includes(v as string) ? (v as ViewType) : 'other'
+}
+
 /** One page frame: u32 J, page JSON, padding to 4, buffer. */
 function parsePageFrame(frame: Uint8Array, header: unknown): DrawingPage {
   if (frame.length < 4) fail('frame', `${frame.length} bytes is shorter than the 4-byte JSON length`)
@@ -135,23 +144,48 @@ function parsePageFrame(frame: Uint8Array, header: unknown): DrawingPage {
   if (!isObject(body)) fail('frame page JSON', 'expected an object')
   const o = body as Record<string, unknown>
   const page = parsePage({ ...(header as object), items: o.items }, (min, max) => new DeltaBlobs(frame, start, (max[1] - min[1]) * PT_PER_FT))
+  const h = page.sizePt.h
+  const toSheet = (b: unknown, what: string): [number, number, number, number] => {
+    if (!Array.isArray(b) || b.length !== 4 || !b.every(Number.isInteger)) fail(what, 'expected four integers [x0, y0, x1, y1]')
+    const [x0, y0, x1, y1] = b as number[]
+    // y flips with the page: the y-up box's top edge (y1) is the sheet box's minimum y
+    return [Math.min(x0, x1) * PT_PER_UNIT, h - Math.max(y0, y1) * PT_PER_UNIT, Math.max(x0, x1) * PT_PER_UNIT, h - Math.min(y0, y1) * PT_PER_UNIT]
+  }
   if (o.boxes !== undefined && o.boxes !== null) {
     if (!isObject(o.boxes)) fail('boxes', 'expected an object of element id to [x0, y0, x1, y1]')
-    const h = page.sizePt.h
     const boxes: NonNullable<DrawingPage['boxes']> = {}
-    for (const [el, b] of Object.entries(o.boxes as Record<string, unknown>)) {
-      if (!Array.isArray(b) || b.length !== 4 || !b.every(Number.isInteger)) fail(`boxes[${JSON.stringify(el)}]`, 'expected four integers [x0, y0, x1, y1]')
-      const [x0, y0, x1, y1] = b as number[]
-      // y flips with the page: the y-up box's top edge (y1) is the sheet box's minimum y
-      boxes[el] = [Math.min(x0, x1) * PT_PER_UNIT, h - Math.max(y0, y1) * PT_PER_UNIT, Math.max(x0, x1) * PT_PER_UNIT, h - Math.min(y0, y1) * PT_PER_UNIT]
-    }
+    for (const [el, b] of Object.entries(o.boxes as Record<string, unknown>)) boxes[el] = toSheet(b, `boxes[${JSON.stringify(el)}]`)
     page.boxes = boxes
+  }
+  const hdr = header as Record<string, unknown>
+  if (hdr.viewType !== undefined && hdr.viewType !== null) page.viewType = viewTypeOf(hdr.viewType, 'viewType')
+  if (o.views !== undefined && o.views !== null) {
+    if (!isObject(o.views)) fail('views', 'expected an object of view id to {type, name, scale, box}')
+    const views: Record<string, DrawingView> = {}
+    for (const [id, v] of Object.entries(o.views as Record<string, unknown>)) {
+      const at = `views[${JSON.stringify(id)}]`
+      if (!isObject(v)) fail(at, 'expected an object {type, name, scale, box}')
+      const r = v as Record<string, unknown>
+      const view: DrawingView = {
+        type: viewTypeOf(r.type, `${at}.type`),
+        name: typeof r.name === 'string' ? r.name : '',
+        scale: typeof r.scale === 'string' ? r.scale : null,
+      }
+      if (r.box !== undefined && r.box !== null) view.box = toSheet(r.box, `${at}.box`)
+      views[id] = view
+    }
+    page.views = views
   }
   return page
 }
 
-/** Parse the bytes of a `.drawing` file (raw, not gzipped). Pages are decoded sheets first, the first sheet first. */
-export function parseDrawingPayload(bytes: Uint8Array): DrawingDocument {
+/**
+ * Parse the bytes of a `.drawing` file (raw, not gzipped). Pages are decoded sheets first, the first sheet first.
+ * With `lazy`, only the first page is decoded now (so a file that cannot show its first page still fails here); every
+ * other page comes from its header entry and decompresses its frame when its `items` or `boxes` are first read. A broken
+ * frame then throws from that read, with the same message.
+ */
+export function parseDrawingPayload(bytes: Uint8Array, opts: { lazy?: boolean } = {}): DrawingDocument {
   if (bytes.length < PREAMBLE) throw new DrawingFormatError(`not a .drawing file: ${bytes.length} bytes is shorter than the ${PREAMBLE}-byte preamble`)
   if (!isDrawingPayload(bytes)) throw new DrawingFormatError('not a .drawing file: bad magic (expected DRAWING\\0)')
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
@@ -186,12 +220,22 @@ export function parseDrawingPayload(bytes: Uint8Array): DrawingDocument {
   // Sheets first (the viewer's order), so the page that is shown first is decoded first.
   const rawPages = h.pages as unknown[]
   const order = rawPages.map((_, i) => i).sort((a, b) => Number((rawPages[a] as { kind?: unknown })?.kind !== 'sheet') - Number((rawPages[b] as { kind?: unknown })?.kind !== 'sheet') || a - b)
-  const pages = order.map((i) =>
+  const pages = order.map((i, n) =>
     named(`pages[${i}]`, () => {
       const raw = rawPages[i]
       if (!isObject(raw)) fail('page', 'expected an object')
       const ref = frameRef((raw as Record<string, unknown>).frame, 'frame', bytes.length)
-      return parsePageFrame(unzstd(bytes, ref, 'frame'), raw)
+      const decode = () => parsePageFrame(unzstd(bytes, ref, 'frame'), raw)
+      if (!opts.lazy || n === 0) return decode()
+      // header fields now; items and boxes on first read
+      const page = parsePage({ ...(raw as object), items: [] }, () => undefined as never)
+      let full: DrawingPage | undefined
+      const load = () => (full ??= named(`pages[${i}]`, decode))
+      Object.defineProperties(page, {
+        items: { get: () => load().items, enumerable: true },
+        boxes: { get: () => load().boxes, enumerable: true },
+      })
+      return page
     }),
   )
 

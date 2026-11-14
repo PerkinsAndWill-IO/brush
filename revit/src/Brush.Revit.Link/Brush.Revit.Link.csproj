@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The hot-reloadable part of the Revit add-in: the link server, reading sheets, applying commands. The shim
+    (Brush.Revit) loads it into a collectible context and swaps it after every rebuild, so changes here need no Revit
+    restart. Edit loop: run "dotnet watch build" in this folder (see the README).
+    Building this project also builds the shim and installs both (on Windows).
+  -->
+  <PropertyGroup>
+    <RevitVersion Condition="'$(RevitVersion)' == ''">2026</RevitVersion>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <RootNamespace>Brush.Revit</RootNamespace>
+    <PlatformTarget>x64</PlatformTarget>
+    <DefineConstants>$(DefineConstants);REVIT$(RevitVersion)</DefineConstants>
+    <DeployToRevit Condition="'$(DeployToRevit)' == '' And '$(OS)' == 'Windows_NT'">true</DeployToRevit>
+  </PropertyGroup>
+
+  <Choose>
+    <When Condition="'$(RevitVersion)' == '2025'"><PropertyGroup><RevitApiVersion>2025.4.60</RevitApiVersion><TargetFramework>net8.0-windows</TargetFramework></PropertyGroup></When>
+    <When Condition="'$(RevitVersion)' == '2027'"><PropertyGroup><RevitApiVersion>2027.3.0</RevitApiVersion><TargetFramework>net10.0-windows</TargetFramework></PropertyGroup></When>
+    <Otherwise><PropertyGroup><RevitApiVersion>2026.4.10</RevitApiVersion><TargetFramework>net8.0-windows</TargetFramework></PropertyGroup></Otherwise>
+  </Choose>
+
+  <ItemGroup>
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="$(RevitApiVersion)" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="$(RevitApiVersion)" ExcludeAssets="runtime" PrivateAssets="all" />
+    <ProjectReference Include="..\Brush.Link.Core\Brush.Link.Core.csproj" />
+    <!-- The shim is already loaded by Revit; never copy it next to the plugin (Private=false). -->
+    <ProjectReference Include="..\Brush.Revit\Brush.Revit.csproj" Private="false" />
+  </ItemGroup>
+
+  <Target Name="DeployToRevitAddins" AfterTargets="Build" Condition="'$(DeployToRevit)' == 'true'">
+    <PropertyGroup>
+      <AddinsDir>$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)</AddinsDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <PluginFiles Include="$(TargetDir)*.dll;$(TargetDir)*.pdb" Exclude="$(TargetDir)Brush.Revit.dll;$(TargetDir)Brush.Revit.pdb" />
+    </ItemGroup>
+    <!-- Never locked (the shim loads them from memory), so a running Revit picks these up and hot-reloads. -->
+    <Copy SourceFiles="@(PluginFiles)" DestinationFolder="$(AddinsDir)\Brush" SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="Brush plugin installed for Revit $(RevitVersion) in $(AddinsDir)\Brush" />
+  </Target>
+</Project>
