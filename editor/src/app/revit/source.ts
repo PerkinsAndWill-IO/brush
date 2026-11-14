@@ -120,6 +120,16 @@ export class RevitSource implements DrawingSource {
       canvas.width = Math.max(1, Math.round(part.sheet.sizePt.w * pxPerPt))
       canvas.height = Math.max(1, Math.round(part.sheet.sizePt.h * pxPerPt))
     },
+    renderRegion: async (i, canvas, pxPerPt, region, signal, gate) => {
+      const part = this.parts.get(this.order[i])
+      if (!part) throw new Error(`no sheet at page ${i}`)
+      if (part.loaded.pages) {
+        return part.loaded.pages.renderRegion(part.sheet.pageIndex, canvas, pxPerPt, region, signal, gate)
+      }
+      // a package without a PDF: blank paper covering the region
+      canvas.width = Math.max(1, Math.round(region.w * pxPerPt))
+      canvas.height = Math.max(1, Math.round(region.h * pxPerPt))
+    },
   }
 
   async load(): Promise<LoadedSource> {
