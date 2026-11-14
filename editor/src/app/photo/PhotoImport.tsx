@@ -5,10 +5,10 @@
  */
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 import type { Sheet } from '@core/types'
-import { useDocState } from '../store'
+import { getDocState, useDocState } from '../store'
 import { importPhotoMarkup, type PhotoImportSummary } from './import'
 import type { InkChoice } from './pipeline'
-import { MAX_AUTO_SHEETS, sheetLabel } from './plan'
+import { MAX_AUTO_SHEETS, knownSheetId, sheetLabel } from './plan'
 
 type Phase = 'pick' | 'running' | 'done'
 
@@ -18,13 +18,15 @@ interface DialogState {
   file: File | null
   /** '' = find the sheet automatically. */
   sheetId: string
+  /** The document load (`DocState.loadId`) the sheet choice was made for; it is not carried to another document. */
+  sheetDoc: number
   ink: InkChoice
   lines: string[]
   summary?: PhotoImportSummary
   error?: string
 }
 
-const CLOSED: DialogState = { open: false, phase: 'pick', file: null, sheetId: '', ink: 'both', lines: [] }
+const CLOSED: DialogState = { open: false, phase: 'pick', file: null, sheetId: '', sheetDoc: 0, ink: 'both', lines: [] }
 let state: DialogState = CLOSED
 let abort: AbortController | null = null
 const listeners = new Set<() => void>()
@@ -46,22 +48,30 @@ export const photoImport = {
   /** Open the dialog, optionally with a photo already chosen (a drop). */
   open(file?: File) {
     if (state.phase === 'running') return
-    set({ ...CLOSED, open: true, file: file ?? null, sheetId: state.sheetId, ink: state.ink })
+    // a sheet chosen for another document is forgotten: sheet ids repeat across PDFs ("sheet-2"), so a stale
+    // choice would otherwise force the photo onto the wrong sheet, or fail on a sheet that is gone
+    const doc = getDocState()
+    const sheetId = state.sheetDoc === doc.loadId ? (knownSheetId(doc.sheets, state.sheetId) ?? '') : ''
+    set({ ...CLOSED, open: true, file: file ?? null, sheetId, sheetDoc: doc.loadId, ink: state.ink })
   },
   close() {
     abort?.abort()
     abort = null
-    set({ ...CLOSED, sheetId: state.sheetId, ink: state.ink })
+    set({ ...CLOSED, sheetId: state.sheetId, sheetDoc: state.sheetDoc, ink: state.ink })
   },
   async run() {
-    const { file, sheetId, ink } = state
+    const { file, ink } = state
     if (!file || state.phase === 'running') return
+    // submit what the dialog shows: a choice that does not belong to the open document means "find it"
+    const doc = getDocState()
+    const sheetId = state.sheetDoc === doc.loadId ? knownSheetId(doc.sheets, state.sheetId) : undefined
+    if ((sheetId ?? '') !== state.sheetId || state.sheetDoc !== doc.loadId) set({ sheetId: sheetId ?? '', sheetDoc: doc.loadId })
     const ac = new AbortController()
     abort = ac
     set({ phase: 'running', lines: [], error: undefined, summary: undefined })
     try {
       const summary = await importPhotoMarkup(file, {
-        sheetId: sheetId || undefined,
+        sheetId,
         ink,
         signal: ac.signal,
         onProgress: (line) => !ac.signal.aborted && set({ lines: [...state.lines, line].slice(-200) }),

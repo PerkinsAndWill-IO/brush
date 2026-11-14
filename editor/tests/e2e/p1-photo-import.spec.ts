@@ -211,4 +211,33 @@ test.describe('P1 photo import', () => {
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('photo-import')).toHaveCount(0)
   })
+
+  test('P1-01: a sheet chosen for one drawing is not carried to the next one', async ({ page }) => {
+    await openWith(page, PDF)
+    await page.getByTestId('app-menu-button').click()
+    await page.getByTestId('import-photo').click()
+    await page.getByTestId('photo-sheet').selectOption('sheet-4')
+    await page.keyboard.press('Escape')
+    // reopened on the same drawing, the choice is still there
+    await page.getByTestId('app-menu-button').click()
+    await page.getByTestId('import-photo').click()
+    await expect(page.getByTestId('photo-sheet')).toHaveValue('sheet-4')
+    await page.keyboard.press('Escape')
+
+    // another drawing, with one sheet: "sheet-4" does not exist there
+    await page.evaluate((u) => window.__brush!.loadPdf(u), '/fixtures/pdfs/office-1-sheet.pdf')
+    await expect(page.getByTestId('sheet-count')).toHaveText('1 sheet')
+    const photo = await makePhoto(page, { pageIndex: 0, markup: true })
+    await page.getByTestId('app-menu-button').click()
+    await page.getByTestId('import-photo').click()
+    await expect(page.getByTestId('photo-sheet')).toHaveValue('')
+    await page.getByTestId('photo-file').setInputFiles({ name: 'markup.jpg', mimeType: 'image/jpeg', buffer: photo })
+    await page.getByTestId('photo-run').click()
+    // the import runs as the dialog shows it (find the sheet), instead of failing on the sheet that is gone
+    await expect(page.getByTestId('photo-import')).toHaveAttribute('data-phase', 'done', { timeout: 200_000 })
+    await expect(page.getByTestId('photo-error')).toHaveCount(0)
+    const strokes = (await page.evaluate(() => window.__brush!.strokes())) as Stroke[]
+    expect(strokes.length).toBeGreaterThanOrEqual(2)
+    expect(new Set(strokes.map((s) => s.sheetId))).toEqual(new Set(['sheet-0']))
+  })
 })

@@ -7,8 +7,6 @@ import type { Sheet } from '@core/types'
 export const PROBE_DPI = 50
 /** Fewest consistent feature matches that count as "the photo shows this sheet" (same bar as the registration). */
 export const MIN_INLIERS = 12
-/** With this many matches the sheet is certain: stop trying the others. */
-export const SURE_INLIERS = 150
 /** Automatic sheet detection tries at most this many sheets. */
 export const MAX_AUTO_SHEETS = 16
 /** Long side of the working raster, px. Bounds memory in the browser (the pipeline holds several copies). */
@@ -33,4 +31,21 @@ export function candidateSheets(sheets: readonly Sheet[], sheetId: string | unde
   if (sheetId) return sheets.filter((s) => s.id === sheetId)
   const active = sheets.find((s) => s.id === activeSheetId)
   return [...(active ? [active] : []), ...sheets.filter((s) => s !== active)].slice(0, max)
+}
+
+/**
+ * The sheet the photo shows: the candidate with the most consistent feature matches, if any reaches the bar.
+ * Every candidate is compared. Sheets of one project look alike (same title block, same grid), so a wrong sheet
+ * can match well too; only the best match is trusted, however good an earlier one looked. Ties go to the earlier
+ * candidate (the likelier one).
+ */
+export function pickSheet<P extends { inliers: number }>(results: readonly { sheet: Sheet; probe: P | null }[], minInliers = MIN_INLIERS): { sheet: Sheet; probe: P } | null {
+  let best: { sheet: Sheet; probe: P } | null = null
+  for (const { sheet, probe } of results) if (probe && probe.inliers >= minInliers && (!best || probe.inliers > best.probe.inliers)) best = { sheet, probe }
+  return best
+}
+
+/** A remembered sheet choice, if that sheet is in the open document; otherwise undefined (find it automatically). */
+export function knownSheetId(sheets: readonly Sheet[], sheetId: string | undefined): string | undefined {
+  return sheetId && sheets.some((s) => s.id === sheetId) ? sheetId : undefined
 }

@@ -15,7 +15,7 @@ import { session, getSession } from '../session'
 import type { PageRenderer } from '../source'
 import { getDocState } from '../store'
 import type { InkChoice, MarkupResult, Probe } from './pipeline'
-import { MIN_INLIERS, PROBE_DPI, SURE_INLIERS, candidateSheets, sheetLabel, workingDpi } from './plan'
+import { PROBE_DPI, candidateSheets, pickSheet, sheetLabel, workingDpi } from './plan'
 import type { PhotoRequest, PhotoResponse, RasterMessage } from './protocol'
 import { markupToStrokes, rgbToHex } from './toStrokes'
 
@@ -135,15 +135,15 @@ export async function importPhotoMarkup(photo: Blob, opts: PhotoImportOptions = 
     const size = await client.call({ type: 'decode', blob: photo })
     say(`Photo ${size.w} × ${size.h} px`)
 
-    // 1. which sheet is in the photo?
-    let best: { sheet: Sheet; probe: Probe } | null = null
+    // 1. which sheet is in the photo? Every candidate is compared: look-alike sheets can each match well
+    const probes: { sheet: Sheet; probe: Probe | null }[] = []
     for (const sheet of candidates) {
       say(candidates.length > 1 ? `Looking for the sheet: ${sheetLabel(sheet)}…` : `Matching the photo to ${sheetLabel(sheet)}…`)
       const ref = await renderSheetRaster(pages, sheet.pageIndex, PROBE_DPI, opts.signal)
       const { probe } = await client.call({ type: 'probe', ref, refDpi: PROBE_DPI }, [ref.rgba])
-      if (probe && probe.inliers >= MIN_INLIERS && (!best || probe.inliers > best.probe.inliers)) best = { sheet, probe }
-      if (best && best.probe.inliers >= SURE_INLIERS) break
+      probes.push({ sheet, probe })
     }
+    const best = pickSheet(probes)
     if (!best) {
       const tried = doc.sheets.length > candidates.length && !opts.sheetId ? ` (tried the first ${candidates.length} of ${doc.sheets.length} sheets; choose the sheet to try another)` : ''
       throw new PhotoImportError(

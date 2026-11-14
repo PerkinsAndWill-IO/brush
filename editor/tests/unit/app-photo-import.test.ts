@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import type { Sheet, Stroke } from '@core/types'
 import { StrokeHistory } from '../../src/app/board/history'
 import { inkRender } from '../../src/app/board/ink'
-import { MAX_AUTO_SHEETS, MAX_WORK_SIDE, candidateSheets, sheetLabel, workingDpi } from '../../src/app/photo/plan'
+import { MAX_AUTO_SHEETS, MAX_WORK_SIDE, MIN_INLIERS, candidateSheets, knownSheetId, pickSheet, sheetLabel, workingDpi } from '../../src/app/photo/plan'
 import { markupToStrokes, resampleCentreline, rgbToHex } from '../../src/app/photo/toStrokes'
 import type { MarkupLayer } from '../../src/app/photo/pipeline'
 
@@ -117,6 +117,32 @@ describe('P1-02: which sheets to try, and at what resolution', () => {
     const many: Sheet[] = Array.from({ length: 40 }, (_, i) => ({ id: `s${i}`, name: `S${i}`, pageIndex: i, sizePt: A3 }))
     expect(candidateSheets(many, undefined, 's30')).toHaveLength(MAX_AUTO_SHEETS)
     expect(candidateSheets(many, undefined, 's30')[0].id).toBe('s30')
+  })
+
+  it('picks the sheet with the most matches, however well an earlier look-alike matched', () => {
+    const probes = [
+      { sheet: sheets[0], probe: { inliers: 180, seenDpi: 70 } }, // same title block and grid: a strong match too
+      { sheet: sheets[1], probe: null },
+      { sheet: sheets[2], probe: { inliers: 420, seenDpi: 72 } }, // the sheet in the photo
+      { sheet: sheets[3], probe: { inliers: 175, seenDpi: 70 } },
+    ]
+    expect(pickSheet(probes)?.sheet.id).toBe('sheet-2')
+    expect(pickSheet(probes)?.probe.seenDpi).toBe(72)
+  })
+
+  it('refuses when no sheet reaches the bar, and breaks a tie towards the earlier candidate', () => {
+    expect(pickSheet([{ sheet: sheets[0], probe: { inliers: MIN_INLIERS - 1 } }, { sheet: sheets[1], probe: null }])).toBeNull()
+    expect(pickSheet([])).toBeNull()
+    expect(pickSheet([{ sheet: sheets[4], probe: { inliers: 50 } }, { sheet: sheets[1], probe: { inliers: 50 } }])?.sheet.id).toBe('sheet-4')
+    expect(pickSheet([{ sheet: sheets[0], probe: { inliers: MIN_INLIERS } }])?.sheet.id).toBe('sheet-0')
+  })
+
+  it('a remembered sheet choice only counts if that sheet is in the open document', () => {
+    expect(knownSheetId(sheets, 'sheet-3')).toBe('sheet-3')
+    expect(knownSheetId(sheets, '382617')).toBeUndefined() // chosen in another document
+    expect(knownSheetId(sheets, '')).toBeUndefined()
+    expect(knownSheetId(sheets, undefined)).toBeUndefined()
+    expect(knownSheetId([], 'sheet-0')).toBeUndefined()
   })
 
   it('works at about twice the resolution the photo has on the sheet, within 36..150 dpi', () => {
