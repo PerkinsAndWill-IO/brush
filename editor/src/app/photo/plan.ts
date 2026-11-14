@@ -5,8 +5,12 @@ import type { Sheet } from '@core/types'
 
 /** Resolution of the quick "which sheet is this?" render. */
 export const PROBE_DPI = 50
-/** Fewest consistent feature matches that count as "the photo shows this sheet" (same bar as the registration). */
-export const MIN_INLIERS = 12
+/**
+ * Fewest tiles of the sheet that must lock onto the photo for "the photo shows this sheet" (same bar as the
+ * registration). Tiles, not feature matches: they also lock when the print is drawn in another style than the app
+ * draws the sheet.
+ */
+export const MIN_TILES = 12
 /** Automatic sheet detection tries at most this many sheets. */
 export const MAX_AUTO_SHEETS = 16
 /** Long side of the working raster, px. Bounds memory in the browser (the pipeline holds several copies). */
@@ -34,14 +38,14 @@ export function candidateSheets(sheets: readonly Sheet[], sheetId: string | unde
 }
 
 /**
- * The sheet the photo shows: the candidate with the most consistent feature matches, if any reaches the bar.
- * Every candidate is compared. Sheets of one project look alike (same title block, same grid), so a wrong sheet
- * can match well too; only the best match is trusted, however good an earlier one looked. Ties go to the earlier
- * candidate (the likelier one).
+ * The sheet the photo shows: the candidate whose drawing locks onto the photo in the most tiles, if any reaches the
+ * bar. Every candidate is compared. Sheets of one project look alike (same title block, same grid), so a wrong
+ * sheet can match well too; only the best match is trusted, however good an earlier one looked. Ties go to the
+ * earlier candidate (the likelier one).
  */
-export function pickSheet<P extends { inliers: number }>(results: readonly { sheet: Sheet; probe: P | null }[], minInliers = MIN_INLIERS): { sheet: Sheet; probe: P } | null {
+export function pickSheet<P extends { tiles: number }>(results: readonly { sheet: Sheet; probe: P | null }[], minTiles = MIN_TILES): { sheet: Sheet; probe: P } | null {
   let best: { sheet: Sheet; probe: P } | null = null
-  for (const { sheet, probe } of results) if (probe && probe.inliers >= minInliers && (!best || probe.inliers > best.probe.inliers)) best = { sheet, probe }
+  for (const { sheet, probe } of results) if (probe && probe.tiles >= minTiles && (!best || probe.tiles > best.probe.tiles)) best = { sheet, probe }
   return best
 }
 
