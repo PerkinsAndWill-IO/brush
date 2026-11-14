@@ -195,7 +195,10 @@ function estimateViewScales(groups: Group[], elements: Record<string, DrawingEle
   for (const [view, list] of ratios) {
     list.sort((a, b) => a - b)
     const med = list[Math.floor(list.length / 2)]
-    const snap = STANDARD_SCALES.find((s) => Math.abs(s - med) / s <= 0.05)
+    // exports write the length in millimetres or in metres (no unit on the value): take the reading that is a
+    // standard scale, millimetres first
+    const snapOf = (m: number) => STANDARD_SCALES.find((s) => Math.abs(s - m) / s <= 0.05)
+    const snap = snapOf(med) ?? snapOf(med * 1000)
     if (snap) out.set(view, snap)
   }
   return out
