@@ -1,6 +1,6 @@
 # Example drawing
 
-`house.drawing` is a three-page drawing in the viewer's `.drawing` format (`schema/drawing-format.md`):
+`house.drawing` is a three-page drawing in the viewer's `.drawing` format (legacy gzip format, `schema/drawing-format-legacy.md`):
 
 - sheet A102, Plans
 - sheet A103, Elevations and Sections

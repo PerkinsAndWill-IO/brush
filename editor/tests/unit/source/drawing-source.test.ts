@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DrawingFileSource, SourceError, openSource, parseDrawingFile, sniffBytes } from '../../../src/app/source'
-import { BlobBuffer, buildDrawing, buildPayload } from '../drawing/builder'
+import { BlobBuffer, buildDrawing, buildPayload } from '../drawing/builder-legacy'
 
 function tiny() {
   const b = new BlobBuffer()

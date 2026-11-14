@@ -1,60 +1,79 @@
 /**
- * Test support: builds `.drawing` bytes from a header and blobs, following schema/schema/drawing-format.md.
- * Written separately from the reader so the tests check the format, not the reader against itself.
+ * Test support: builds zstd `.drawing` bytes by hand from literal integer blobs, following
+ * schema/schema/drawing-format.md. Written separately from the reader and from the converter script.
  */
-import { gzipSync } from 'node:zlib'
+import { constants, zstdCompressSync } from 'node:zlib'
 
-export function f32(...values: number[]): Uint8Array {
+export const zstd = (bytes: Uint8Array, level = 3): Buffer => zstdCompressSync(bytes, { params: { [constants.ZSTD_c_compressionLevel]: level } })
+
+/** i32 little-endian values (already delta-coded by the caller). */
+export function i32(...values: number[]): Uint8Array {
   const out = new Uint8Array(values.length * 4)
   const dv = new DataView(out.buffer)
-  values.forEach((v, i) => dv.setFloat32(4 * i, v, true))
+  values.forEach((v, i) => dv.setInt32(4 * i, v, true))
   return out
 }
 
-export const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
-
-/** Collects blobs, each starting at a multiple of 4 from the buffer start. */
-export class BlobBuffer {
-  private parts: Uint8Array[] = []
-  private size = 0
-  add(bytes: Uint8Array): [number, number] {
-    const at = this.size
-    this.parts.push(bytes)
-    this.size += bytes.length
-    const pad = (4 - (this.size % 4)) % 4
-    if (pad) this.parts.push(new Uint8Array(pad))
-    this.size += pad
-    return [at, bytes.length]
-  }
-  /** Shorthand: a coordinate blob of f32 values. */
-  xy(...values: number[]): [number, number] {
-    return this.add(f32(...values))
-  }
-  bytes(): Uint8Array {
-    const out = new Uint8Array(this.size)
-    let at = 0
-    for (const p of this.parts) {
-      out.set(p, at)
-      at += p.length
-    }
-    return out
-  }
+/** The uncompressed page frame: u32 J, page JSON, padding to 4, buffer. */
+export function pageFrame(json: unknown, buffer: Uint8Array): Uint8Array {
+  const j = new TextEncoder().encode(JSON.stringify(json))
+  const start = (4 + j.length + 3) & ~3
+  const out = new Uint8Array(start + buffer.length)
+  new DataView(out.buffer).setUint32(0, j.length, true)
+  out.set(j, 4)
+  out.set(buffer, start)
+  return out
 }
 
-/** Magic, version, header, zero padding to a multiple of 4, then the buffer. */
-export function buildPayload(header: unknown, buffer: Uint8Array, opts: { magic?: string; version?: number } = {}): Uint8Array {
-  const json = new TextEncoder().encode(JSON.stringify(header))
-  const bufferStart = (16 + json.length + 3) & ~3
-  const out = new Uint8Array(bufferStart + buffer.length)
+export interface ZstdPage {
+  /** Header fields without `items` and `frame`. */
+  entry: Record<string, unknown>
+  /** The compressed frame bytes (default: zstd of `frame`). */
+  bytes?: Uint8Array
+  frame?: Uint8Array
+  /** Overrides the frame reference. */
+  ref?: [number, number]
+}
+
+/** Raw magic, version, header, then the frames. `elements` is the elements table's JSON (or raw frame bytes). */
+export function buildZstd(
+  pages: ZstdPage[],
+  elements: unknown,
+  opts: { unitsPerFoot?: number | null; elementsRef?: [number, number]; magic?: string; version?: number; headerVersion?: number } = {},
+): Uint8Array {
+  const frames = pages.map((p) => p.bytes ?? zstd(p.frame ?? new Uint8Array()))
+  frames.push(elements instanceof Uint8Array ? elements : zstd(new TextEncoder().encode(JSON.stringify(elements))))
+  const header = (len: number) => {
+    let at = 16 + len
+    const refs = frames.map((f) => {
+      const r: [number, number] = [at, f.length]
+      at += f.length
+      return r
+    })
+    const h: Record<string, unknown> = {
+      format: 'drawing',
+      version: opts.headerVersion ?? 1,
+      source: { file: 'model.rvt', generator: 'test' },
+      pages: pages.map((p, i) => ({ ...p.entry, frame: p.ref ?? refs[i] })),
+      elements: opts.elementsRef ?? refs[pages.length],
+    }
+    if (opts.unitsPerFoot !== null) h.unitsPerFoot = opts.unitsPerFoot ?? 30480
+    return new TextEncoder().encode(JSON.stringify(h))
+  }
+  let len = 0
+  while (header(len).length > len) len = header(len).length
+  const json = header(len)
+  const out = new Uint8Array(16 + len + frames.reduce((n, f) => n + f.length, 0))
   out.set(new TextEncoder().encode(opts.magic ?? 'DRAWING\0'), 0)
   const dv = new DataView(out.buffer)
   dv.setUint32(8, opts.version ?? 1, true)
-  dv.setUint32(12, json.length, true)
+  dv.setUint32(12, len, true)
+  out.fill(0x20, 16, 16 + len)
   out.set(json, 16)
-  out.set(buffer, bufferStart)
+  let at = 16 + len
+  for (const f of frames) {
+    out.set(f, at)
+    at += f.length
+  }
   return out
-}
-
-export function buildDrawing(header: unknown, buffer: Uint8Array): Uint8Array {
-  return new Uint8Array(gzipSync(buildPayload(header, buffer)))
 }
