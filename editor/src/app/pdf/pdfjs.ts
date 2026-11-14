@@ -10,6 +10,9 @@ import type { Sheet } from '@core/types'
 
 GlobalWorkerOptions.workerSrc = workerUrl
 
+/** A page label like "A-201" is a sheet number (shown in mono above the sheet). */
+const SHEET_NUMBER = /^[A-Z]{1,3}[-. ]?\d{1,4}(\.\d+)?$/i
+
 export interface LoadedPdf {
   doc: PDFDocumentProxy
   sheets: Sheet[]
@@ -34,12 +37,14 @@ export async function loadPdf(src: PdfSource): Promise<LoadedPdf> {
     // scale 1 viewport = PDF points; rotation applied, y already flipped.
     const vp = page.getViewport({ scale: 1 })
     const label = labels?.[i]?.trim()
-    sheets.push({
+    const sheet: Sheet = {
       id: `sheet-${i}`,
       pageIndex: i,
       name: label ? label : `Sheet ${i + 1}`,
       sizePt: { w: vp.width, h: vp.height },
-    })
+    }
+    if (label && SHEET_NUMBER.test(label)) sheet.number = label
+    sheets.push(sheet)
   }
   return { doc, sheets, destroy: () => task.destroy() }
 }
@@ -61,6 +66,42 @@ export async function renderPage(
   canvas.style.width = `${Math.floor(viewport.width / dpr)}px`
   canvas.style.height = `${Math.floor(viewport.height / dpr)}px`
   const task = page.render({ canvas, viewport })
+  const onAbort = () => task.cancel()
+  signal?.addEventListener('abort', onAbort)
+  try {
+    await task.promise
+  } finally {
+    signal?.removeEventListener('abort', onAbort)
+  }
+}
+
+/**
+ * Render a page (0-based) into `canvas` at `pxPerPt` device pixels per PDF
+ * point. Only sets the backing size; the caller sizes the canvas with CSS
+ * (the board scales it with the camera). Used for M1-05 re-renders.
+ */
+export async function renderPageAt(
+  doc: PDFDocumentProxy,
+  pageIndex: number,
+  canvas: HTMLCanvasElement,
+  pxPerPt: number,
+  signal?: AbortSignal,
+  /** Called between render chunks; returning a promise pauses rendering until it resolves (ink priority). */
+  gate?: () => Promise<void> | null,
+): Promise<void> {
+  const page = await doc.getPage(pageIndex + 1)
+  if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
+  const viewport = page.getViewport({ scale: pxPerPt })
+  canvas.width = Math.max(1, Math.floor(viewport.width))
+  canvas.height = Math.max(1, Math.floor(viewport.height))
+  const task = page.render({ canvas, viewport })
+  if (gate) {
+    task.onContinue = (cont: () => void) => {
+      const wait = gate()
+      if (wait) void wait.then(cont)
+      else cont()
+    }
+  }
   const onAbort = () => task.cancel()
   signal?.addEventListener('abort', onAbort)
   try {

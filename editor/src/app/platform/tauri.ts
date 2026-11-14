@@ -33,6 +33,8 @@ export const tauriPlatform: Platform = {
     if (!key.path) return browserPlatform.writeSidecar(key, session)
     await writeTextFile(sidecarPathFor(key.path), JSON.stringify(session, null, 2))
   },
+  // The fs scope only allows *.brush.json sidecars; recordings use the webview's download (browser path).
+  saveTextFile: (name, text) => browserPlatform.saveTextFile(name, text),
   async onFileDrop(cb) {
     return getCurrentWebview().onDragDropEvent(async (event) => {
       if (event.payload.type !== 'drop') return

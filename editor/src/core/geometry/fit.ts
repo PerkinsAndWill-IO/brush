@@ -196,17 +196,29 @@ export function detectCorners(points: readonly Point[], smoothing = 0): Point[] 
 
 // ───────────────────────────── reversals / scribble ─────────────────────────────
 
-/** Number of sharp direction reversals (turn > 100 degrees at significant vertices). */
+/**
+ * Number of sharp direction reversals (turn > 100 degrees).
+ *
+ * The heading change is measured over a window of arc length tied to the stroke's
+ * size (a quarter of its bbox diagonal) on the evenly resampled points, and each
+ * contiguous run of sharp turns counts once. Unlike Douglas-Peucker vertices this
+ * keeps the tips of tightly packed zigzags, while a circle (turn spread evenly)
+ * and right-angle corners (90 degrees) do not count.
+ */
 export function reversalCount(p: Prepared): number {
-  const eps = Math.max(0.03 * p.length, 0.5)
-  const idx = simplifyIndices(p.pts, eps)
+  const pts = p.pts
+  const n = pts.length
+  if (n < 5 || p.length < 1e-9) return 0
+  const h = p.length / (n - 1)
+  const w = Math.max(1, Math.min(Math.floor((n - 1) / 2), Math.round((0.25 * p.diag) / h)))
   let c = 0
-  for (let i = 1; i < idx.length - 1; i++) {
-    const a = p.pts[idx[i - 1]]
-    const b = p.pts[idx[i]]
-    const d = p.pts[idx[i + 1]]
-    const t = Math.abs(angleDiffSigned(angle(sub(d, b)), angle(sub(b, a))))
-    if (t > REVERSAL_MIN_TURN) c++
+  let inRun = false
+  for (let i = w; i < n - w; i++) {
+    const t = Math.abs(angleDiffSigned(angle(sub(pts[i + w], pts[i])), angle(sub(pts[i], pts[i - w]))))
+    if (t > REVERSAL_MIN_TURN) {
+      if (!inRun) c++
+      inRun = true
+    } else inRun = false
   }
   return c
 }

@@ -1,0 +1,208 @@
+/**
+ * One sheet on the board: name label above, the pdf.js page raster, the ink
+ * layer and the overlay layer. Both SVG layers use the sheet's own
+ * coordinates (viewBox = PDF points), so strokes are drawn exactly as stored.
+ */
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ComponentType } from 'react'
+import type { PDFDocumentProxy } from 'pdfjs-dist'
+import type { Sheet, Stroke } from '@core/types'
+import { getCamera, onCameraSettled } from '../camera'
+import { renderPageAt } from '../pdf/pdfjs'
+import { notifyPageRendered } from '../store'
+import { inkRender, type InkRender } from './ink'
+import { rectsIntersect, renderScaleFor, visibleBoardRect, type Placement } from './layout'
+import { penGate } from './penGate'
+import { enqueueRender } from './renderQueue'
+
+// ───────────── layer registry (board input writes wet ink here) ─────────────
+
+export interface SheetLayers {
+  ink: SVGSVGElement
+  wet: SVGPathElement
+  overlay: SVGSVGElement
+}
+const layers = new Map<string, SheetLayers>()
+export const getSheetLayers = (sheetId: string): SheetLayers | undefined => layers.get(sheetId)
+
+// ───────────── overlay extension point (M2 snap markers, M3 ghost + chips) ─────────────
+
+/** Rendered inside each sheet's overlay <svg>, in sheet points. */
+export type SheetOverlay = ComponentType<{ sheet: Sheet; placement: Placement }>
+const overlays = new Set<SheetOverlay>()
+const overlayListeners = new Set<() => void>()
+export function registerSheetOverlay(c: SheetOverlay): () => void {
+  overlays.add(c)
+  overlayListeners.forEach((l) => l())
+  return () => {
+    overlays.delete(c)
+    overlayListeners.forEach((l) => l())
+  }
+}
+function useOverlays(): SheetOverlay[] {
+  const [, force] = useState(0)
+  useEffect(() => {
+    const l = () => force((n) => n + 1)
+    overlayListeners.add(l)
+    return () => void overlayListeners.delete(l)
+  }, [])
+  return [...overlays]
+}
+
+// ───────────── ink rendering ─────────────
+
+const renderCache = new WeakMap<Stroke, InkRender>()
+/** Render data for a committed stroke. Smoothing is fixed when first rendered (at commit). */
+export function cachedInk(stroke: Stroke, smoothing: number, precomputed?: InkRender): InkRender {
+  let r = renderCache.get(stroke)
+  if (!r) {
+    r = precomputed ?? inkRender(stroke.points, stroke.size, smoothing)
+    renderCache.set(stroke, r)
+  }
+  return r
+}
+
+const pathCache = new WeakMap<Stroke, Path2D>()
+
+/** Draw strokes (sheet pts) into a 2D context already scaled to sheet points. */
+export function drawStrokes(g: CanvasRenderingContext2D, strokes: readonly Stroke[], smoothing: number) {
+  g.lineCap = 'round'
+  g.lineJoin = 'round'
+  for (const s of strokes) {
+    const r = cachedInk(s, smoothing)
+    let p = pathCache.get(s)
+    if (!p) pathCache.set(s, (p = new Path2D(r.d)))
+    if (r.mode === 'stroke') {
+      g.strokeStyle = s.color ?? '#D7263D'
+      g.lineWidth = r.width
+      g.stroke(p)
+    } else {
+      g.fillStyle = s.color ?? '#D7263D'
+      g.fill(p)
+    }
+  }
+}
+
+// ───────────── the sheet ─────────────
+
+interface Props {
+  sheet: Sheet
+  placement: Placement
+  doc: PDFDocumentProxy
+  loadId: number
+  strokes: readonly Stroke[]
+  smoothing: number
+  active: boolean
+  viewport: () => { w: number; h: number }
+}
+
+export const SheetView = memo(function SheetView({ sheet, placement, doc, loadId, strokes, smoothing, active, viewport }: Props) {
+  const pageRef = useRef<HTMLDivElement>(null)
+  const inkRef = useRef<SVGSVGElement>(null)
+  const inkCanvasRef = useRef<HTMLCanvasElement>(null)
+  const drawn = useRef<{ strokes: readonly Stroke[]; scale: number }>({ strokes: [], scale: 0 })
+  const [inkScale, setInkScale] = useState(0)
+  const wetRef = useRef<SVGPathElement>(null)
+  const overlayRef = useRef<SVGSVGElement>(null)
+  const [renderScale, setRenderScale] = useState(0)
+  const overlayComponents = useOverlays()
+
+  useLayoutEffect(() => {
+    if (!inkRef.current || !wetRef.current || !overlayRef.current) return
+    layers.set(sheet.id, { ink: inkRef.current, wet: wetRef.current, overlay: overlayRef.current })
+    return () => void layers.delete(sheet.id)
+  }, [sheet.id])
+
+  // Page raster: first render, then again whenever the camera settles at a zoom needing another resolution (M1-05).
+  useEffect(() => {
+    let current = 0
+    let first = true
+    const key = `${loadId}:${sheet.id}`
+    const request = () => {
+      const cam = getCamera()
+      const vp = viewport()
+      const visible = rectsIntersect(visibleBoardRect(cam, vp.w, vp.h), placement)
+      const dpr = window.devicePixelRatio || 1
+      const target = renderScaleFor(cam.z, dpr, sheet.sizePt)
+      // Off-screen sheets are not upgraded (memory); they are re-rendered when they come into view and the camera settles.
+      if (target === current || (!first && !visible && target > current)) return
+      const priority = (visible ? 0 : 1000) + sheet.pageIndex
+      enqueueRender(key, priority, async (signal) => {
+        const canvas = document.createElement('canvas')
+        await renderPageAt(doc, sheet.pageIndex, canvas, target, signal, penGate)
+        if (signal.aborted || !pageRef.current) return
+        pageRef.current.replaceChildren(canvas)
+        current = target
+        setRenderScale(target)
+        if (first) {
+          first = false
+          notifyPageRendered(loadId, sheet.pageIndex)
+        }
+      }).catch((e) => {
+        if ((e as Error)?.name !== 'AbortError' && !/cancel/i.test(String((e as Error)?.message))) console.error('render failed', e)
+      })
+    }
+    request()
+    const off = onCameraSettled(request)
+    return () => off()
+  }, [doc, sheet, placement, loadId, viewport])
+
+  // Ink raster scale follows the camera like the page does (sharp after zoom settles), but synchronously.
+  useEffect(() => {
+    const update = () => {
+      const cam = getCamera()
+      const vp = viewport()
+      const visible = rectsIntersect(visibleBoardRect(cam, vp.w, vp.h), placement)
+      const target = renderScaleFor(cam.z, window.devicePixelRatio || 1, sheet.sizePt)
+      setInkScale((cur) => (cur === 0 || visible || target < cur ? target : cur))
+    }
+    update()
+    return onCameraSettled(update)
+  }, [sheet, placement, viewport])
+
+  // Committed ink: append-only changes draw just the new strokes; anything else (undo, erase, rescale) redraws.
+  useLayoutEffect(() => {
+    const c = inkCanvasRef.current
+    if (!c || inkScale === 0) return
+    const prev = drawn.current
+    const g = c.getContext('2d')!
+    const appended = prev.scale === inkScale && prev.strokes.length <= strokes.length && prev.strokes.every((s, i) => strokes[i] === s)
+    if (!appended) {
+      c.width = Math.max(1, Math.floor(sheet.sizePt.w * inkScale))
+      c.height = Math.max(1, Math.floor(sheet.sizePt.h * inkScale))
+    }
+    g.setTransform(inkScale, 0, 0, inkScale, 0, 0)
+    drawStrokes(g, appended ? strokes.slice(prev.strokes.length) : strokes, smoothing)
+    drawn.current = { strokes, scale: inkScale }
+  }, [strokes, inkScale, smoothing, sheet.sizePt])
+
+  const { w, h } = sheet.sizePt
+  return (
+    <div
+      className={`sheet${active ? ' active' : ''}`}
+      data-testid="sheet"
+      data-sheet-id={sheet.id}
+      data-rendered={renderScale > 0}
+      data-render-scale={renderScale}
+      style={{ left: placement.x, top: placement.y, width: placement.w, height: placement.h }}
+    >
+      <div className="sheet-label" data-testid="sheet-label">
+        {active && <span className="dot" aria-hidden="true" />}
+        {sheet.number && <span className="num">{sheet.number}</span>}
+        {sheet.name !== sheet.number && <span className="name">{sheet.name}</span>}
+      </div>
+      <div className="paper">
+        <div className="page" ref={pageRef} />
+        {renderScale === 0 && <div className="placeholder" aria-label="Loading sheet" />}
+        <canvas className="ink-canvas" ref={inkCanvasRef} data-layer="ink" data-ink-count={strokes.length} data-ink-scale={inkScale} />
+        <svg className="ink" ref={inkRef} viewBox={`0 0 ${w} ${h}`} width={w} height={h} data-layer="wet-ink">
+          <path ref={wetRef} className="wet" data-layer="wet" />
+        </svg>
+        <svg className="overlay" ref={overlayRef} viewBox={`0 0 ${w} ${h}`} width={w} height={h} data-layer="overlay">
+          {overlayComponents.map((C, i) => (
+            <C key={i} sheet={sheet} placement={placement} />
+          ))}
+        </svg>
+      </div>
+    </div>
+  )
+})

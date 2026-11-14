@@ -32,6 +32,8 @@ export interface Platform {
    * DOM events in the UI and returns a no-op unsubscribe here.
    */
   onFileDrop(cb: (file: OpenedFile) => void): Promise<() => void>
+  /** Save a small text file the user keeps (dev stroke recordings, M1-12). Browser: a download. */
+  saveTextFile(suggestedName: string, text: string): Promise<void>
 }
 
 export function sidecarPathFor(pdfPath: string): string {

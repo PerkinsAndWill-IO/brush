@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { fitPrimitives, detectCorners, simplifyDP, resampleByCount, resampleBySpacing, smoothMovingAverage, smoothChaikin } from '../../../src/core/geometry'
+import { prepareForFit, reversalCount } from '../../../src/core/geometry/fit'
 import { polylineLength } from '../../../src/core/geometry/vec'
 import { arcPoints, densify } from './helpers'
 
@@ -107,5 +108,23 @@ describe('resample / simplify / smooth', () => {
       expect(polylineLength(sm)).toBeLessThan(polylineLength(noisy))
     }
     expect(smoothMovingAverage(noisy, 0)).toEqual(noisy)
+  })
+})
+
+describe('reversal counting on dense scribbles', () => {
+  it('counts the zigs of a tightly stacked zigzag (10 zigs in a 44x24 box)', () => {
+    const pts: { x: number; y: number }[] = []
+    for (let i = 0; i <= 10; i++) {
+      const y = i * 2.4
+      const x = i % 2 === 0 ? 0 : 44
+      pts.push({ x, y })
+    }
+    // densify
+    const dense: { x: number; y: number }[] = []
+    for (let i = 0; i < pts.length - 1; i++)
+      for (let k = 0; k < 20; k++) dense.push({ x: pts[i].x + ((pts[i + 1].x - pts[i].x) * k) / 20, y: pts[i].y + ((pts[i + 1].y - pts[i].y) * k) / 20 })
+    dense.push(pts[pts.length - 1])
+    const prep = prepareForFit(dense)!
+    expect(reversalCount(prep)).toBeGreaterThanOrEqual(7)
   })
 })

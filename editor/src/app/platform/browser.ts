@@ -82,4 +82,15 @@ export const browserPlatform: Platform = {
   async onFileDrop() {
     return () => {}
   },
+  async saveTextFile(suggestedName: string, text: string) {
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = suggestedName
+    a.style.display = 'none'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  },
 }
