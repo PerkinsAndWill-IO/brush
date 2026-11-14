@@ -1,8 +1,9 @@
 import "./style.css";
 import { ACTUAL_SIZE_SCALE, fitView, panBy, toWorld, zoomAt, type View } from "./geom";
+import { categoryOf, paramLabel, resolveElement, type Resolved } from "./elements";
 import { buildHitIndex, hitTest, type HitIndex } from "./hit";
 import { Renderer } from "./render";
-import { parseScene, sceneTitle, type ElementInfo, type Scene } from "./scene";
+import { parseScene, sceneTitle, type Scene } from "./scene";
 import type { Measure } from "./text";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -110,7 +111,7 @@ function draw() {
   }
   if (baseDirty || overDirty) {
     const el = activeEl();
-    renderer.drawHighlight(overCtx, drawnView, dpr, cssW, cssH, el === null ? [] : (index.byElement.get(el) ?? []));
+    renderer.drawHighlight(overCtx, drawnView, dpr, cssW, cssH, el === null ? [] : resolveElement(scene!.elements, el).highlight.flatMap((e) => index!.byElement.get(e) ?? []));
   }
   baseDirty = overDirty = false;
 }
@@ -130,16 +131,17 @@ function actualSize() {
 
 // ---------- card ----------
 
-function renderCard(id: number, info: ElementInfo | undefined, pinned: boolean) {
+function renderCard(r: Resolved, pinned: boolean) {
+  const { id, info } = r;
   card.replaceChildren();
   card.classList.toggle("pinned", pinned);
   const head = document.createElement("header");
   const cat = document.createElement("div");
   cat.className = "cat";
-  cat.textContent = info?.category || info?.class || "Element";
+  cat.textContent = categoryOf(info);
   const name = document.createElement("div");
   name.className = "name";
-  name.textContent = info?.name || `Element ${id}`;
+  name.textContent = (r.tagLabel ? `${r.tagLabel} \u2192 ` : "") + (info?.name || `Element ${id}`);
   head.append(cat, name);
   const meta = document.createElement("div");
   meta.className = "meta";
@@ -162,7 +164,15 @@ function renderCard(id: number, info: ElementInfo | undefined, pinned: boolean) 
     const table = document.createElement("table");
     for (const p of info.params) {
       const tr = table.insertRow();
-      tr.insertCell().textContent = p.name;
+      const label = tr.insertCell();
+      const nice = paramLabel(p.name);
+      label.textContent = nice;
+      if (nice !== p.name) {
+        const raw = document.createElement("div");
+        raw.className = "raw";
+        raw.textContent = p.name;
+        label.append(raw);
+      }
       tr.insertCell().textContent = p.value;
     }
     wrap.append(table);
@@ -198,7 +208,7 @@ function showCard(el: number | null, sx: number, sy: number, pinned: boolean) {
     card.hidden = true;
     return;
   }
-  renderCard(el, scene.elements[String(el)], pinned);
+  renderCard(resolveElement(scene.elements, el), pinned);
   placeCard(sx, sy);
 }
 

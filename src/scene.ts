@@ -5,11 +5,13 @@ export type Rgb = [number, number, number];
 
 export interface ElementInfo {
   class?: string;
-  category?: string;
+  category?: string | null;
   name?: string;
   family?: string;
   type?: string;
   level?: string;
+  /** Set on tags: the element the tag labels. */
+  tagged?: number | null;
   params?: { name: string; value: string }[];
 }
 
