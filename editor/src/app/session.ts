@@ -127,6 +127,15 @@ export const session = {
     emit({ activeSheetId: null, saved: 'idle', hidden: NO_HIDDEN, commandPrefix })
     syncStrokes(false)
   },
+  /**
+   * "Clear session": drop every stroke, reading and command for the open drawing and start over. Not undoable
+   * (the history goes too); the empty session is autosaved, so a reload stays clear.
+   */
+  clear() {
+    history.reset([], [], [])
+    emit({ activeSheetId: null, hidden: NO_HIDDEN })
+    syncStrokes()
+  },
   /** Dev/test: bulk insert without history (perf fixtures). */
   bulkLoad(strokes: readonly Stroke[]) {
     history.reset([...history.strokes(), ...strokes], history.accepted(), history.commands())

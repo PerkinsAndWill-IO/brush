@@ -59,11 +59,19 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 2px 6px; border-radius
 .menu button:first-child { font-family: inherit; font-size: 12px; }
 .menu button:hover { background: #fff; }
 .chip-btn { display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 10px; border: 0; border-radius: 999px; background: rgba(255, 255, 255, 0.5); font-size: 11.5px; cursor: pointer; }
-.chip-btn .rec-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
-.chip-btn.on { background: #fff; color: var(--error); font-weight: 600; }
-.chip-btn.on .rec-dot { background: var(--error); }
-.rec { display: flex; align-items: center; gap: 6px; }
-.rec select { min-height: 28px; border-radius: 999px; border: 1px solid var(--line); background: #fff; padding: 0 8px; font: inherit; font-size: 11.5px; }
+/* hamburger menu (top right): file actions, dev recorder, clear session */
+.menu.app-menu { min-width: 220px; }
+.menu.app-menu button { font-family: inherit; font-size: 12.5px; gap: 12px; }
+.menu.app-menu button:disabled { opacity: 0.45; cursor: default; }
+.menu.app-menu button:disabled:hover { background: transparent; }
+.menu.app-menu button.danger { color: var(--error); }
+.menu.app-menu .mono-num { font-size: 11.5px; color: var(--faint); }
+.menu-sep { height: 1px; margin: 4px 6px; background: var(--line-soft); }
+.menu-rec { display: flex; align-items: center; gap: 8px; }
+.menu-rec .rec-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.menu-rec .rec-dot.on { background: var(--error); }
+.menu-field { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; padding: 0 10px; font-size: 12.5px; }
+.menu-field select { min-height: 28px; border-radius: 999px; border: 1px solid var(--line); background: #fff; padding: 0 8px; font: inherit; font-size: 11.5px; }
 
 /* ── sidebars ── */
 .sidebar { flex: 0 0 auto; display: flex; flex-direction: column; background: var(--surface); overflow-y: auto; min-height: 0; }
