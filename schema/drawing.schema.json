@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://brush.local/schema/drawing.schema.json",
+  "title": "Brush .drawing header (version 1)",
+  "description": "The JSON header of a .drawing file (see drawing-format.md for the binary container). Items are the scene items of scene.schema.json, except that geometry and images are blob references. Coordinates are paper feet, x right, y up.",
+  "type": "object",
+  "required": ["format", "version", "pages"],
+  "properties": {
+    "format": { "const": "drawing" },
+    "version": { "const": 1 },
+    "source": {
+      "type": "object",
+      "properties": { "file": { "type": "string" }, "generator": { "type": "string" } }
+    },
+    "pages": { "type": "array", "items": { "$ref": "#/$defs/page" } },
+    "elements": {
+      "type": "object",
+      "description": "Shared by all pages, keyed by element id.",
+      "additionalProperties": { "$ref": "scene.schema.json#/$defs/element" }
+    }
+  },
+  "$defs": {
+    "blob": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 0 },
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "[byteOffset, byteLength] relative to the start of the buffer. The offset is a multiple of 4."
+    },
+    "page": {
+      "type": "object",
+      "required": ["id", "kind", "min", "max", "items"],
+      "properties": {
+        "id": { "type": "number" },
+        "kind": { "enum": ["sheet", "view"] },
+        "number": { "type": ["string", "null"] },
+        "name": { "type": ["string", "null"] },
+        "scale": { "type": ["string", "number", "null"] },
+        "min": { "$ref": "scene.schema.json#/$defs/point" },
+        "max": { "$ref": "scene.schema.json#/$defs/point" },
+        "items": { "type": "array", "items": { "$ref": "#/$defs/item" } }
+      }
+    },
+    "item": {
+      "type": "object",
+      "required": ["t"],
+      "properties": {
+        "t": { "type": "string" },
+        "el": { "$ref": "scene.schema.json#/$defs/id" },
+        "view": { "$ref": "scene.schema.json#/$defs/id" }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "t": { "const": "path" },
+            "pts": { "$ref": "#/$defs/blob", "description": "f32 x,y pairs." },
+            "closed": { "type": "boolean" },
+            "w": { "type": "number" },
+            "c": { "$ref": "scene.schema.json#/$defs/color" },
+            "dash": { "type": "array", "items": { "type": "number" } }
+          },
+          "required": ["pts", "w"]
+        },
+        {
+          "properties": {
+            "t": { "const": "segs" },
+            "segs": { "$ref": "#/$defs/blob", "description": "f32 x0,y0,x1,y1 per segment." },
+            "w": { "type": "number" },
+            "c": { "$ref": "scene.schema.json#/$defs/color" },
+            "dash": { "type": "array", "items": { "type": "number" } }
+          },
+          "required": ["segs", "w"]
+        },
+        {
+          "properties": {
+            "t": { "const": "fill" },
+            "rings": { "type": "array", "items": { "$ref": "#/$defs/blob" }, "description": "One blob of f32 x,y pairs per ring; even-odd." },
+            "c": { "$ref": "scene.schema.json#/$defs/color" }
+          },
+          "required": ["rings"]
+        },
+        {
+          "properties": {
+            "t": { "const": "text" },
+            "text": { "type": "string" },
+            "at": { "$ref": "scene.schema.json#/$defs/point" },
+            "size": { "type": "number" },
+            "anchor": { "type": "string", "pattern": "^[lcr][tmb]$" },
+            "dir": { "$ref": "scene.schema.json#/$defs/point" },
+            "maxWidth": { "type": ["number", "null"] },
+            "c": { "$ref": "scene.schema.json#/$defs/color" },
+            "bold": { "type": "boolean" }
+          },
+          "required": ["text", "at", "size"]
+        },
+        {
+          "properties": {
+            "t": { "const": "image" },
+            "min": { "$ref": "scene.schema.json#/$defs/point" },
+            "max": { "$ref": "scene.schema.json#/$defs/point" },
+            "png": { "$ref": "#/$defs/blob", "description": "Raw PNG file bytes." }
+          },
+          "required": ["min", "max", "png"]
+        },
+        {
+          "properties": { "t": { "not": { "enum": ["path", "segs", "fill", "text", "image"] } } },
+          "description": "Unknown item types are allowed and skipped by the viewer."
+        }
+      ]
+    }
+  }
+}
