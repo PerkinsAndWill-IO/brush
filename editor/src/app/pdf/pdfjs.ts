@@ -182,6 +182,39 @@ async function renderInto(doc: PDFDocumentProxy, pageIndex: number, canvas: HTML
 
 const sleep = (ms: number) => new Promise<'slow'>((r) => setTimeout(() => r('slow'), ms))
 
+/** Render only `region` (PDF points, top-left origin) of a page at `pxPerPt`; the canvas covers exactly `region`. */
+export async function renderPageRegion(
+  doc: PDFDocumentProxy,
+  pageIndex: number,
+  canvas: HTMLCanvasElement,
+  pxPerPt: number,
+  region: { x: number; y: number; w: number; h: number },
+  signal?: AbortSignal,
+  gate?: Gate,
+): Promise<void> {
+  const page = await doc.getPage(pageIndex + 1)
+  if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
+  const viewport = page.getViewport({ scale: pxPerPt })
+  canvas.width = Math.max(1, Math.round(region.w * pxPerPt))
+  canvas.height = Math.max(1, Math.round(region.h * pxPerPt))
+  const task = page.render({ canvas, viewport, transform: [1, 0, 0, 1, -region.x * pxPerPt, -region.y * pxPerPt] })
+  if (gate) {
+    task.onContinue = (cont: () => void) => {
+      const wait = gate()
+      if (wait) void wait.then(cont)
+      else cont()
+    }
+  }
+  const onAbort = () => task.cancel()
+  if (signal?.aborted) onAbort()
+  signal?.addEventListener('abort', onAbort)
+  try {
+    await task.promise
+  } finally {
+    signal?.removeEventListener('abort', onAbort)
+  }
+}
+
 /**
  * Render a page (0-based) into `canvas` at `pxPerPt` device pixels per PDF
  * point. Only sets the backing size; the caller sizes the canvas with CSS

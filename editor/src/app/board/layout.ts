@@ -139,3 +139,52 @@ export function renderScaleFor(z: number, dpr: number, sizePt: { w: number; h: n
   const cap = Math.sqrt(maxPixels / Math.max(1, sizePt.w * sizePt.h))
   return Math.min(want, cap)
 }
+
+/** Detail raster: the part of a sheet to render sharp on top of a capped page raster, and its scale. */
+export interface DetailRegion {
+  /** Device px per sheet point (exactly z * dpr, so it maps 1:1 to screen pixels). */
+  scale: number
+  /** Sheet points, snapped to the detail raster's pixel grid. */
+  rect: Rect
+}
+
+/**
+ * When the whole-page raster (`baseScale`, capped by its pixel budget) is coarser than the screen at zoom `cam.z`,
+ * the visible part of the sheet (plus `margin` of a viewport on each side, so small pans stay sharp) is rendered
+ * again at full resolution. Null when the page raster is already sharp or the sheet is off screen.
+ */
+export function detailRegionFor(
+  cam: Camera,
+  vw: number,
+  vh: number,
+  placement: Placement,
+  dpr: number,
+  baseScale: number,
+  margin = 0.25,
+  maxPixels = 4096 * 4096,
+): DetailRegion | null {
+  let scale = cam.z * dpr
+  if (scale <= baseScale * 1.01 || vw <= 0 || vh <= 0) return null
+  const vis = visibleBoardRect(cam, vw, vh)
+  const region = (m: number): Rect | null => {
+    const x0 = Math.max(placement.x, vis.x - vis.w * m)
+    const y0 = Math.max(placement.y, vis.y - vis.h * m)
+    const x1 = Math.min(placement.x + placement.w, vis.x + vis.w * (1 + m))
+    const y1 = Math.min(placement.y + placement.h, vis.y + vis.h * (1 + m))
+    return x1 > x0 && y1 > y0 ? { x: x0 - placement.x, y: y0 - placement.y, w: x1 - x0, h: y1 - y0 } : null
+  }
+  let r = region(margin)
+  if (!r) return null
+  if (r.w * r.h * scale * scale > maxPixels) r = region(0)!
+  if (r.w * r.h * scale * scale > maxPixels) {
+    scale = Math.sqrt(maxPixels / (r.w * r.h))
+    if (scale <= baseScale * 1.01) return null
+  }
+  // snap to the raster's pixel grid so the canvas lines up with whole device pixels
+  const px0 = Math.floor(r.x * scale)
+  const py0 = Math.floor(r.y * scale)
+  const px1 = Math.min(Math.ceil((r.x + r.w) * scale), Math.floor(placement.w * scale))
+  const py1 = Math.min(Math.ceil((r.y + r.h) * scale), Math.floor(placement.h * scale))
+  if (px1 <= px0 || py1 <= py0) return null
+  return { scale, rect: { x: px0 / scale, y: py0 / scale, w: (px1 - px0) / scale, h: (py1 - py0) / scale } }
+}

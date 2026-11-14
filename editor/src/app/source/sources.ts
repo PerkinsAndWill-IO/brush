@@ -27,6 +27,18 @@ export interface PageRenderer {
    * size only. `gate` returns a promise while rendering must pause (pen down).
    */
   render(pageIndex: number, canvas: HTMLCanvasElement, pxPerPt: number, signal?: AbortSignal, gate?: () => Promise<void> | null): Promise<void>
+  /**
+   * Render only `region` (sheet points) of page `pageIndex` at `pxPerPt`; the canvas covers exactly that region.
+   * Used for the sharp detail layer when zoomed in past what a whole-page raster can hold.
+   */
+  renderRegion(
+    pageIndex: number,
+    canvas: HTMLCanvasElement,
+    pxPerPt: number,
+    region: { x: number; y: number; w: number; h: number },
+    signal?: AbortSignal,
+    gate?: () => Promise<void> | null,
+  ): Promise<void>
 }
 
 function pdfRenderer(pdf: LoadedPdf): PageRenderer {
@@ -34,6 +46,10 @@ function pdfRenderer(pdf: LoadedPdf): PageRenderer {
     render: async (i, canvas, pxPerPt, signal, gate) => {
       const m = await import('../pdf/pdfjs')
       return m.renderPageAt(pdf.doc, i, canvas, pxPerPt, signal, gate)
+    },
+    renderRegion: async (i, canvas, pxPerPt, region, signal, gate) => {
+      const m = await import('../pdf/pdfjs')
+      return m.renderPageRegion(pdf.doc, i, canvas, pxPerPt, region, signal, gate)
     },
   }
 }
@@ -190,6 +206,11 @@ export class DrawingFileSource implements DrawingSource {
         const [m, f] = await Promise.all([import('../drawing/render'), import('../drawing/filters')])
         const fs = f.getFilters()
         return m.renderDrawingPage(pages[i], canvas, pxPerPt, signal, gate, { key: fs.version, hide: f.hiddenPredicate(this.doc, fs) })
+      },
+      renderRegion: async (i, canvas, pxPerPt, region, signal, gate) => {
+        const [m, f] = await Promise.all([import('../drawing/render'), import('../drawing/filters')])
+        const fs = f.getFilters()
+        return m.renderDrawingPage(pages[i], canvas, pxPerPt, signal, gate, { key: fs.version, hide: f.hiddenPredicate(this.doc, fs) }, region)
       },
     }
     return { sheets: this.sheets, pdf: null, pages: renderer }

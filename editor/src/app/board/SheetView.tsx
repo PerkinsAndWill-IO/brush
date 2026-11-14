@@ -9,11 +9,11 @@ import { getCamera, onCameraSettled } from '../camera'
 import type { PageRenderer } from '../source'
 import { notifyPageRendered } from '../store'
 import { inkRender, type InkRender } from './ink'
-import { rectsIntersect, renderScaleFor, visibleBoardRect, type Placement } from './layout'
+import { detailRegionFor, rectsIntersect, renderScaleFor, visibleBoardRect, type Placement } from './layout'
 import { ContextBadge } from '../brain/overlays'
 import { penGate } from './penGate'
 import { SheetGrid } from './viewAidLayers'
-import { enqueueRender } from './renderQueue'
+import { cancelRender, enqueueRender } from './renderQueue'
 import { useFilters } from '../drawing/filters'
 
 // ───────────── layer registry (board input writes wet ink here) ─────────────
@@ -118,6 +118,7 @@ interface Props {
 
 export const SheetView = memo(function SheetView({ sheet, placement, pages, loadId, strokes, faded, smoothing, active, viewport }: Props) {
   const pageRef = useRef<HTMLDivElement>(null)
+  const detailRef = useRef<HTMLDivElement>(null)
   const inkRef = useRef<SVGSVGElement>(null)
   const inkCanvasRef = useRef<HTMLCanvasElement>(null)
   const drawn = useRef<{ strokes: readonly Stroke[]; scale: number; faded?: ReadonlySet<string> }>({ strokes: [], scale: 0 })
@@ -185,6 +186,53 @@ export const SheetView = memo(function SheetView({ sheet, placement, pages, load
     return () => off()
   }, [pages, sheet, placement, loadId, viewport, filterVersion])
 
+  // Detail raster: the page raster is capped by a pixel budget, so on a big sheet it runs out of resolution once
+  // zoomed in (lines turn to pixels). Then the visible part of the sheet is rendered again at exactly zoom × dpr,
+  // into a viewport-sized canvas laid over the page raster, every time the camera settles.
+  const pageShown = renderScale > 0
+  useEffect(() => {
+    if (!pages || !pageShown) return
+    const key = `${loadId}:${sheet.id}:detail`
+    let shown: string | null = null
+    const request = () => {
+      const host = detailRef.current
+      if (!host) return
+      const cam = getCamera()
+      const vp = viewport()
+      const dpr = window.devicePixelRatio || 1
+      const d = detailRegionFor(cam, vp.w, vp.h, placement, dpr, renderScaleFor(cam.z, dpr, sheet.sizePt))
+      if (!d) {
+        cancelRender(key)
+        host.replaceChildren()
+        shown = null
+        return
+      }
+      const id = `${d.scale}|${d.rect.x}|${d.rect.y}|${d.rect.w}|${d.rect.h}`
+      if (id === shown) return
+      enqueueRender(key, 500 + sheet.pageIndex, async (signal) => {
+        const canvas = document.createElement('canvas')
+        await pages.renderRegion(sheet.pageIndex, canvas, d.scale, d.rect, signal, penGate)
+        if (signal.aborted || !detailRef.current) return
+        const { w, h } = sheet.sizePt
+        canvas.style.left = `${(d.rect.x / w) * 100}%`
+        canvas.style.top = `${(d.rect.y / h) * 100}%`
+        canvas.style.width = `${(d.rect.w / w) * 100}%`
+        canvas.style.height = `${(d.rect.h / h) * 100}%`
+        detailRef.current.replaceChildren(canvas)
+        shown = id
+      }).catch((e) => {
+        if ((e as Error)?.name !== 'AbortError' && !/cancel/i.test(String((e as Error)?.message))) console.error('detail render failed', e)
+      })
+    }
+    request()
+    const off = onCameraSettled(request)
+    // the old detail stays on screen until its replacement lands (or request() finds none is needed)
+    return () => {
+      off()
+      cancelRender(key)
+    }
+  }, [pages, sheet, placement, loadId, viewport, pageShown, renderedFilter])
+
   // Ink raster scale follows the camera like the page does (sharp after zoom settles), but synchronously.
   useEffect(() => {
     const update = () => {
@@ -233,6 +281,7 @@ export const SheetView = memo(function SheetView({ sheet, placement, pages, load
       </div>
       <div className="paper">
         <div className="page" ref={pageRef} />
+        <div className="page-detail" ref={detailRef} data-layer="page-detail" />
         {renderScale === 0 && <div className="placeholder" aria-label="Loading sheet" />}
         <svg className="grid" ref={gridRef} viewBox={`0 0 ${w} ${h}`} width={w} height={h} data-layer="grid" aria-hidden="true">
           <SheetGrid sheet={sheet} />
