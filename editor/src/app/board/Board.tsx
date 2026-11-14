@@ -139,14 +139,14 @@ interface BoardProps {
 export function Board({ pages, loadId, sheets, placements, fileName }: BoardProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const worldRef = useRef<HTMLDivElement>(null)
-  const { strokes, accepted, settings, activeSheetId, tool } = useSession()
+  const { strokes, accepted, settings, activeSheetId, tool, hidden } = useSession()
 
   const bySheet = useMemo(() => {
     const m = new Map<string, Stroke[]>()
     for (const s of sheets) m.set(s.id, [])
-    for (const s of strokes) m.get(s.sheetId)?.push(s)
+    for (const s of strokes) if (!hidden.has(s.id)) m.get(s.sheetId)?.push(s)
     return m
-  }, [strokes, sheets])
+  }, [strokes, sheets, hidden])
 
   // Per sheet, so a commit only redraws the ink of the sheet it happened on.
   const fadedBySheet = useMemo(() => {
@@ -297,8 +297,10 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
       const radius = getSession().eraserSize / 2 / cam.z
       const hit = new Set<string>()
       const pls = new Map(placementsNow().map((p) => [p.sheetId, p]))
+      const hiddenNow = getSession().hidden
       for (const s of getSession().strokes) {
         if (s.tool === 'eraser') continue // kept only as the source of a delete element
+        if (hiddenNow.has(s.id)) continue // landed in the linked model (M6-04); the sheet draws the element now
         const pl = pls.get(s.sheetId)
         if (!pl) continue
         if (eraserTouches(s, strokeBBox(s), boardToSheet(pl, g.last), boardToSheet(pl, to), radius)) hit.add(s.id)

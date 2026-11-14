@@ -6,8 +6,8 @@ import { useSyncExternalStore } from 'react'
 import type { Sheet } from '@core/types'
 import { layoutSheets, type Placement } from './board/layout'
 import type { OpenedFile } from './platform'
-import { closeSession, openSession } from './session'
-import { closeContexts, openContexts, type ContextProvider } from './brain/contextStore'
+import { closeSession, openEphemeralSession, openSession } from './session'
+import { closeContexts, openContexts, refreshContexts, type ContextProvider } from './brain/contextStore'
 import { openSource, type DrawingSource, type PageRenderer } from './source'
 import { resetLive } from './brain/live'
 
@@ -39,6 +39,11 @@ function set(next: Partial<DocState>) {
 
 export function getDocState(): DocState {
   return state
+}
+
+export function subscribeDoc(l: () => void): () => void {
+  listeners.add(l)
+  return () => listeners.delete(l)
 }
 
 export function useDocState(): DocState {
@@ -144,6 +149,52 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
     set({ status: 'error', pages: undefined, source: undefined, destroy: undefined, sheets: [], placements: [], error })
     throw e
   }
+}
+
+/**
+ * Open a source that is already built and loaded, with a session that is not saved to a sidecar (M6: a Revit
+ * sheet, whose model is the record). Same states as openDocument.
+ */
+export async function openLinkedSource(source: DrawingSource, opts: { size?: number } = {}): Promise<number> {
+  const loadId = state.loadId + 1
+  const prev = state.source
+  set({ status: 'loading', fileName: source.name, fileSize: opts.size ?? 0, loadId, error: undefined })
+  const { sheets, pages } = await source.load()
+  if (loadId !== state.loadId) return loadId
+  if (prev && prev !== source) void prev.close()
+  resetLive()
+  await openEphemeralSession()
+  set({
+    status: 'ready',
+    fileName: source.name,
+    pages: pages ?? undefined,
+    source,
+    sheets,
+    placements: layoutSheets(sheets),
+    destroy: () => source.close(),
+  })
+  void openContexts('', sheets.map((s) => s.id), contextsFrom(source))
+  return loadId
+}
+
+const samePlacement = (a: Placement, b: Placement) => a.sheetId === b.sheetId && a.pageIndex === b.pageIndex && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h
+
+/**
+ * The open source changed some of its sheets in place (M6-04: a new version from Revit, a sheet added or closed).
+ * Re-reads its sheets without touching the session, the camera or `loadId`. Unchanged sheets keep their Sheet and
+ * Placement objects, so only the changed ones re-render. Contexts of `changed` sheets are rebuilt.
+ */
+export async function refreshSource(source: DrawingSource, changed: readonly string[]): Promise<void> {
+  if (state.source !== source || state.status !== 'ready') return
+  const { sheets, pages } = await source.load()
+  if (state.source !== source) return
+  const old = new Map(state.placements.map((p) => [p.sheetId, p]))
+  const placements = layoutSheets(sheets).map((p) => {
+    const o = old.get(p.sheetId)
+    return o && samePlacement(o, p) ? o : p
+  })
+  set({ sheets, placements, pages: pages ?? undefined })
+  refreshContexts(sheets.map((s) => s.id), changed)
 }
 
 /** Open a file the user picked or dropped. Swallows the error (it is shown inline). */

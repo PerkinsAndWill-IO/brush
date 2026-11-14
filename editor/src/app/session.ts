@@ -28,7 +28,16 @@ export interface SessionState {
   saved: 'idle' | 'pending' | 'saved' | 'error'
   /** Dev/debug: draw the detected context on every sheet (M2). */
   contextOverlay: boolean
+  /**
+   * Strokes not drawn and not erasable (M6-04): their commands landed in the linked model, whose sheet now draws
+   * the real elements. They stay in the history, so undo still reaches them.
+   */
+  hidden: ReadonlySet<string>
+  /** Prefix of new command ids. A linked session gets its own, so its ids never collide with an earlier session's. */
+  commandPrefix: string
 }
+
+const NO_HIDDEN: ReadonlySet<string> = new Set()
 
 const history = new StrokeHistory()
 let state: SessionState = {
@@ -43,6 +52,8 @@ let state: SessionState = {
   activeSheetId: null,
   saved: 'idle',
   contextOverlay: false,
+  hidden: NO_HIDDEN,
+  commandPrefix: 'cmd',
 }
 const listeners = new Set<() => void>()
 
@@ -104,10 +115,16 @@ export const session = {
   redo() {
     if (history.redo()) syncStrokes()
   },
+  /** M6-04: strokes to leave out of the board (their elements are on the linked sheet now). */
+  setHidden(ids: ReadonlySet<string>) {
+    const cur = state.hidden
+    if (cur.size === ids.size && [...ids].every((id) => cur.has(id))) return
+    emit({ hidden: ids.size ? new Set(ids) : NO_HIDDEN })
+  },
   /** New document: replace strokes, clear history, no save. */
-  reset(strokes: readonly Stroke[] = [], accepted: readonly AcceptedDecision[] = [], commands: readonly Command[] = []) {
+  reset(strokes: readonly Stroke[] = [], accepted: readonly AcceptedDecision[] = [], commands: readonly Command[] = [], commandPrefix = 'cmd') {
     history.reset(strokes, accepted, commands)
-    emit({ activeSheetId: null, saved: 'idle' })
+    emit({ activeSheetId: null, saved: 'idle', hidden: NO_HIDDEN, commandPrefix })
     syncStrokes(false)
   },
   /** Dev/test: bulk insert without history (perf fixtures). */
@@ -191,6 +208,17 @@ export async function openSession(key: SidecarKey, sheetIds: readonly string[]):
   }
   session.reset(restored, accepted, commands)
   sidecarKey = key
+}
+
+/**
+ * A session with no sidecar (M6: a linked Revit sheet; the model is the record). Command ids get a prefix unique to
+ * this session, because the plugin remembers the ids it applied for as long as Revit runs.
+ */
+export async function openEphemeralSession(): Promise<void> {
+  if (saveTimer) await flushSave()
+  sidecarKey = null
+  const tag = Math.random().toString(36).slice(2, 8).padEnd(6, '0')
+  session.reset([], [], [], `cmd-${tag}`)
 }
 
 export function closeSession() {

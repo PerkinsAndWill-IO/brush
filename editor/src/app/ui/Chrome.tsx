@@ -22,6 +22,8 @@ import { useContexts } from '../brain/contextStore'
 import { BrushIcon, ChevronDown, ChevronRight, EraserIcon, MeasureIcon, PanIcon, RedoIcon, SelectIcon, UndoIcon } from './icons'
 import { LABEL_SCALES, sheetScale, useView, view } from '../view'
 import { formatMetres, sheetDistanceMetres } from '../board/viewAids'
+import { RevitButton } from '../revit/RevitPanel'
+import { useRevit } from '../revit/controller'
 
 export async function chooseFile() {
   const f = await (await getPlatform()).openPdf()
@@ -98,7 +100,15 @@ function RecordToggle() {
 /** Plain PDFs have no host model; a `.drawing` package will report its host here (M5). */
 function HostStatus() {
   const { source } = useDocState()
+  const rv = useRevit()
   const pkg = source?.kind === 'package'
+  if (rv.open.length)
+    return (
+      <span className="pill" data-testid="host-status" title="Edits go into the Revit model as you draw (M6)">
+        <span className={`pill-dot${rv.link.state === 'on' ? ' live' : ''}`} aria-hidden="true" />
+        {rv.link.state === 'on' ? `Live · ${rv.link.document?.title ?? 'Revit'}` : 'Revit offline · edits wait'}
+      </span>
+    )
   return (
     <span className="pill" data-testid="host-status" title="Commands go to the session log until an Applier links a host">
       <span className={`pill-dot${pkg ? ' pkg' : ''}`} aria-hidden="true" />
@@ -211,6 +221,7 @@ export function TopBar() {
       <div className="actions">
         {ready && recorderAvailable() && <RecordToggle />}
         {ready && <HostStatus />}
+        <RevitButton />
         {ready && <LatencyReadout />}
         {ready && (
           <>

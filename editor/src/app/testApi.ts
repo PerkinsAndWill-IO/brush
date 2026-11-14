@@ -17,6 +17,7 @@ import { metrics, resetMetrics } from './metrics'
 import { getRecorder, recorder, isStrokeRecording } from './recording'
 import { flushSave, getSession, session, type Tool } from './session'
 import { getDocState, openDocument, waitForFirstPage } from './store'
+import { configureRevitLink, revit, revitSnapshot } from './revit/controller'
 
 export interface BrushDevApi {
   flushSave(): Promise<void>
@@ -44,6 +45,14 @@ export interface BrushDevApi {
   secondPassMs(): number[]
   /** Resolves after `n` animation frames. */
   frames(n?: number): Promise<void>
+  /** M6: the Revit link as data (state, sheets, open versions, per-command results, hidden strokes). */
+  revit(): ReturnType<typeof revitSnapshot>
+  /** M6: connect to a link URL (default ws://127.0.0.1:47821/link) with fast retries. */
+  revitConnect(url?: string): void
+  revitDisconnect(): void
+  revitOpenSheet(sheetId: string): void
+  /** M6: send pending commands now instead of after the debounce. */
+  revitFlush(): void
 }
 
 declare global {
@@ -170,6 +179,14 @@ function createDevApi(): BrushDevApi {
     async frames(n = 1) {
       for (let i = 0; i < n; i++) await nextFrame()
     },
+    revit: () => revitSnapshot(),
+    revitConnect(url) {
+      configureRevitLink({ url, backoffMs: [200, 400, 800] })
+      revit.connect()
+    },
+    revitDisconnect: () => revit.disconnect(),
+    revitOpenSheet: (id) => revit.openSheet(id),
+    revitFlush: () => revit.flush(),
   }
 }
 

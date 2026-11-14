@@ -14,6 +14,7 @@ import { fileToOpened } from './platform/browser'
 import { getDocState, openFile, useDocState } from './store'
 import { EmptyIllustration } from './ui/icons'
 import { chooseFile, LeftSidebar, RightSidebar, ToolCapsule, TopBar } from './ui/Chrome'
+import { RevitHud, RevitStart } from './revit/RevitPanel'
 
 installBrain()
 registerSheetOverlay(MeasureOverlay) // above the brain overlays
@@ -104,6 +105,7 @@ function EmptyState({ error, loading }: { error?: string; loading?: string }) {
           </span>
         </div>
         <SamplePicker disabled={!!loading} />
+        <RevitStart />
         {error && (
           <p className="error" role="alert" data-testid="load-error">
             {error}
@@ -169,6 +171,7 @@ export function App() {
           ) : (
             <EmptyState error={st.status === 'error' ? st.error : undefined} loading={st.status === 'loading' ? st.fileName : undefined} />
           )}
+          {ready && <RevitHud />}
           <ToolCapsule disabled={!ready} />
         </main>
         {ready && <RightSidebar />}
