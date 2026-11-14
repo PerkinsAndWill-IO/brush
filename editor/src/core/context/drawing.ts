@@ -625,6 +625,23 @@ export function furnitureSymbolsFromDrawing(doc: DrawingDocument): Map<string, F
   return out
 }
 
+/** Every drawn point of some items as objects (fine for one element's symbol; the hot paths read the arrays). */
+function pointsOf(items: DrawItem[]): Point[] {
+  const out: Point[] = []
+  const push = (xy: Float32Array) => {
+    for (let k = 0; k + 1 < xy.length; k += 2) out.push({ x: xy[k], y: xy[k + 1] })
+  }
+  for (const it of items) {
+    if (it.t === 'path' || it.t === 'segs') push(it.xy)
+    else if (it.t === 'fill') it.rings.forEach(push)
+    else if (it.t === 'image') {
+      const { x, y, w, h } = it.rect
+      out.push({ x, y }, { x: x + w, y: y + h })
+    }
+  }
+  return out
+}
+
 function symbolOf(items: DrawItem[]): FurnitureSymbol | null {
   const pb = orientedBox(pointsOf(items))
   if (!pb) return null
