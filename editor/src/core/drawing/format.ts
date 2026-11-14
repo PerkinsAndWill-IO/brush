@@ -116,6 +116,11 @@ export interface DrawingPage {
   sizePt: { w: number; h: number }
   /** Items in draw order, sheet points. */
   items: DrawItem[]
+  /**
+   * Version 2 files only: per element id, the bounding box of its geometry on this page, [minX, minY, maxX, maxY]
+   * in sheet points (for culling and picking; text anchors may be missing). Absent for version 1.
+   */
+  boxes?: Record<string, [number, number, number, number]>
 }
 
 export interface DrawingDocument {
@@ -137,7 +142,7 @@ export function isDrawingPayload(bytes: Uint8Array): boolean {
 
 // ───────────────────────────── field helpers ─────────────────────────────
 
-const fail = (what: string, msg: string): never => {
+export const fail = (what: string, msg: string): never => {
   throw new DrawingFormatError(`${what}: ${msg}`)
 }
 
@@ -164,7 +169,7 @@ function id(v: unknown, what: string): string | null {
   return String(num(v, what))
 }
 
-function nullableStr(v: unknown, what: string): string | null {
+export function nullableStr(v: unknown, what: string): string | null {
   if (v === undefined || v === null) return null
   if (typeof v === 'number') return String(v)
   if (typeof v !== 'string') fail(what, 'expected a string')
@@ -179,7 +184,28 @@ function dashList(v: unknown, what: string): number[] {
 
 // ───────────────────────────── blobs ─────────────────────────────
 
-class Blobs {
+/** Where a page's blobs come from: a version 1 buffer of f32 or a version 2 frame of delta-coded integers. */
+export interface BlobSource {
+  /**
+   * Coordinates as sheet points in a fresh array; `unit` floats per record (2 points, 4 segments). Version 1
+   * returns the stored values and lets `toSheet` convert them; version 2 converts while decoding and ignores it.
+   */
+  coords(v: unknown, what: string, unit: number, toSheet: (xy: Float32Array) => void): Float32Array
+  bytes(v: unknown, what: string): Uint8Array
+}
+
+/** Checks a blob reference against a buffer of `size` bytes: bounds, offset a multiple of 4, length a multiple of `align`. */
+export function blobRef(v: unknown, what: string, align: number, size: number): [number, number] {
+  if (!Array.isArray(v) || v.length !== 2 || !Number.isInteger(v[0]) || !Number.isInteger(v[1]) || v[0] < 0 || v[1] < 0)
+    fail(what, 'expected a blob reference [byteOffset, byteLength]')
+  const [off, len] = v as [number, number]
+  if (off + len > size) fail(what, `blob [${off}, ${len}] is out of bounds (the buffer has ${size} bytes)`)
+  if (off % 4 !== 0) fail(what, `blob offset ${off} is not a multiple of 4`)
+  if (len % align !== 0) fail(what, `blob length ${len} is not a multiple of ${align}`)
+  return [off, len]
+}
+
+class Blobs implements BlobSource {
   private readonly size: number
   constructor(
     private payload: Uint8Array,
@@ -189,13 +215,7 @@ class Blobs {
   }
 
   private ref(v: unknown, what: string, align: number): [number, number] {
-    if (!Array.isArray(v) || v.length !== 2 || !Number.isInteger(v[0]) || !Number.isInteger(v[1]) || v[0] < 0 || v[1] < 0)
-      fail(what, 'expected a blob reference [byteOffset, byteLength]')
-    const [off, len] = v as [number, number]
-    if (off + len > this.size) fail(what, `blob [${off}, ${len}] is out of bounds (the buffer has ${this.size} bytes)`)
-    if (off % 4 !== 0) fail(what, `blob offset ${off} is not a multiple of 4`)
-    if (len % align !== 0) fail(what, `blob length ${len} is not a multiple of ${align}`)
-    return [off, len]
+    return blobRef(v, what, align, this.size)
   }
 
   /** f32 x,y data, converted to sheet points into a fresh array. `unit` floats per record (2 points, 4 segments). */
@@ -220,7 +240,7 @@ class Blobs {
 
 // ───────────────────────────── pages ─────────────────────────────
 
-function parseItem(o: Record<string, unknown>, at: string, blobs: Blobs, min: [number, number], max: [number, number]): DrawItem | null {
+function parseItem(o: Record<string, unknown>, at: string, blobs: BlobSource, min: [number, number], max: [number, number]): DrawItem | null {
   const X = (x: number) => (x - min[0]) * PT_PER_FT
   const Y = (y: number) => (max[1] - y) * PT_PER_FT
   const toSheet = (xy: Float32Array) => {
@@ -289,7 +309,8 @@ function parseItem(o: Record<string, unknown>, at: string, blobs: Blobs, min: [n
   }
 }
 
-function parsePage(raw: unknown, blobs: Blobs): DrawingPage {
+/** `blobsFor` gets the validated page rectangle (paper feet), so a version 2 reader can convert while decoding. */
+export function parsePage(raw: unknown, blobsFor: (min: [number, number], max: [number, number]) => BlobSource): DrawingPage {
   if (typeof raw !== 'object' || raw === null) fail('page', 'expected an object')
   const o = raw as Record<string, unknown>
   if (o.kind !== 'sheet' && o.kind !== 'view') fail('kind', `expected "sheet" or "view", got ${JSON.stringify(o.kind)}`)
@@ -298,6 +319,7 @@ function parsePage(raw: unknown, blobs: Blobs): DrawingPage {
   const max = pair(o.max, 'max')
   if (!(max[0] > min[0]) || !(max[1] > min[1])) fail('max', 'must be greater than min (a page must have an area)')
   if (!Array.isArray(o.items)) fail('items', 'expected an array')
+  const blobs = blobsFor(min, max)
   const items: DrawItem[] = []
   ;(o.items as unknown[]).forEach((it, i) => {
     if (typeof it !== 'object' || it === null) fail(`items[${i}]`, 'expected an object')
@@ -344,7 +366,7 @@ export function parseDrawingPayload(payload: Uint8Array): DrawingDocument {
   const blobs = new Blobs(payload, bufferStart)
   const pages = h.pages.map((p, i) => {
     try {
-      return parsePage(p, blobs)
+      return parsePage(p, () => blobs)
     } catch (e) {
       if (e instanceof DrawingFormatError) throw new DrawingFormatError(`pages[${i}].${e.message}`)
       throw e
