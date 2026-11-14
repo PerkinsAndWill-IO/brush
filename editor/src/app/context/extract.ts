@@ -172,12 +172,79 @@ function isTextItem(x: unknown): x is TextItemLike {
   return !!o && typeof o.str === 'string' && Array.isArray(o.transform)
 }
 
+export interface ExtractOptions {
+  /**
+   * The document was opened with `maxImageSize: 0` (see CONTEXT_DOC_PARAMS), so image ops are absent from the
+   * operator list: a page with ~no vectors and no text is then reported as raster-only without counting images.
+   */
+  imagesSkipped?: boolean
+  /**
+   * Stop walking the operator list after this many ms of walking (default 600); the result is then partial.
+   * pdf.js parse time is not counted: it is paid before the walk starts and cannot be interrupted.
+   */
+  budgetMs?: number
+  /** Stop after this many path vertices (default 3M, ~100 MB of points); the result is then partial. */
+  maxPoints?: number
+  /**
+   * Give up on vectors if pdf.js has not produced the operator list after this many ms (default 6000):
+   * the result is text-only and partial (pathological content streams).
+   */
+  parseTimeoutMs?: number
+}
+
+export interface ExtractResult {
+  raw: RawPageContent
+  /** True when a cap cut the operator walk short: `raw` holds only part of the page's vectors. */
+  partial: boolean
+  ms: number
+}
+
+/**
+ * getDocument params for context extraction. Real CAD/BIM exports can carry hundreds of large raster tiles per
+ * page (KRO A0 sheets: ~590 JPEG+SMask tiles, ~150 Mpx per page); pdf.js decodes every one of them inside
+ * getOperatorList, which took 8-33 s per page. Context only needs vectors and text, so images are dropped at parse
+ * time (pdf.js `maxImageSize`: larger images are removed with a warning); this makes getOperatorList ~100x faster.
+ */
+export const CONTEXT_DOC_PARAMS = { maxImageSize: 0, verbosity: 0 } as const
+
+/** pdf.js getTextContent items -> RawText in sheet space; `vpTransform` is getViewport({scale:1}).transform. */
+export function textsFromContent(items: ReadonlyArray<unknown>, vpTransform: ArrayLike<number>): RawText[] {
+  const base: M = [vpTransform[0], vpTransform[1], vpTransform[2], vpTransform[3], vpTransform[4], vpTransform[5]]
+  const texts: RawText[] = []
+  for (const it of items) {
+    if (!isTextItem(it) || !it.str.trim()) continue
+    const t = it.transform
+    const tm = mul(base, [t[0], t[1], t[2], t[3], t[4], t[5]])
+    const p = applyM(tm, 0, 0)
+    // font size = length of the y basis vector in sheet space
+    const size = Math.hypot(tm[2], tm[3]) || it.height * scaleOf(base)
+    const width = it.width * scaleOf(base)
+    texts.push({ text: it.str, x: p.x, y: p.y, width, height: size })
+  }
+  return texts
+}
+
 /** Extract one page. `sheetId` is `sheet-<pageIndex>`. */
-export async function extractPageContent(page: PdfPageLike, sheetId: string, OPS: PdfOps): Promise<RawPageContent> {
+export async function extractPageContent(page: PdfPageLike, sheetId: string, OPS: PdfOps, opts: ExtractOptions = {}): Promise<RawPageContent> {
+  return (await extractPage(page, sheetId, OPS, opts)).raw
+}
+
+/** Extract one page with caps; see ExtractOptions. */
+export async function extractPage(page: PdfPageLike, sheetId: string, OPS: PdfOps, opts: ExtractOptions = {}): Promise<ExtractResult> {
+  const t0 = now()
+  const budgetMs = opts.budgetMs ?? 600
+  const maxPoints = opts.maxPoints ?? 3_000_000
+  let partial = false
+  let nPoints = 0
   const vp = page.getViewport({ scale: 1 })
   const base: M = [vp.transform[0], vp.transform[1], vp.transform[2], vp.transform[3], vp.transform[4], vp.transform[5]]
-  const [opList, textContent] = await Promise.all([page.getOperatorList(), page.getTextContent()])
-  const { fnArray, argsArray } = opList
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<null>((r) => (timer = setTimeout(() => r(null), opts.parseTimeoutMs ?? 6000)))
+  const [opListOrNull, textContent] = await Promise.all([Promise.race([page.getOperatorList(), timeout]), page.getTextContent()])
+  clearTimeout(timer)
+  if (!opListOrNull) partial = true
+  const { fnArray, argsArray } = opListOrNull ?? { fnArray: [], argsArray: [] }
+  const tStart = now()
 
   const paths: RawPath[] = []
   let images = 0
@@ -192,11 +259,16 @@ export async function extractPageContent(page: PdfPageLike, sheetId: string, OPS
     const lineWidth = gs.lineWidth * s
     const dash = gs.dash.length ? gs.dash.map((d) => d * s) : undefined
     for (const sub of flatten(data, gs.ctm)) {
+      nPoints += sub.points.length
       paths.push({ points: sub.points, closed: sub.closed, lineWidth, dash, stroked: stroke, filled: fill })
     }
   }
 
   for (let i = 0; i < fnArray.length; i++) {
+    if ((i & 1023) === 0 && i > 0 && (nPoints > maxPoints || now() - tStart > budgetMs)) {
+      partial = true
+      break
+    }
     const fn = fnArray[i]
     const args = argsArray[i] as unknown[] | null
     if (fn === OPS.save) stack.push({ ...gs })
@@ -228,21 +300,15 @@ export async function extractPageContent(page: PdfPageLike, sheetId: string, OPS
     }
   }
 
-  const texts: RawText[] = []
-  for (const it of textContent.items) {
-    if (!isTextItem(it) || !it.str.trim()) continue
-    const t = it.transform
-    const tm = mul(base, [t[0], t[1], t[2], t[3], t[4], t[5]])
-    const p = applyM(tm, 0, 0)
-    // font size = length of the y basis vector in sheet space
-    const size = Math.hypot(tm[2], tm[3]) || it.height * scaleOf(base)
-    const width = it.width * scaleOf(base)
-    texts.push({ text: it.str, x: p.x, y: p.y, width, height: size })
-  }
+  const texts = textsFromContent(textContent.items, base)
 
   // Raster-only: images present and (almost) no vector content or text.
-  const hasRasterOnly = images > 0 && paths.length < 5 && texts.length === 0
+  const hasRasterOnly = (images > 0 || !!opts.imagesSkipped) && paths.length < 5 && texts.length === 0
   const out: RawPageContent = { sheetId, sizePt: { w: vp.width, h: vp.height }, paths, texts }
   if (hasRasterOnly) out.hasRasterOnly = true
-  return out
+  return { raw: out, partial, ms: now() - t0 }
+}
+
+function now(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now()
 }

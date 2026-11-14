@@ -98,7 +98,8 @@ export function buildRooms(
     const dx = w.bx - w.ax
     const dy = w.by - w.ay
     const len = hyp(dx, dy)
-    const rad = w.thick / 2 + 0.6 * cell
+    // a wall is never metres thick on paper; clamp so one bad stamp cannot cost O(rad^2) cells per step
+    const rad = Math.min(w.thick, 40) / 2 + 0.6 * cell
     if (len < 1e-9) {
       stampDisc(w.ax, w.ay, rad)
       continue

@@ -1,12 +1,13 @@
-import type { ContextItem, Path, Point, RawPageContent, RawPath, RawText, SheetContext } from '../types'
-import { hyp, pointInPolygon, bboxOf } from './internal/math'
+import type { ContextItem, Path, Point, RawPageContent, RawPath, SheetContext } from '../types'
+import type { SheetClass, SheetType } from './titleblock'
+import { hyp, pointInPolygon, bboxOf, signedArea } from './internal/math'
 import { classifyPath, type PathInfo } from './internal/shapes'
 import { findDimensions, findHatch, findLadders, makeSeg, type Seg } from './internal/segments'
-import { findArcOpenings, findOpenings, findWallPairs, mergeCollinear, snapCorners, type WallRun } from './internal/walls'
+import { dropStripeArrays, findArcOpenings, findOpenings, findWallPairs, mergeCollinear, pocheFromPolygon, snapCorners, type WallRun } from './internal/walls'
 import { buildRooms } from './rooms'
-import { findScale, ptPerMetre } from './scale'
+import { ptPerMetre } from './scale'
 import { isGridLabel, isNumericDim, isRoomLabel } from './text'
-import { detectFrame, textCenter } from './titleblock'
+import { allowsPlanGeometry, classifySheet, detectFrame, parseTitleBlock, textCenter } from './titleblock'
 
 export interface InferOptions {
   /** Override the scale found in text (100 for 1:100). */
@@ -15,6 +16,13 @@ export interface InferOptions {
   rooms?: boolean
   /** Raster cell for room detection in pt (default 3). */
   cellPt?: number
+  /** The raw content was cut short by an extraction cap; recorded on the sheet-info item. */
+  partial?: boolean
+  /**
+   * Soft time budget in ms (default 2000). Checked between stages: once exceeded, rooms and fixtures are skipped
+   * and the sheet-info item says partial, so a pathological page degrades instead of blocking the worker.
+   */
+  budgetMs?: number
 }
 
 /** Tunable thresholds (starting values). */
@@ -56,20 +64,25 @@ export function inferContext(raw: RawPageContent, opts: InferOptions = {}): Shee
   if (raw.hasRasterOnly || empty) {
     return { sheetId: raw.sheetId, origin: 'inferred', items: [], shapeOnly: true }
   }
+  const tStart = now()
+  const deadline = tStart + (opts.budgetMs ?? 2000)
+  let partial = !!opts.partial
   const T = THRESHOLDS
   const W = raw.sizePt.w
   const H = raw.sizePt.h
   const infos: PathInfo[] = raw.paths.map(classifyPath)
   const frame = detectFrame(raw, infos)
-  const inTB = (t: RawText) => {
-    const c = textCenter(t)
-    return frame.inTitleBlock(c.x, c.y)
-  }
-  const scale = opts.scale ?? findScale(raw.texts, inTB)
-  const ppm = ptPerMetre(scale ?? 100)
+  const tb = parseTitleBlock(raw, frame)
+  const sheetClass = classifySheet(tb)
+  // walls, openings, fixtures and rooms only where plan geometry makes sense ("prefer no context to wrong context")
+  const planGeom = allowsPlanGeometry(sheetClass.sheetType)
+  const scale = opts.scale ?? tb.scale
+  // geometry thresholds assume a building scale; a detail / full-size scale would make walls metres thick
+  const geomScale = scale !== undefined && scale >= 20 && scale <= 2000 ? scale : undefined
+  const ppm = ptPerMetre(geomScale ?? 100)
   const [symLo, symHi] = T.symbolSizeM.map((m) => m * ppm)
-  const wallLo = scale ? Math.max(2, Math.min(T.wallGapLoPt, 0.08 * ppm)) : T.wallGapLoPt
-  const wallHi = scale ? Math.max(T.wallGapHiPt, 0.55 * ppm) : T.wallGapHiPt
+  const wallLo = geomScale ? Math.max(2, Math.min(T.wallGapLoPt, 0.08 * ppm)) : T.wallGapLoPt
+  const wallHi = geomScale ? Math.max(T.wallGapHiPt, 0.55 * ppm) : T.wallGapHiPt
 
   // ---- classify paths; explode stroked ones into segments ----
   const circles: Circle[] = []
@@ -115,6 +128,23 @@ export function inferContext(raw: RawPageContent, opts: InferOptions = {}): Shee
         symbols.push({ info, path: pi, shape: 'rect' })
         continue
       }
+    } else if (planGeom && p.filled && info.closed && info.pts.length >= 4) {
+      // filled non-rectangular outline: poché wall with jogs / L / T shape, if it is thin (2A/P ~ thickness)
+      const area = Math.abs(signedArea(info.pts))
+      let perim = 0
+      for (let k = 0; k < info.pts.length; k++) {
+        const a = info.pts[k]
+        const b = info.pts[(k + 1) % info.pts.length]
+        perim += hyp(b.x - a.x, b.y - a.y)
+      }
+      const t = perim > 0 ? (2 * area) / perim : 0
+      if (t >= 0.5 * wallLo && t <= wallHi && perim >= 40) {
+        const pr = pocheFromPolygon(info.pts, wallLo, wallHi, p.lineWidth)
+        if (pr.length) {
+          pocheRuns.push(...pr)
+          continue
+        }
+      }
     }
     if (!p.stroked) continue
     // an isolated thin closed rectangle outline (cabinet, partition stall) is a fixture, not a wall
@@ -152,18 +182,19 @@ export function inferContext(raw: RawPageContent, opts: InferOptions = {}): Shee
   const wallPool = dimPool.filter((i) => !dims.mask[i] && segs[i].len >= T.minSegLenPt)
 
   // ---- walls ----
-  const pairs = findWallPairs(segs, wallPool, wallLo, wallHi)
+  const pairs = planGeom ? findWallPairs(segs, wallPool, wallLo, wallHi) : { runs: [], used: new Uint8Array(segs.length) }
   const pairRuns = mergeCollinear(pairs.runs)
   const thickSegRuns: WallRun[] = []
-  for (const i of wallPool) {
+  for (const i of planGeom ? wallPool : []) {
     const s = segs[i]
     if (pairs.used[i] || s.lw < T.thickStrokePt) continue
     thickSegRuns.push({ ax: s.ax, ay: s.ay, bx: s.bx, by: s.by, thick: s.lw, kind: 'thick', lw: s.lw, sameLw: 1, connected: 0 })
   }
   const thickMin = T.thickMinLenM * ppm
   const thickRuns = mergeCollinear(thickSegRuns, 2, 0.6, 2.5).filter((r) => hyp(r.bx - r.ax, r.by - r.ay) >= thickMin)
-  const pocheMerged = mergeCollinear(pocheRuns)
-  let runs: WallRun[] = [...pairRuns, ...thickRuns, ...pocheMerged]
+  const pocheMerged = planGeom ? mergeCollinear(pocheRuns) : []
+  // stripe arrays (parking bays, decking, zebra hatches) are not walls: 4+ similar parallel runs within 2 m across
+  let runs: WallRun[] = dropStripeArrays([...pairRuns, ...thickRuns, ...pocheMerged], 2 * ppm)
   // drop runs lying in the title block
   runs = runs.filter((r) => !frame.inTitleBlock((r.ax + r.bx) / 2, (r.ay + r.by) / 2))
   snapCorners(runs)
@@ -312,7 +343,8 @@ export function inferContext(raw: RawPageContent, opts: InferOptions = {}): Shee
   const roomPolys: Point[][] = []
   const roomLabelText: Array<string | undefined> = []
   const solidWalls = wallItems.filter((w) => w.confidence >= 0.4)
-  if (opts.rooms !== false && solidWalls.length) {
+  if (now() > deadline) partial = true
+  if (opts.rooms !== false && solidWalls.length && !partial) {
     const stamps = runs
       .map((r, i) => ({ r, w: wallItems[i] }))
       .filter(({ w }) => w.confidence >= 0.4)
@@ -349,7 +381,7 @@ export function inferContext(raw: RawPageContent, opts: InferOptions = {}): Shee
 
   // ---- fixtures ----
   const fixtureItems: ContextItem[] = []
-  if (roomPolys.length) {
+  if (roomPolys.length && now() <= deadline) {
     const bubbleSet = new Set(usedBubbles.size ? [...usedBubbles].map((bi) => bubbles[bi].path) : [])
     const cands = symbols
       .filter((s) => !bubbleSet.has(s.path))
@@ -411,7 +443,9 @@ export function inferContext(raw: RawPageContent, opts: InferOptions = {}): Shee
     })
   }
 
+  if (now() > deadline) partial = true
   items.push(...gridItems, ...wallItems, ...openingItems, ...fixtureItems, ...roomItems, ...labelItems)
+  items.push(sheetInfoItem(raw, tb, sheetClass, partial))
   const ctx: SheetContext = { sheetId: raw.sheetId, origin: 'inferred', items }
   if (scale !== undefined) ctx.scale = scale
   return ctx
@@ -433,6 +467,49 @@ function touchedByOthers(info: PathInfo, paths: RawPath[], self: number, ignore:
     for (const e of [q[0], q[q.length - 1]]) for (const c of info.pts) if (Math.abs(e.x - c.x) <= 2 && Math.abs(e.y - c.y) <= 2) return true
   }
   return false
+}
+
+/**
+ * Sheet facts that SheetContext (frozen) has no field for, as one `unknown` item with props.role 'sheet-info':
+ * sheetType ('plan' | 'elevation' | 'section' | 'axonometric' | 'detail' | 'other' | 'unknown'), sheetTypeBy,
+ * number, title, and partial: '1' when an extraction or inference cap cut the work short. Its geometry is a
+ * small box at the bottom-right corner of the sheet (title block area), so spatial queries near drawn
+ * content never see it. Read it with sheetInfo(ctx).
+ */
+function sheetInfoItem(raw: RawPageContent, tb: { number?: string; name?: string }, cls: SheetClass, partial: boolean): ContextItem {
+  const { w, h } = raw.sizePt
+  const props: Record<string, string> = { role: 'sheet-info', sheetType: cls.sheetType, sheetTypeBy: cls.by }
+  if (tb.number) props.number = tb.number
+  if (tb.name) props.title = tb.name
+  if (partial) props.partial = '1'
+  return {
+    id: 'sheet-info',
+    kind: 'unknown',
+    geometry: pathOf([{ x: w - 1, y: h - 1 }, { x: w, y: h - 1 }, { x: w, y: h }, { x: w - 1, y: h }], true),
+    confidence: cls.sheetType === 'unknown' ? 0.3 : cls.confidence,
+    props,
+  }
+}
+
+export interface SheetInfo {
+  sheetType: SheetType
+  number?: string
+  title?: string
+  partial: boolean
+}
+
+/** Read the sheet-info item of a context (inferred contexts only; package contexts return undefined). */
+export function sheetInfo(ctx: SheetContext): SheetInfo | undefined {
+  const it = ctx.items.find((i) => i.kind === 'unknown' && i.props?.role === 'sheet-info')
+  if (!it?.props) return undefined
+  const out: SheetInfo = { sheetType: (it.props.sheetType as SheetType) ?? 'unknown', partial: it.props.partial === '1' }
+  if (it.props.number) out.number = it.props.number
+  if (it.props.title) out.title = it.props.title
+  return out
+}
+
+function now(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now()
 }
 
 function round3(n: number): number {

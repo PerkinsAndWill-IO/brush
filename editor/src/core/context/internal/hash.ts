@@ -33,8 +33,8 @@ export class SpatialHash {
         else this.cells.set(k, [id])
       }
   }
-  /** Unique ids whose cells overlap the box (candidates, not exact). Results are sorted ascending. */
-  query(minX: number, minY: number, maxX: number, maxY: number, out: number[]): number[] {
+  /** Unique ids whose cells overlap the box (candidates, not exact). Sorted ascending unless `sorted` is false. */
+  query(minX: number, minY: number, maxX: number, maxY: number, out: number[], sorted = true): number[] {
     out.length = 0
     this.cur++
     const st = this.stamp
@@ -58,7 +58,7 @@ export class SpatialHash {
             out.push(id)
           }
       }
-    out.sort((a, b) => a - b)
+    if (sorted && out.length > 1) out.sort((a, b) => a - b)
     return out
   }
 }

@@ -32,3 +32,14 @@ export function isNumericDim(s: string): boolean {
 
 /** "A-201", "A101", "S-3.01". */
 export const SHEET_NUMBER_RE = /^[A-Z]{1,3}[-.]?\d{1,3}(?:\.\d{1,2})?[A-Z]?$/
+
+/**
+ * Structured drawing code: 4+ dash-separated alphanumeric fields with an optional " - 007" revision/suffix,
+ * e.g. "KRO-APD-ARC-PLN-A1A-N01-0001 - 007", "PRJ-XX-ZZ-DR-A-1001". Must contain a letter field and a digit field.
+ */
+export const DRAWING_CODE_RE = /^(?=.*[A-Z])(?=.*\d)[A-Z0-9]{1,8}(?:\s?[-_]\s?[A-Z0-9]{1,8}){3,9}$/
+
+/** "KRO-APD-ARC-PLN-A1A-N01-0001 - 007" -> "KRO-APD-ARC-PLN-A1A-N01-0001-007". */
+export function normalizeDrawingCode(s: string): string {
+  return s.trim().replace(/\s*([-_])\s*/g, '$1')
+}

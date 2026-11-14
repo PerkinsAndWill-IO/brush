@@ -449,3 +449,79 @@ function distLine(p: Point, w: WallRun): number {
   const l = hyp(w.bx - w.ax, w.by - w.ay)
   return Math.abs((p.x - w.ax) * -(w.by - w.ay) + (p.y - w.ay) * (w.bx - w.ax)) / l
 }
+
+/**
+ * Poché polygon (a filled closed outline, not just a rectangle: L/T shapes, walls with jogs) -> wall runs.
+ * Each pair of opposite parallel edges `lo..hi` apart that overlap by at least half the shorter edge gives one
+ * run along their midline. CAD/BIM exports draw cut walls this way; layer names are gone.
+ */
+export function pocheFromPolygon(pts: Point[], lo: number, hi: number, lw: number): WallRun[] {
+  const n = pts.length
+  const runs: WallRun[] = []
+  if (n < 4 || n > 64) return runs
+  const E: Array<{ ax: number; ay: number; ux: number; uy: number; len: number; ang: number }> = []
+  for (let i = 0; i < n; i++) {
+    const a = pts[i]
+    const b = pts[(i + 1) % n]
+    const len = hyp(b.x - a.x, b.y - a.y)
+    E.push({ ax: a.x, ay: a.y, ux: len ? (b.x - a.x) / len : 0, uy: len ? (b.y - a.y) / len : 0, len, ang: undirectedAngle(b.x - a.x, b.y - a.y) })
+  }
+  for (let i = 0; i < n; i++) {
+    const e = E[i]
+    if (e.len < Math.max(6, lo)) continue
+    for (let j = i + 1; j < n; j++) {
+      const f = E[j]
+      if (f.len < Math.max(6, lo) || angleDiff(e.ang, f.ang) > ANG_TOL) continue
+      // opposite sides of a polygon run in opposite directions
+      if (e.ux * f.ux + e.uy * f.uy > 0) continue
+      const off = (f.ax - e.ax) * -e.uy + (f.ay - e.ay) * e.ux
+      const d = Math.abs(off)
+      if (d < lo || d > hi) continue
+      const t0 = (f.ax - e.ax) * e.ux + (f.ay - e.ay) * e.uy
+      const t1 = t0 + f.len * (f.ux * e.ux + f.uy * e.uy)
+      const s0 = Math.max(0, Math.min(t0, t1))
+      const s1 = Math.min(e.len, Math.max(t0, t1))
+      if (s1 - s0 < 0.5 * Math.min(e.len, f.len) || s1 - s0 < 1.5 * d) continue
+      const mx = (-e.uy * off) / 2
+      const my = (e.ux * off) / 2
+      runs.push({ ax: e.ax + e.ux * s0 + mx, ay: e.ay + e.uy * s0 + my, bx: e.ax + e.ux * s1 + mx, by: e.ay + e.uy * s1 + my, thick: d, kind: 'poche', lw, sameLw: 1, connected: 0 })
+    }
+  }
+  return runs
+}
+
+/**
+ * Drop runs that belong to stripe arrays (parking bays, terrace / zebra hatches, stair treads drawn as pairs):
+ * a run with `minNeighbours` or more near-parallel runs of similar length, overlapping along its axis and within
+ * `maxOffset` pt across it. Walls are never stacked that densely.
+ */
+export function dropStripeArrays(runs: WallRun[], maxOffset: number, minNeighbours = 3): WallRun[] {
+  const n = runs.length
+  const info = runs.map((r) => {
+    const len = hyp(r.bx - r.ax, r.by - r.ay)
+    return { len, ang: undirectedAngle(r.bx - r.ax, r.by - r.ay), ux: len ? (r.bx - r.ax) / len : 0, uy: len ? (r.by - r.ay) / len : 0, mx: (r.ax + r.bx) / 2, my: (r.ay + r.by) / 2 }
+  })
+  const hash = new SpatialHash(Math.max(40, maxOffset), n)
+  for (let i = 0; i < n; i++) hash.insert(i, info[i].mx, info[i].my, info[i].mx, info[i].my)
+  const out: number[] = []
+  const keep: WallRun[] = []
+  for (let i = 0; i < n; i++) {
+    const a = info[i]
+    const R = maxOffset + a.len / 2
+    hash.query(a.mx - R, a.my - R, a.mx + R, a.my + R, out, false)
+    let k = 0
+    for (const j of out) {
+      if (j === i) continue
+      const b = info[j]
+      if (angleDiff(a.ang, b.ang) > 0.05 || Math.abs(a.len - b.len) > 0.25 * Math.max(a.len, b.len)) continue
+      const dx = b.mx - a.mx
+      const dy = b.my - a.my
+      const across = Math.abs(dx * -a.uy + dy * a.ux)
+      const along = Math.abs(dx * a.ux + dy * a.uy)
+      if (across > 0.5 && across <= maxOffset && along <= 0.8 * a.len) k++
+      if (k >= minNeighbours) break
+    }
+    if (k < minNeighbours) keep.push(runs[i])
+  }
+  return keep
+}

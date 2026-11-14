@@ -1,12 +1,23 @@
 import type { RawText } from '../types'
 
-/** Parse a single text for a drawing scale. Returns the ratio denominator (100 for 1:100). */
+/** A scale label word: English, French, Danish/Norwegian, German, Swedish, Dutch, Spanish/Italian. */
+export const SCALE_WORD = /(?<![A-Za-z])(?:scale|[ÉéEe]chelle|m[åÅa]a?lestok|ma(?:ß|ss)stab|skala|schaal|escala|scala)(?![a-z])/i
+
+/**
+ * Parse a single text for a drawing scale. Returns the ratio denominator (100 for 1:100).
+ * A ratio followed by a word is not a scale ("1:1 landskab ApS" is a company name), except a paper-size suffix
+ * ("1:100 @ A1", "1:50 (A3)"). "1:1" (full size) counts only with a scale word in the same text.
+ */
 export function parseScaleText(raw: string): number | undefined {
   const s = raw.trim()
-  const ratio = /(?<![\d:.])1\s*:\s*(\d{1,4}(?:\.\d+)?)(?![\d:])/.exec(s)
+  const ratio = /(?<![\d:.])1\s*:\s*(\d{1,4}(?:[.,]\d+)?)(?![\d:])/.exec(s)
   if (ratio) {
-    const v = parseFloat(ratio[1])
-    if (v >= 1 && v <= 5000) return v
+    const rest = s.slice(ratio.index + ratio[0].length).trim()
+    const wordAfter = /^[A-Za-zÀ-ÿ]{2,}/.exec(rest)
+    const paperSuffix = /^(?:@|(?:at|på|ved|sur)\s|[([]|A[0-4]\b|$)/i.test(rest)
+    const v = parseFloat(ratio[1].replace(',', '.'))
+    const ok = v >= 1 && v <= 5000 && (paperSuffix || !wordAfter) && (v !== 1 || SCALE_WORD.test(s))
+    if (ok) return v
   }
   const imp = /((?:\d+\s+)?\d+\/\d+|\d+(?:\.\d+)?)\s*(?:"|”|″|'')\s*=\s*(\d+)\s*(?:'|′|ft\b)(?:\s*-?\s*(\d+)\s*(?:"|”|″|'')?)?/i.exec(s)
   if (imp) {
@@ -26,13 +37,27 @@ export function parseScaleText(raw: string): number | undefined {
   return undefined
 }
 
+/** True if a scale label ("Échelle :", "SCALE", "Målestok") sits just left of or above `t`. */
+function labelledScale(t: RawText, labels: RawText[]): boolean {
+  for (const l of labels) {
+    if (l === t) continue
+    const h = Math.max(t.height, l.height)
+    const sameRow = Math.abs(l.y - t.y) <= 0.6 * h && l.x < t.x && t.x - (l.x + l.width) <= 25 * h
+    const above = t.y - l.y > 0 && t.y - l.y <= 3 * h && Math.abs(l.x - t.x) <= 10 * h
+    if (sameRow || above) return true
+  }
+  return false
+}
+
 /** Pick the sheet scale from all texts, preferring title block / "SCALE" texts. */
 export function findScale(texts: RawText[], inTitleBlock: (t: RawText) => boolean): number | undefined {
   const cands: Array<{ v: number; score: number; i: number }> = []
+  const labels = texts.filter((t) => SCALE_WORD.test(t.text) && t.text.trim().length <= 24)
   texts.forEach((t, i) => {
     const v = parseScaleText(t.text)
     if (v === undefined) return
-    const score = (inTitleBlock(t) ? 4 : 0) + (/scale/i.test(t.text) ? 2 : 0) + Math.min(t.height, 100) / 1000
+    const named = SCALE_WORD.test(t.text) || labelledScale(t, labels)
+    const score = (inTitleBlock(t) ? 4 : 0) + (named ? 2 : 0) + Math.min(t.height, 100) / 1000
     cands.push({ v, score, i })
   })
   if (!cands.length) return undefined
