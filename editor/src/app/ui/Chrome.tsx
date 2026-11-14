@@ -531,9 +531,10 @@ function CommitSection() {
 
 export function LeftSidebar() {
   const { tool, settings, eraserSize } = useSession()
+  const canInspect = useCanInspect()
   const meta = TOOL_META[tool]
   return (
-    <aside className="sidebar left" aria-label={`${meta.label} options`} data-testid="left-sidebar">
+    <aside className={`sidebar left${tool === 'select' && canInspect ? ' wide' : ''}`} aria-label={`${meta.label} options`} data-testid="left-sidebar">
       <div className="tool-head">
         <span className="tool-badge" aria-hidden="true">
           {meta.icon}
@@ -914,9 +915,9 @@ function ElementSection() {
       </div>
     )
   return (
-    <Section title="Element" aside={pinned ? 'Pinned' : undefined} testId="section-element">
+    <section className="section element-section" data-testid="section-element" data-pinned={pinned}>
       <ElementPanel />
-    </Section>
+    </section>
   )
 }
 

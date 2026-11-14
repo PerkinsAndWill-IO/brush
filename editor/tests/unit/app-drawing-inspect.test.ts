@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest'
 import type { DrawingPage, DrawItem } from '@core/drawing'
 import { buildPageHitIndex, hitItem, roughMeasure, textQuad } from '../../src/app/drawing/hit'
+import { splitUnit } from '../../src/app/drawing/InspectLayers'
 import { cardCategory, elementAt, inspect, getInspect, itemsOf, paramLabel, resolveElement } from '../../src/app/drawing/inspect'
 
 const common = { view: null }
@@ -89,6 +90,13 @@ describe('V3-02 element panel', () => {
     expect(resolveElement(elements, '2')).toMatchObject({ id: '1', tagLabel: 'Room tag', highlight: ['2', '1'] })
     expect(resolveElement(elements, '1')).toMatchObject({ id: '1', tagLabel: null, highlight: ['1'] })
     expect(resolveElement(elements, '9')).toMatchObject({ id: '9', info: undefined, highlight: ['9'] })
+  })
+  it('V3-02: a trailing unit is split off the value', () => {
+    expect(splitUnit('-639.9999 Millimeters')).toEqual(['-639.9999', 'Millimeters'])
+    expect(splitUnit('0 Degrees')).toEqual(['0', 'Degrees'])
+    expect(splitUnit('12 m²')).toEqual(['12', 'm²'])
+    expect(splitUnit('Level 1')).toEqual(['Level 1', ''])
+    expect(splitUnit('800 x 2100')).toEqual(['800 x 2100', ''])
   })
   it('V3-02: readable labels', () => {
     expect(paramLabel('ROOM_AREA')).toBe('Room area')

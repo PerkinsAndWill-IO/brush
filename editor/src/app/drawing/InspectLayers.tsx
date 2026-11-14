@@ -5,7 +5,7 @@
  *  - ElementPanel  (V3-02/03): the element's metadata in the Select tool's sidebar panel; pinned by a click, with the sheets the
  *    element appears on (a click on one fits that sheet)
  */
-import { useMemo } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import type { Sheet } from '@core/types'
 import type { DrawItem } from '@core/drawing'
 import type { Placement } from '../board/layout'
@@ -119,9 +119,51 @@ export function useCanInspect(): boolean {
   return !!source?.vectorPage
 }
 
+/** "-640 Millimeters" -> value and unit, so the unit can be drawn quieter (as Speckle does). */
+export function splitUnit(v: string): [string, string] {
+  const m = /^(-?[\d.,]+(?:e-?\d+)?)\s+([^\d\s][^\d]*)$/i.exec(v.trim())
+  return m ? [m[1], m[2]] : [v, '']
+}
+
+function Row({ label, value, raw }: { label: string; value: string; raw?: string }) {
+  const [num, unit] = splitUnit(value)
+  return (
+    <div className="prop-row" role="row">
+      <span className="k" role="rowheader" title={raw && raw !== label ? `${label} (${raw})` : label}>
+        {label}
+      </span>
+      <span className="v" role="cell" title={value}>
+        {num}
+        {unit && <span className="unit"> {unit}</span>}
+      </span>
+    </div>
+  )
+}
+
+function Group({ id, title, count, open, onToggle, children }: { id: string; title: string; count: number; open: boolean; onToggle: () => void; children: ReactNode }) {
+  return (
+    <div className="prop-group" data-group={id} role="rowgroup">
+      <button type="button" className="prop-group-head" aria-expanded={open} onClick={onToggle}>
+        <ChevronIcon open={open} />
+        <span className="t">{title}</span>
+        <span className="n">{count}</span>
+      </button>
+      {open && children}
+    </div>
+  )
+}
+
+function ChevronIcon({ open }: { open: boolean }) {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" style={{ transform: open ? 'rotate(90deg)' : undefined, transition: 'transform 120ms' }}>
+      <path d="M3.5 2 L7 5 L3.5 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 /**
- * The element panel in the left sidebar while the Select tool is on (V3-02/03): the hovered or pinned element's data and the sheets it is
- * drawn on (a click fits that sheet). Empty state explains how to pick one.
+ * The element panel in the left sidebar while the Select tool is on (V3-02/03), a compact property list: the element's
+ * name, then collapsible General / Parameters / Sheets groups of label-value rows. Sheets fit the board on a click.
  */
 export function ElementPanel() {
   const s = useInspect()
@@ -129,83 +171,84 @@ export function ElementPanel() {
   const { sheets } = useDocState()
   const pinned = s.pinned !== null
   const found = useMemo(() => (r ? appearances(r) : []), [r, sheets])
+  const [closed, setClosed] = useState<ReadonlySet<string>>(new Set())
+  const toggle = (g: string) => setClosed((c) => (c.has(g) ? new Set([...c].filter((x) => x !== g)) : new Set([...c, g])))
 
   if (!r)
     return (
-      <div className="inspect-panel" data-testid="inspect-panel" data-element="">
-        <p className="hint">Hover an element on a sheet to see its data here and highlight it on every sheet it appears on. Click to pin it, Esc releases. Drag pans.</p>
+      <div className="inspect-panel empty" data-testid="inspect-panel" data-element="">
+        <div className="prop-title">
+          <span className="name">No element</span>
+        </div>
+        <p className="hint">Hover an element on a sheet to see its properties and highlight it on every sheet it appears on. Click to pin it, Esc releases. Drag pans.</p>
       </div>
     )
   const { id, info } = r
-  const famType = [info?.family, info?.type].filter(Boolean).join(' : ')
-  const meta: [string, string | null | undefined][] = [
-    ['Family / type', famType],
-    ['Level', info?.level],
-    ['Element id', id],
+  const general: [string, string | null | undefined][] = [
+    ['category', info?.category],
+    ['class', info?.class],
+    ['family', info?.family],
+    ['type', info?.type],
+    ['name', info?.name],
+    ['level', info?.level],
+    ['elementId', id],
   ]
+  const gen = general.filter((g): g is [string, string] => !!g[1])
+  const params = info?.params ?? []
   return (
     <div className={`inspect-panel${pinned ? ' pinned' : ''}`} data-testid="inspect-panel" data-element={id} data-pinned={pinned}>
-      <div className="el-head">
-        <div>
-          <div className="cat">{cardCategory(info)}</div>
-          <div className="name">{(r.tagLabel ? `${r.tagLabel} → ` : '') + (info?.name || `Element ${id}`)}</div>
+      <div className="prop-title">
+        <div className="titles">
+          <span className="name" title={info?.name ?? undefined}>
+            {info?.name || `Element ${id}`}
+          </span>
+          <span className="sub">{(r.tagLabel ? `via ${r.tagLabel.toLowerCase()} · ` : '') + cardCategory(info)}</span>
         </div>
-        {pinned && (
-          <button type="button" className="close" aria-label="Unpin element" title="Unpin (Esc)" onClick={() => inspect.unpin()}>
-            ×
+        {pinned ? (
+          <button type="button" className="icon-btn" aria-label="Unpin element" title="Unpin (Esc)" onClick={() => inspect.unpin()}>
+            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+              <path d="M3 3 L9 9 M9 3 L3 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
           </button>
+        ) : (
+          <span className="state">hover</span>
         )}
       </div>
-      <dl className="meta">
-        {meta
-          .filter(([, v]) => v)
-          .map(([k, v]) => (
-            <div key={k}>
-              <dt>{k}</dt>
-              <dd>{v}</dd>
-            </div>
+      <div className="prop-list" role="table" aria-label="Element properties">
+        <Group id="general" title="General" count={gen.length} open={!closed.has('general')} onToggle={() => toggle('general')}>
+          {gen.map(([k, v]) => (
+            <Row key={k} label={k} value={v} />
           ))}
-      </dl>
-      <div className="appears" data-testid="inspect-appears" data-count={found.length}>
-        <div className="label">
-          On {found.length} {found.length === 1 ? 'sheet' : 'sheets'}
-        </div>
-        <div className="chips">
-          {found.map((a) => (
-            <button
-              key={a.sheet.id}
-              type="button"
-              className="chip"
-              data-sheet-id={a.sheet.id}
-              title={`${a.items} ${a.items === 1 ? 'item' : 'items'} · fit this sheet`}
-              onClick={() => boardView.focusSheet(a.sheet.pageIndex)}
-            >
-              {sheetName(a.sheet)}
-            </button>
-          ))}
+        </Group>
+        {params.length > 0 && (
+          <Group id="params" title="Parameters" count={params.length} open={!closed.has('params')} onToggle={() => toggle('params')}>
+            {params.map((p, i) => (
+              <Row key={i} label={paramLabel(p.name)} raw={p.name} value={p.value} />
+            ))}
+          </Group>
+        )}
+        <div data-testid="inspect-appears" data-count={found.length}>
+          <Group id="sheets" title="On sheets" count={found.length} open={!closed.has('sheets')} onToggle={() => toggle('sheets')}>
+            {found.map((a) => (
+              <button
+                key={a.sheet.id}
+                type="button"
+                className="prop-row link chip"
+                data-sheet-id={a.sheet.id}
+                title="Fit this sheet"
+                onClick={() => boardView.focusSheet(a.sheet.pageIndex)}
+              >
+                <span className="k">{sheetName(a.sheet)}</span>
+                <span className="v">
+                  {a.items}
+                  <span className="unit"> {a.items === 1 ? 'item' : 'items'}</span>
+                </span>
+              </button>
+            ))}
+          </Group>
         </div>
       </div>
-      {info?.params?.length ? (
-        <table className="params">
-          <tbody>
-            {info.params.map((p, i) => {
-              const nice = paramLabel(p.name)
-              return (
-                <tr key={i}>
-                  <td>
-                    {nice}
-                    {nice !== p.name && <div className="raw">{p.name}</div>}
-                  </td>
-                  <td>{p.value}</td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      ) : !info ? (
-        <p className="hint">No metadata for this element in the drawing.</p>
-      ) : null}
-      <p className="hint">{pinned ? 'Pinned. Esc or click empty paper to release.' : 'Click to pin.'}</p>
+      {!info && <p className="hint">No metadata for this element in the drawing.</p>}
     </div>
   )
 }

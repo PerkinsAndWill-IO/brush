@@ -60,6 +60,7 @@ test('V3-01..03: hover highlights an element on every sheet, its data shows in t
   await expect(page.getByTestId('left-sidebar').getByTestId('section-element')).toBeVisible()
   await expect(card).toHaveAttribute('data-element', '')
   await expect(card).toContainText('Hover an element')
+  await expect(page.getByTestId('left-sidebar')).toHaveClass(/wide/)
 
   // zoom on the plans so the fireplace is easy to hit
   await page.evaluate(async (id) => {
@@ -80,8 +81,9 @@ test('V3-01..03: hover highlights an element on every sheet, its data shows in t
   // V3-02: the panel shows the element's data
   await expect(card).toContainText('Generic Models')
   await expect(card).toContainText('fire place hang')
-  await expect(card.locator('.meta')).toContainText('Element id')
-  await expect(card.locator('.meta')).toContainText(FIREPLACE)
+  const general = card.locator('[data-group="general"]')
+  await expect(general.locator('.prop-row', { hasText: 'elementId' })).toContainText(FIREPLACE)
+  await expect(general.locator('.prop-row', { hasText: 'category' })).toContainText('Generic Models')
   // V3-03: and the sheets it appears on
   await expect(card.getByTestId('inspect-appears')).toHaveAttribute('data-count', '3')
 
