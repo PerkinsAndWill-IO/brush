@@ -19,7 +19,7 @@ import { getDocState, openFile, useDocState } from '../store'
 import { DrawingFileSource, buildCommandFile, commandFileName, serializeCommandFile, writeCommandFile } from '../source'
 import { ITEM_KINDS, categoriesOf, filters, isAnnotationCategory, useFilters } from '../drawing/filters'
 import { useContexts } from '../brain/contextStore'
-import { BrushIcon, ChevronDown, ChevronRight, EraserIcon, MeasureIcon, MenuIcon, PanIcon, PhotoIcon, RedoIcon, SelectIcon, UndoIcon } from './icons'
+import { BrushIcon, ChevronDown, ChevronRight, EraserIcon, MeasureIcon, MenuIcon, PanIcon, RedoIcon, SelectIcon, UndoIcon } from './icons'
 import brushLogo from './assets/brush-logo.png'
 import selectToolIcon from './assets/tool-select.png'
 import brushToolIcon from './assets/tool-brush.png'
@@ -27,6 +27,7 @@ import eraserToolIcon from './assets/tool-eraser.png'
 import panToolIcon from './assets/tool-pan.png'
 import measureToolIcon from './assets/tool-measure.png'
 import inkOutlineIcon from './assets/tool-ink-outline.png'
+import photoToolIcon from './assets/tool-photo.png'
 import inkPaintMask from './assets/tool-ink-paint.png'
 import { LABEL_SCALES, sheetScale, useView, view } from '../view'
 import { formatMetres, sheetDistanceMetres } from '../board/viewAids'
@@ -413,7 +414,7 @@ export function ToolCapsule({ disabled = false }: { disabled?: boolean }) {
         data-testid="import-photo"
         onClick={() => photoImport.open()}
       >
-        <PhotoIcon size={28} />
+        <img className="tool-icon" src={photoToolIcon} alt="" />
       </button>
       {!disabled && (
         <>

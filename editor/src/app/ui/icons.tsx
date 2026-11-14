@@ -71,13 +71,6 @@ export const MeasureIcon = ({ size = 20 }: { size?: number }) => (
     <path d="M6 10l1.5 1.5M8.5 7.5l1.5 1.5M11 5l1.5 1.5" />
   </Icon>
 )
-/** Placeholder for the photo-import button; to be replaced by a drawn tool-photo.png like the other tools. */
-export const PhotoIcon = ({ size = 20 }: { size?: number }) => (
-  <Icon size={size}>
-    <path d="M2.5 6.5h3l1.2-2h6.6l1.2 2h3v9h-15z" />
-    <circle cx="10" cy="10.8" r="2.8" />
-  </Icon>
-)
 export const MenuIcon = () => (
   <Icon size={18}>
     <path d="M3.5 5.5h13" />
