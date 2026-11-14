@@ -7,12 +7,14 @@
 import type { DrawItem, DrawingPage, DrawText } from '@core/drawing'
 
 type Cmd =
-  | { k: 'stroke'; path: Path2D; w: number; css: string; dash: number[] }
+  | { k: 'stroke'; path: Path2D; w: number; css: string; dash: number[]; points: number }
   | { k: 'fill'; path: Path2D; css: string }
   | { k: 'text'; item: DrawText }
   | { k: 'image'; item: Extract<DrawItem, { t: 'image' }> }
 
 const css = (c: number[]) => `rgb(${c[0]},${c[1]},${c[2]})`
+/** Points per stroke batch: Chrome's GPU canvas silently draws nothing for one Path2D of millions of points. */
+const BATCH_POINTS = 100_000
 
 function compile(page: DrawingPage): Cmd[] {
   const cmds: Cmd[] = []
@@ -26,8 +28,13 @@ function compile(page: DrawingPage): Cmd[] {
     if (it.t === 'path' || it.t === 'segs') {
       const key = `${it.w}|${it.c.join(',')}|${it.dash.join(',')}`
       let cmd = run.get(key)
-      if (!cmd) run.set(key, (cmd = { k: 'stroke', path: new Path2D(), w: it.w, css: css(it.c), dash: it.dash }))
+      if (cmd && cmd.points >= BATCH_POINTS) {
+        cmds.push(cmd) // same style, so drawing it ahead of the rest of the run keeps the picture
+        cmd = undefined
+      }
+      if (!cmd) run.set(key, (cmd = { k: 'stroke', path: new Path2D(), w: it.w, css: css(it.c), dash: it.dash, points: 0 }))
       const xy = it.xy
+      cmd.points += xy.length / 2
       if (it.t === 'path') {
         if (xy.length < 4) continue
         cmd.path.moveTo(xy[0], xy[1])
