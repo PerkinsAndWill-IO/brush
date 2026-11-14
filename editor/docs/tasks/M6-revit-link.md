@@ -24,3 +24,25 @@ Notes:
 - The DevHost needs the .NET 8 SDK. E2E tests that use it should skip with a clear message when `dotnet` is missing,
   rather than fail.
 - No new dependency: the browser `WebSocket` is enough.
+
+## Status
+
+Built in `src/app/revit/`: `link.ts` (socket client, M6-01), `sync.ts` (log ↔ model diff: apply, revert, landed),
+`source.ts` (`RevitSource`, one part per Revit sheet), `controller.ts` (glue, React store), `RevitPanel.tsx` (top-bar
+button and panel, start-page entry, M6-08 explainer, M6-05 results HUD). Tests: `tests/unit/revit/*`,
+`tests/e2e/m6-revit-link.spec.ts` (DevHost test skips without `dotnet`; M6-05 and M6-08 use a mocked socket).
+
+How it behaves:
+
+- Several Revit sheets can be open at once (panel → Add). A `sheet` push replaces only that sheet: the other
+  sheets, the camera, the tool and the strokes stay; contexts of the replaced sheet are rebuilt.
+- The command log is the truth. Commands in the log the model has not seen are applied; applied commands that left
+  the log (undo, erase) are reverted; redo applies them again. Failed commands stay failed until removed.
+- A stroke is hidden (not erased: it stays in the history) once all its commands are applied and a newer sheet
+  version arrived. Undo still reaches it.
+- A linked session has no sidecar (the model is the record), and its command ids carry a session prefix
+  (`cmd-k3f9x2-0001`), because the plugin remembers applied ids for as long as Revit runs.
+- Drawn while disconnected: commands wait and go out on reconnect. Replies lost in a drop are resent (the plugin
+  answers `skipped` for ids it already has). A new server `epoch` resets versions and re-opens the sheets.
+- DevHost limit: it sends the same PDF every version (only the manifest changes), so a landed wall is in the
+  context but not drawn. Revit re-exports the PDF.
