@@ -79,3 +79,32 @@ describe('M3-03 furniture shape follows its family', () => {
     expect(next.evidence.join(' ')).toMatch(/next to Bar Chair/)
   })
 })
+
+describe('M3-03 wall type follows the walls it joins', () => {
+  const palette: TypePalette = {
+    ...DEFAULT_PALETTE,
+    walls: [
+      { name: 'Exterior 300', thicknessMm: 300 },
+      { name: 'Partition 250', thicknessMm: 250 },
+      { name: 'Partition 100', thicknessMm: 100 },
+    ],
+  }
+  const typed = (typeName?: string): SheetContext => {
+    const ctx = testContext()
+    for (const it of ctx.items) if (it.kind === 'wall') it.props = { ...it.props, thicknessPt: String(0.25 * PT_PER_M), ...(typeName ? { typeName } : {}) }
+    return ctx
+  }
+  // from the horizontal wall (y = 100) down to the bottom of the sheet, left of the vertical one
+  const stroke = () => polyStroke([{ x: 150, y: 101 }, { x: 150, y: 300 }])
+
+  it("M3-03: a wall drawn off a placed wall takes that wall's own type when the palette has it", () => {
+    const s = shapeFor('wall', gatherEvidence(stroke(), typed('Exterior 300')), S, palette, {})
+    expect(s.type).toBe('Exterior 300') // not Partition 250, though its drawn thickness is nearer
+    expect(s.evidence.some((e) => e.startsWith('type of connected wall'))).toBe(true)
+  })
+
+  it("M3-03: without a known type it takes the palette type nearest the joined wall's thickness", () => {
+    expect(shapeFor('wall', gatherEvidence(stroke(), typed()), S, palette, {}).type).toBe('Partition 250')
+    expect(shapeFor('wall', gatherEvidence(stroke(), typed('Not In Palette')), S, palette, {}).type).toBe('Partition 250')
+  })
+})
