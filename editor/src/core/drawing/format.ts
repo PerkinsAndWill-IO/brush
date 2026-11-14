@@ -150,8 +150,13 @@ function parsePageFrame(frame: Uint8Array, header: unknown): DrawingPage {
   return page
 }
 
-/** Parse the bytes of a `.drawing` file (raw, not gzipped). Pages are decoded sheets first, the first sheet first. */
-export function parseDrawingPayload(bytes: Uint8Array): DrawingDocument {
+/**
+ * Parse the bytes of a `.drawing` file (raw, not gzipped). Pages are decoded sheets first, the first sheet first.
+ * With `lazy`, only the first page is decoded now (so a file that cannot show its first page still fails here); every
+ * other page comes from its header entry and decompresses its frame when its `items` or `boxes` are first read. A broken
+ * frame then throws from that read, with the same message.
+ */
+export function parseDrawingPayload(bytes: Uint8Array, opts: { lazy?: boolean } = {}): DrawingDocument {
   if (bytes.length < PREAMBLE) throw new DrawingFormatError(`not a .drawing file: ${bytes.length} bytes is shorter than the ${PREAMBLE}-byte preamble`)
   if (!isDrawingPayload(bytes)) throw new DrawingFormatError('not a .drawing file: bad magic (expected DRAWING\\0)')
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
@@ -186,12 +191,22 @@ export function parseDrawingPayload(bytes: Uint8Array): DrawingDocument {
   // Sheets first (the viewer's order), so the page that is shown first is decoded first.
   const rawPages = h.pages as unknown[]
   const order = rawPages.map((_, i) => i).sort((a, b) => Number((rawPages[a] as { kind?: unknown })?.kind !== 'sheet') - Number((rawPages[b] as { kind?: unknown })?.kind !== 'sheet') || a - b)
-  const pages = order.map((i) =>
+  const pages = order.map((i, n) =>
     named(`pages[${i}]`, () => {
       const raw = rawPages[i]
       if (!isObject(raw)) fail('page', 'expected an object')
       const ref = frameRef((raw as Record<string, unknown>).frame, 'frame', bytes.length)
-      return parsePageFrame(unzstd(bytes, ref, 'frame'), raw)
+      const decode = () => parsePageFrame(unzstd(bytes, ref, 'frame'), raw)
+      if (!opts.lazy || n === 0) return decode()
+      // header fields now; items and boxes on first read
+      const page = parsePage({ ...(raw as object), items: [] }, () => undefined as never)
+      let full: DrawingPage | undefined
+      const load = () => (full ??= named(`pages[${i}]`, decode))
+      Object.defineProperties(page, {
+        items: { get: () => load().items, enumerable: true },
+        boxes: { get: () => load().boxes, enumerable: true },
+      })
+      return page
     }),
   )
 
