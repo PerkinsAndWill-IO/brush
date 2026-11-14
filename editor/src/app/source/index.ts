@@ -1,5 +1,5 @@
 export { openSource, PdfDrawingSource, PackageDrawingSource, DrawingFileSource, SourceError } from './sources'
-export type { DrawingSource, LoadedSource, PageRenderer, SourceInput, PackageDrawingSourceOptions } from './sources'
+export type { DrawingSource, VectorPage, LoadedSource, PageRenderer, SourceInput, PackageDrawingSourceOptions } from './sources'
 export { parseDrawingFile, gunzip } from './drawing-file'
 export { parsePackage, parseManifest, serializePackage, sniffBytes, PackageError } from './package-file'
 export type { ParsedPackage, PackagePdfRef, SniffedType } from './package-file'

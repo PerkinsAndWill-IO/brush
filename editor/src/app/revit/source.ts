@@ -8,7 +8,7 @@
  */
 import { DEFAULT_PALETTE, type TypePalette } from '@core/context'
 import type { Sheet, SheetContext } from '@core/types'
-import { openSource, type DrawingSource, type LoadedSource, type PageRenderer } from '../source'
+import { openSource, type DrawingSource, type LoadedSource, type PageRenderer, type VectorPage } from '../source'
 import type { LinkSheetSummary } from './protocol'
 
 interface Part {
@@ -146,6 +146,12 @@ export class RevitSource implements DrawingSource {
     if (!p) throw new Error(`sheet ${sheetId} is not open`)
     const ctx = await p.source.contextFor(p.innerId)
     return { ...ctx, sheetId }
+  }
+
+  /** Each part is its own `.drawing`; Revit element ids are shared, so an element is found on every sheet. */
+  vectorPage(sheetId: string): VectorPage | null {
+    const p = this.parts.get(sheetId)
+    return p?.source.vectorPage?.(p.innerId) ?? null
   }
 
   async close(): Promise<void> {
