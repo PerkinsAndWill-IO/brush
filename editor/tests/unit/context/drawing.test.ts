@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import { gunzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { contextFromDrawing, furnitureSymbolsFromDrawing, paletteFromDrawing, roomAt, sheetInfo, sheetsFromDrawing, wallStylesFromDrawing } from '../../../src/core/context'
-import { parseLegacyDrawingPayload } from '../../../src/core/drawing'
+import { isDrawingPayload, parseDrawingPayload, parseLegacyDrawingPayload } from '../../../src/core/drawing'
 import { BlobBuffer, buildPayload } from '../drawing/builder-legacy'
 
 /** Rectangle outline as a closed path blob (feet). */
@@ -181,5 +181,21 @@ describe('M5 wall styles from a .drawing', () => {
     expect(s.thicknessPt).toBeCloseTo(8.64, 1)
     expect(s.thicknessMm).toBeCloseTo(304.8, 0)
     expect(s.fills).toEqual([{ from: -0.5, to: 0.5, color: [0, 0, 0] }])
+  })
+})
+
+describe('M2 scale from wall lengths written in metres', () => {
+  const kro = resolve(__dirname, '../../../../schema/public/examples/kro/kro-test-lean.drawing')
+  it.skipIf(!existsSync(kro))('M2-05: kro-test-lean (CURVE_ELEM_LENGTH in m) gets a scale, so the palette and wall styles are its own types', () => {
+    const raw = new Uint8Array(readFileSync(kro))
+    const doc = isDrawingPayload(raw) ? parseDrawingPayload(raw) : parseLegacyDrawingPayload(new Uint8Array(gunzipSync(raw)))
+    const plan = sheetsFromDrawing(doc)[0]
+    expect(contextFromDrawing(doc, plan.id).scale).toBeGreaterThan(0)
+    const walls = paletteFromDrawing(doc).walls
+    expect(walls.every((w) => w.name.startsWith('MUR_'))).toBe(true)
+    // the type a sketched wall gets is one whose linework the editor can draw
+    const styles = wallStylesFromDrawing(doc)
+    expect(walls.filter((w) => styles.has(w.name)).length).toBeGreaterThan(10)
+    expect(styles.get('MUR_BA 30cm')!.thicknessMm).toBeCloseTo(300, -1)
   })
 })
