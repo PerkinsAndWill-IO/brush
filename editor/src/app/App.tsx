@@ -16,6 +16,7 @@ import { fileToOpened } from './platform/browser'
 import { formatDuration, formatEta, type ConvertProgress } from './convertProgress'
 import { getDocState, openDocument, openFile, useDocState } from './store'
 import brushLogoRed from './ui/assets/brush-logo-red.png'
+import { BrushLoader } from './ui/BrushLoader'
 import { chooseFile, LeftSidebar, RightSidebar, ToolCapsule, TopBar } from './ui/Chrome'
 import { HandLoader } from './ui/HandLoader'
 import sampleSmallIcon from './ui/assets/sample-small.png'
@@ -129,7 +130,11 @@ function EmptyState({ error, loading, bytes, progress }: { error?: string; loadi
     <div className="empty landing" data-testid="empty-state">
       <div className="landing-paper" aria-hidden="true" />
       <div className="landing-stack">
-        <img className="landing-logo" src={brushLogoRed} alt="Brush" />
+        {loading ? (
+          <BrushLoader tone="red" className="landing-logo" label={`Opening ${loading}`} />
+        ) : (
+          <img className="landing-logo" src={brushLogoRed} alt="Brush" />
+        )}
         <div className="dropzone">
           {/* hand-drawn outline instead of a dashed border; stretched to the box, the stroke keeps its width */}
           <svg className="dropzone-outline" viewBox="0 0 1000 400" preserveAspectRatio="none" aria-hidden="true">

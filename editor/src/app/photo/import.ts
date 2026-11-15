@@ -98,6 +98,8 @@ function createWorkerClient(onLog: (line: string) => void, signal?: AbortSignal)
   }
   signal?.addEventListener('abort', onAbort)
   return {
+    /** A helper's photo decode: false if it failed (the helper then sits out). */
+    ready: Promise.resolve(true),
     call<T extends RequestType>(req: DistributiveOmit<PhotoRequest, 'id'> & { type: T }, transfer: Transferable[] = []): Promise<Reply<T>> {
       if (signal?.aborted) return Promise.reject(new DOMException('Import cancelled', 'AbortError'))
       return new Promise<PhotoResponse>((resolve, reject) => {
@@ -111,6 +113,84 @@ function createWorkerClient(onLog: (line: string) => void, signal?: AbortSignal)
       worker.terminate()
     },
   }
+}
+
+type WorkerClient = ReturnType<typeof createWorkerClient>
+
+/**
+ * How many workers compare the photo with the candidate sheets at once. Each holds its own copy of the photo and of
+ * OpenCV (a few hundred MB at the peak), so a few at most, and one core is left for rendering the sheets.
+ */
+function probeWorkers(): number {
+  const cores = typeof navigator !== 'undefined' && navigator.hardwareConcurrency ? navigator.hardwareConcurrency : 2
+  return Math.max(1, Math.min(3, cores - 1))
+}
+
+interface Found { sheet: Sheet; probe: Probe | null; ref: { w: number; h: number } }
+
+/**
+ * Compare the photo with every candidate sheet (P1-02). The sheets are rendered one at a time (the renderer is on
+ * this thread); each render goes to the first free worker, and the next sheet renders meanwhile. The results come
+ * back in candidate order, whichever worker finished first.
+ */
+async function findSheet(
+  candidates: readonly Sheet[],
+  o: { first: WorkerClient; helpers: readonly WorkerClient[]; render: (sheet: Sheet) => Promise<RasterMessage>; onSheet: (sheet: Sheet) => void; time: ReturnType<typeof stopwatch> },
+): Promise<Found[]> {
+  const found: Found[] = new Array(candidates.length)
+  const free: WorkerClient[] = [o.first]
+  let failed: unknown = null
+  let wake: (() => void) | null = null
+  const nudge = () => {
+    const w = wake
+    wake = null
+    w?.()
+  }
+  const release = (c: WorkerClient) => {
+    free.push(c)
+    nudge()
+  }
+  // a helper joins once it has read the photo
+  for (const h of o.helpers) void h.ready.then((ok) => ok && release(h))
+  const render = (sheet: Sheet) => {
+    const t = performance.now()
+    const p = o.render(sheet).then((ref) => ({ ref, ms: performance.now() - t }))
+    p.catch(() => {}) // awaited below; a sheet still rendering when the import stops must not report an unhandled rejection
+    return p
+  }
+  let matchMs = 0
+  const running: Promise<void>[] = []
+  let next = render(candidates[0])
+  for (let i = 0; i < candidates.length; i++) {
+    const sheet = candidates[i]
+    o.onSheet(sheet)
+    const t = performance.now()
+    const { ref, ms } = await next
+    o.time.add('sheet renders', ms, performance.now() - t)
+    if (i + 1 < candidates.length) next = render(candidates[i + 1])
+    while (!free.length && !failed) await new Promise<void>((r) => (wake = r))
+    if (failed) break
+    const c = free.shift()!
+    const tp = performance.now()
+    const size = { w: ref.w, h: ref.h }
+    running.push(
+      c.call({ type: 'probe', ref, refDpi: PROBE_DPI }, [ref.rgba]).then(
+        ({ probe }) => {
+          matchMs += performance.now() - tp
+          found[i] = { sheet, probe, ref: size }
+          release(c)
+        },
+        (e: unknown) => {
+          failed ??= e
+          nudge()
+        },
+      ),
+    )
+  }
+  await Promise.all(running)
+  if (failed) throw failed
+  o.time.add(`sheet matches (${o.helpers.length + 1} worker${o.helpers.length ? 's' : ''})`, matchMs, 0)
+  return found
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -131,6 +211,35 @@ export async function renderSheetRaster(pages: PageRenderer, pageIndex: number, 
 let importSeq = 0
 
 /**
+ * Where an import's time goes, for the dialog's Details and the console: "Timings: 8.4 s in all, …; decode 0.9 s, …".
+ * `lap` times the steps one after another; `add` notes the time of work that overlapped them (and, if given, how much
+ * of it was waited for).
+ */
+function stopwatch() {
+  const steps = new Map<string, { ms: number; waited: number }>()
+  let mark = performance.now()
+  const add = (name: string, ms: number, waited = ms) => {
+    const s = steps.get(name) ?? { ms: 0, waited: 0 }
+    s.ms += ms
+    s.waited += waited
+    steps.set(name, s)
+  }
+  const sec = (ms: number) => `${(ms / 1000).toFixed(1)} s`
+  return {
+    add,
+    /** The time since the last lap, as `name`. */
+    lap: (name: string) => {
+      const now = performance.now()
+      add(name, now - mark)
+      mark = now
+    },
+    summary: (total: number, sheets: number) =>
+      `Timings: ${sec(total)} in all, ${sheets} sheet${sheets === 1 ? '' : 's'} compared; ` +
+      [...steps].filter(([, s]) => s.ms >= 50).map(([name, s]) => `${name} ${sec(s.ms)}${s.waited < s.ms - 50 && s.waited > 0 ? ` (${sec(s.waited)} waited)` : ''}`).join(', '),
+  }
+}
+
+/**
  * Trace the pen and marker markup in `photo` and add it to the session as brush strokes on the sheet it was
  * drawn on. One undo step. Rejects with a `PhotoImportError` (message for the user) or an `AbortError`.
  */
@@ -145,6 +254,7 @@ export async function importPhotoMarkup(photo: Blob, opts: PhotoImportOptions = 
   if (opts.sheetId && !doc.sheets.some((s) => s.id === opts.sheetId)) throw new PhotoImportError('That sheet is not in the open document.')
 
   const client = createWorkerClient(say, opts.signal)
+  let helpers: WorkerClient[] = []
   let printed: { source: DrawingSource; name: string; sheets: Sheet[]; pages: PageRenderer } | null = null
   try {
     if (opts.printed) printed = await openPrinted(opts.printed)
@@ -155,19 +265,31 @@ export async function importPhotoMarkup(photo: Blob, opts: PhotoImportOptions = 
     const candidates = printed ? printedCandidates(printed.sheets, target, MAX_AUTO_SHEETS) : candidateSheets(doc.sheets, opts.sheetId, getSession().activeSheetId)
     if (!candidates.length) throw new PhotoImportError(printed ? `${printed.name} has no pages to match the photo against.` : 'That sheet is not in the open document.')
 
+    const time = stopwatch()
     say('Reading the photo…')
+    // with several sheets to compare, more workers compare them side by side; each reads the photo itself
+    helpers = Array.from({ length: Math.min(candidates.length, probeWorkers()) - 1 }, () => createWorkerClient(() => {}, opts.signal))
+    for (const h of helpers) h.ready = h.call({ type: 'decode', blob: photo }).then(() => true, () => false)
     const size = await client.call({ type: 'decode', blob: photo })
+    time.lap('decode')
     say(`Photo ${size.w} × ${size.h} px`)
 
-    // 1. which sheet is in the photo? Every candidate is compared: look-alike sheets can each match well
-    const probes: { sheet: Sheet; probe: Probe | null }[] = []
-    for (const sheet of candidates) {
-      const label = printed ? `${printed.name}, page ${sheet.pageIndex + 1}` : sheetLabel(sheet)
-      say(candidates.length > 1 ? `Looking for the sheet: ${label}…` : `Matching the photo to ${label}…`)
-      const ref = await renderSheetRaster(refPages, sheet.pageIndex, PROBE_DPI, opts.signal)
-      const { probe } = await client.call({ type: 'probe', ref, refDpi: PROBE_DPI }, [ref.rgba])
-      probes.push({ sheet, probe })
-    }
+    // 1. which sheet is in the photo? Every candidate is compared: look-alike sheets can each match well.
+    // The sheets are rendered here one after the other, and each is compared with the photo by whichever worker is
+    // free, while the next one renders.
+    const probes = await findSheet(candidates, {
+      first: client,
+      helpers,
+      render: (sheet) => renderSheetRaster(refPages, sheet.pageIndex, PROBE_DPI, opts.signal),
+      onSheet: (sheet) => {
+        const label = printed ? `${printed.name}, page ${sheet.pageIndex + 1}` : sheetLabel(sheet)
+        say(candidates.length > 1 ? `Looking for the sheet: ${label}…` : `Matching the photo to ${label}…`)
+      },
+      time,
+    })
+    // the trace runs in the first worker; the others are done
+    for (const h of helpers) h.close()
+    time.lap('find the sheet')
     const best = pickSheet(probes)
     if (!best) {
       if (printed) {
@@ -196,8 +318,14 @@ export async function importPhotoMarkup(photo: Blob, opts: PhotoImportOptions = 
     const refSheet = best.sheet
     const dpi = workingDpi(best.probe.seenDpi, refSheet.sizePt)
     say(`${printedFrom ?? sheetLabel(refSheet)}: the photo resolves about ${Math.round(best.probe.seenDpi)} dpi on the sheet; tracing at ${dpi} dpi…`)
+    time.lap('pick the sheet')
     const ref = await renderSheetRaster(refPages, refSheet.pageIndex, dpi, opts.signal)
-    const { result } = await client.call({ type: 'run', ref, dpi, options: { ink: opts.ink ?? 'both' } }, [ref.rgba])
+    time.lap('render sheet for tracing')
+    // the registration starts from the probe's match instead of matching features all over again
+    const pr = probes.find((p) => p.sheet === refSheet)!
+    const seed = { H: best.probe.H, w: pr.ref.w, h: pr.ref.h, inliers: best.probe.inliers, matches: best.probe.matches }
+    const { result } = await client.call({ type: 'run', ref, dpi, options: { ink: opts.ink ?? 'both', seed } }, [ref.rgba])
+    time.lap('align and trace')
 
     // 3. into the session, unless the document changed meanwhile
     if (getDocState().loadId !== loadId) throw new PhotoImportError('Another file was opened while the photo was being read; nothing was imported.')
@@ -213,9 +341,13 @@ export async function importPhotoMarkup(photo: Blob, opts: PhotoImportOptions = 
       // drawn at the new zoom (pdf.js renders on the main thread and would make the roll stutter)
       void unrollWhenDrawn(sheet.id)
     }
+    const line = time.summary(performance.now() - t0, candidates.length)
+    say(line)
+    console.info(`[photo] ${line}`)
     return summarize(sheet, groupId, result, strokes.length, dpi, performance.now() - t0, printedFrom)
   } finally {
     client.close()
+    for (const h of helpers) h.close()
     void printed?.source.close()
   }
 }

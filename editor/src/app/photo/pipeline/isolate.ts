@@ -10,6 +10,7 @@
 // yellow trace comes out black and a red marker red, whatever the paper underneath.
 import { loadCv, type Cv } from "./cv";
 import { blurRaw, type Log } from "./raster";
+import { explainPixels, fitModels } from "./fit";
 
 interface PaperKind { pr: number; pb: number; medLum: number }
 
@@ -48,6 +49,22 @@ function morph(cv: Cv, data: Uint8Array, w: number, h: number, op: number, size:
   return res;
 }
 
+/** The k-th smallest of a[0..n) (what a[k] would be after sorting), by quickselect; reorders a[0..n). */
+function kthSmallest(a: Float32Array, n: number, k: number): number {
+  let lo = 0, hi = n - 1;
+  while (lo < hi) {
+    const pivot = a[(lo + hi) >> 1];
+    let i = lo, j = hi;
+    while (i <= j) {
+      while (a[i] < pivot) i++;
+      while (a[j] > pivot) j--;
+      if (i <= j) { const t = a[i]; a[i] = a[j]; a[j] = t; i++; j--; }
+    }
+    if (k <= j) hi = j; else if (k >= i) lo = i; else return a[k];
+  }
+  return a[k];
+}
+
 function hueOf(r: number, g: number, b: number): number {
   const mx = Math.max(r, g, b), c = mx - Math.min(r, g, b);
   if (c <= 0) return 0;
@@ -67,7 +84,6 @@ const hueDist = (a: number, b: number): number => Math.min(Math.abs(a - b), 180 
  *          plus traceHue (tint of the paper, -1 if white) and edgeZone (near the edge of a sheet of trace)
  */
 export async function explainAway(cv: Cv, rgb: Uint8Array, valid: Uint8Array, refRgb: Uint8Array, w: number, h: number, { scale = 1, tol = Math.max(1, Math.round(4 * scale)) }: { scale?: number; tol?: number } = {}) {
-  const N = w * h;
   const refBlur = await blurRaw(cv, refRgb, w, h, 3, Math.max(0.5, 1.2 * scale)); // roughly the photo's sharpness
   const refLo = morph(cv, refBlur, w, h, cv.MORPH_ERODE, 2 * tol + 1, 3); // darkest the drawing could be within tol
 
@@ -75,51 +91,7 @@ export async function explainAway(cv: Cv, rgb: Uint8Array, valid: Uint8Array, re
   const S = Math.max(8, Math.round(24 * scale)), half = Math.round(1.5 * S);
   const gw = Math.ceil(w / S) + 1, gh = Math.ceil(h / S) + 1, G = gw * gh;
   const stride = Math.max(1, Math.floor((2 * half + 1) / 24));
-  const A = new Float32Array(G * 3), B = new Float32Array(G * 3), ok = new Uint8Array(G), seesPaper = new Uint8Array(G);
-  const B0 = 0.5, V0 = 144, SIGMA = 10; // slope prior, its weight (as drawing variance), residual scale
-  const xs = new Float32Array(3072), ys = new Float32Array(3072), wts = new Float32Array(1024), hist = new Int32Array(512);
-  for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
-    const cx = gx * S, cy = gy * S, g = gy * gw + gx;
-    const idx: number[] = [];
-    for (let y = Math.max(0, cy - half); y <= Math.min(h - 1, cy + half); y += stride) for (let x = Math.max(0, cx - half); x <= Math.min(w - 1, cx + half); x += stride) { const i = y * w + x; if (valid[i]) idx.push(i); }
-    const n = Math.min(idx.length, 1024);
-    if (n < 40) continue;
-    let blank = 0;
-    for (let k = 0; k < n; k++) if (Math.min(refBlur[idx[k] * 3], refBlur[idx[k] * 3 + 1], refBlur[idx[k] * 3 + 2]) >= 235) blank++;
-    seesPaper[g] = blank >= n * 0.1 ? 1 : 0; // some undrawn paper in view: the paper colour is observed, not extrapolated
-    // The three channels are fitted together: a pixel counts as paper in all of them or in none. Fitted one
-    // by one, a window half on yellow trace and half on a grey pen would take red and green from the trace and
-    // blue from the pen, inventing a paper that is not there.
-    for (let k = 0; k < n; k++) for (let c = 0; c < 3; c++) { xs[c * 1024 + k] = refBlur[idx[k] * 3 + c]; ys[c * 1024 + k] = rgb[idx[k] * 3 + c]; }
-    // start: prior slope, and the colour of the pixels around the 70th percentile of brightness
-    // (ink only ever darkens, so lean bright)
-    hist.fill(0);
-    const lumRes = (k: number): number => 0.30 * (ys[k] - B0 * xs[k]) + 0.59 * (ys[1024 + k] - B0 * xs[1024 + k]) + 0.11 * (ys[2048 + k] - B0 * xs[2048 + k]);
-    for (let k = 0; k < n; k++) hist[Math.max(0, Math.min(511, Math.round(lumRes(k)) + 128))]++;
-    let acc = 0, v70 = 0;
-    for (let v = 0; v < 512; v++) { acc += hist[v]; if (acc >= n * 0.7) { v70 = v - 128; break; } }
-    const fa = [0, 0, 0], fb = [B0, B0, B0];
-    let cnt = 0;
-    for (let k = 0; k < n; k++) if (Math.abs(lumRes(k) - v70) <= 8) { for (let c = 0; c < 3; c++) fa[c] += ys[c * 1024 + k] - B0 * xs[c * 1024 + k]; cnt++; }
-    for (let c = 0; c < 3; c++) fa[c] = cnt ? fa[c] / cnt : v70;
-    for (let it = 0; it < 4; it++) { // robust re-fit: pixels far from the model (ink, objects) lose their say
-      for (let k = 0; k < n; k++) {
-        let r2 = 0;
-        for (let c = 0; c < 3; c++) { const r = (ys[c * 1024 + k] - fa[c] - fb[c] * xs[c * 1024 + k]) / SIGMA; r2 += r * r; }
-        wts[k] = 1 / (1 + (r2 * r2) / 9);
-      }
-      for (let c = 0; c < 3; c++) {
-        let sw = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
-        for (let k = 0; k < n; k++) { const wt = wts[k], x = xs[c * 1024 + k], y = ys[c * 1024 + k]; sw += wt; sx += wt * x; sy += wt * y; sxx += wt * x * x; sxy += wt * x * y; }
-        if (sw < 1e-6) continue;
-        const lam = sw * V0;
-        fb[c] = Math.max(0, Math.min(1.3, (sxy - (sx * sy) / sw + lam * B0) / (sxx - (sx * sx) / sw + lam)));
-        fa[c] = (sy - fb[c] * sx) / sw;
-      }
-    }
-    for (let c = 0; c < 3; c++) { A[g * 3 + c] = fa[c]; B[g * 3 + c] = fb[c]; }
-    ok[g] = 1;
-  }
+  const { A, B, ok, seesPaper } = await fitModels({ w, h, S, half, stride, gw, gh }, rgb, valid, refBlur);
   if (!ok.some((v) => v)) throw new Error("the registered photo does not cover any of the sheet");
 
   // A window that sits entirely inside a marker fill, or on an object lying on the sheet, would "learn" that
@@ -157,13 +129,12 @@ export async function explainAway(cv: Cv, rgb: Uint8Array, valid: Uint8Array, re
     // Paper cannot be much darker than the same kind of paper around it: that is a dark object (a mouse, a
     // pen cap) whose colour balance happens to match, or a hard shadow. Soft, gradual shading passes.
     if (kinds.length) {
-      const dark: number[] = [];
+      const dark: number[] = [], buf = new Float32Array(17 * 17);
       for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
         const g = y * gw + x; if (kindOf[g] < 0) continue;
-        const v: number[] = [];
-        for (let j = -16; j <= 16; j += 2) for (let i = -16; i <= 16; i += 2) { const xx = x + i, yy = y + j; if (xx >= 0 && yy >= 0 && xx < gw && yy < gh && kindOf[yy * gw + xx] === kindOf[g]) v.push(lum[yy * gw + xx]); }
-        v.sort((p, q) => p - q);
-        if (lum[g] < 0.7 * v[Math.floor(v.length * 0.75)]) dark.push(g);
+        let n = 0;
+        for (let j = -16; j <= 16; j += 2) for (let i = -16; i <= 16; i += 2) { const xx = x + i, yy = y + j; if (xx >= 0 && yy >= 0 && xx < gw && yy < gh && kindOf[yy * gw + xx] === kindOf[g]) buf[n++] = lum[yy * gw + xx]; }
+        if (lum[g] < 0.7 * kthSmallest(buf, n, Math.floor(n * 0.75))) dark.push(g);
       }
       for (const g of dark) { ok[g] = 0; kindOf[g] = -1; }
     }
@@ -262,41 +233,7 @@ export async function explainAway(cv: Cv, rgb: Uint8Array, valid: Uint8Array, re
 
   // --- per pixel: of the nine nearest models, take the one that explains the pixel best. Near the edge of a
   // sheet of trace the nearest model may describe the other side; one of its neighbours will describe this one.
-  const absorb = new Uint8Array(N), inkRgb = new Uint8Array(N * 3), clean = new Uint8Array(N * 3).fill(255), flat = new Uint8Array(N).fill(255), foreign = new Uint8Array(N);
-  const edgeZone = anyEdge ? new Uint8Array(N) : null;
-  for (let y = 0; y < h; y++) {
-    const iy = Math.max(1, Math.min(gh - 2, Math.round(y / S)));
-    for (let x = 0; x < w; x++) {
-      const p = y * w + x; if (!valid[p]) continue;
-      const ix = Math.max(1, Math.min(gw - 2, Math.round(x / S))), g0 = iy * gw + ix;
-      if (edgeZone) edgeZone[p] = edgeNode[g0];
-      const pr = rgb[p * 3], pg = rgb[p * 3 + 1], pb = rgb[p * 3 + 2], lr = refLo[p * 3], lg = refLo[p * 3 + 1], lb = refLo[p * 3 + 2];
-      let best = -1, bq = 0, brighter = 0;
-      for (let k = 0; k < 9; k++) {
-        const q = (g0 + (k % 3) - 1 + (((k / 3) | 0) - 1) * gw) * 3;
-        const tr = pr / Math.max(12, A[q] + B[q] * lr), tg = pg / Math.max(12, A[q + 1] + B[q + 1] * lg), tb = pb / Math.max(12, A[q + 2] + B[q + 2] * lb);
-        const m = Math.min(1, tr, tg, tb);
-        if (m > best) { best = m; bq = q; }
-        if (Math.max(tr, tg, tb) > 1.15 && m < 0.92) brighter++; // brighter in one channel, darker in another
-      }
-      const er = Math.max(12, A[bq] + B[bq] * lr), eg = Math.max(12, A[bq + 1] + B[bq + 1] * lg), eb = Math.max(12, A[bq + 2] + B[bq + 2] * lb); // expected colour
-      const paper = Math.max(12, 0.30 * (A[bq] + 255 * B[bq]) + 0.59 * (A[bq + 1] + 255 * B[bq + 1]) + 0.11 * (A[bq + 2] + 255 * B[bq + 2]));
-      flat[p] = Math.min(255, (255 * (0.30 * pr + 0.59 * pg + 0.11 * pb)) / paper);
-      const a = 1 - best; // share of the pixel covered by ink
-      // Ink can only take light away. Something clearly brighter than the paper allows in one channel while
-      // darker in another (a grey pen barrel on yellow trace, a white label) is an object lying on the sheet.
-      // Ask the majority of the nearby models: a model fitted half on the object itself would excuse it.
-      if (brighter >= 5) { foreign[p] = a > 0.06 ? 1 : 2; if (a > 0.06) continue; } // 1: not ink; 2: only counts as "solid object" evidence
-      else if (a > 0.1 && Math.max(pr / er, pg / eg, pb / eb) > 1.15) { foreign[p] = 1; continue; }
-      absorb[p] = a * 255;
-      if (a > 0.06) {
-        const k = 255 / (paper * a); // un-mix, and take the lighting level out
-        const r = Math.max(0, Math.min(255, (pr - best * er) * k)), g = Math.max(0, Math.min(255, (pg - best * eg) * k)), b = Math.max(0, Math.min(255, (pb - best * eb) * k));
-        inkRgb[p * 3] = r; inkRgb[p * 3 + 1] = g; inkRgb[p * 3 + 2] = b;
-        clean[p * 3] = 255 * best + a * r; clean[p * 3 + 1] = 255 * best + a * g; clean[p * 3 + 2] = 255 * best + a * b;
-      }
-    }
-  }
+  const { absorb, inkRgb, clean, flat, foreign, edgeZone } = await explainPixels({ w, h, S, gw, gh, A, B, edgeNode: anyEdge ? edgeNode : null }, rgb, valid, refLo);
   return { absorb, inkRgb, clean, flat, traceHue, edgeZone, foreign, model: { A, B, S, gw, gh, usable: ok, seesPaper, kindOf, kinds: kindList, refLo } };
 }
 
