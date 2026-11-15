@@ -37,7 +37,7 @@ export interface LayoutOptions {
 }
 
 export const MIN_ZOOM = 0.05
-export const MAX_ZOOM = 8
+export const MAX_ZOOM = 24
 
 /** Lay sheets out in a grid, row-major in page order. Cells are sized by the largest sheet in their column/row. */
 export function layoutSheets(sheets: readonly Pick<Sheet, 'id' | 'pageIndex' | 'sizePt'>[], opts: LayoutOptions = {}): Placement[] {
