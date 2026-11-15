@@ -26,6 +26,8 @@ public sealed class LinkHub : IAsyncDisposable
     private readonly Timer debounce;
     private HashSet<string>? pendingChanged = [];
     private bool hasPendingChange;
+    /// <summary>Applies and reverts waiting for the gate: a background refresh yields to them between sheets.</summary>
+    private int editsWaiting;
     private IReadOnlyList<SheetSummary> lastSheetList = [];
 
     public LinkHub(ILinkHost host, LinkOptions options, ILinkLog log)
@@ -156,7 +158,7 @@ public sealed class LinkHub : IAsyncDisposable
                 break;
             case Apply a:
             {
-                await gate.WaitAsync(ct);
+                await EditGateAsync(ct);
                 try
                 {
                     int before;
@@ -164,7 +166,7 @@ public sealed class LinkHub : IAsyncDisposable
                     var results = await host.ApplyAsync(a.SheetId, a.Commands, ct);
                     await conn.SendAsync(ServerMessages.Applied(a.RequestId, a.SheetId, a.BaseVersion, before, results), ct);
                     if (results.Any(r => r.Status == CommandStatus.Applied))
-                        await RefreshSubscribedLockedAsync(a.SheetId, "apply", a.RequestId, ct);
+                        await RefreshEditedLockedAsync(a.SheetId, "apply", a.RequestId, ct);
                 }
                 finally
                 {
@@ -174,13 +176,13 @@ public sealed class LinkHub : IAsyncDisposable
             }
             case Revert r:
             {
-                await gate.WaitAsync(ct);
+                await EditGateAsync(ct);
                 try
                 {
                     var results = await host.RevertAsync(r.CommandIds, ct);
                     await conn.SendAsync(ServerMessages.Reverted(r.RequestId, r.SheetId, results), ct);
                     if (results.Any(x => x.Status == CommandStatus.Applied))
-                        await RefreshSubscribedLockedAsync(r.SheetId, "revert", r.RequestId, ct);
+                        await RefreshEditedLockedAsync(r.SheetId, "revert", r.RequestId, ct);
                 }
                 finally
                 {
@@ -228,27 +230,40 @@ public sealed class LinkHub : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// After an edit: re-export the edited sheet first, then every other sheet someone has open (a wall shows on
-    /// every plan of its level), pushing new versions to their subscribers. Caller holds the gate.
-    /// </summary>
-    private async Task RefreshSubscribedLockedAsync(string firstSheet, string reason, string? requestId, CancellationToken ct)
+    /// <summary>Take the gate for an apply or revert, counted so a background refresh lets it in before its next sheet.</summary>
+    private async Task EditGateAsync(CancellationToken ct)
     {
-        var open = SubscribedSheets();
-        var order = new List<string> { firstSheet };
-        order.AddRange(open.Where(s => s != firstSheet));
-        foreach (var sheetId in order)
+        Interlocked.Increment(ref editsWaiting);
+        try
         {
-            try
-            {
-                var (version, package, changed) = await ExportAndVersionLockedAsync(sheetId, ct);
-                if (changed) await BroadcastAsync(sheetId, ServerMessages.Sheet(sheetId == firstSheet ? requestId : null, sheetId, version, sheetId == firstSheet ? reason : "model_changed", package), ct);
-            }
-            catch (KeyNotFoundException)
-            {
-                // The sheet was deleted in the host; the sheet list push tells the editor.
-            }
+            await gate.WaitAsync(ct);
         }
+        finally
+        {
+            Interlocked.Decrement(ref editsWaiting);
+        }
+    }
+
+    /// <summary>
+    /// After an edit: re-export the edited sheet and push it now. Every other sheet someone has open may show the same
+    /// elements (a wall shows on every plan of its level), but exporting them here kept the gate for as long as all of
+    /// them took (a large sheet's PDF can take a minute), and the next edit waited behind it. They are queued for the
+    /// background refresh instead, <see cref="LinkOptions.OtherSheetsAfterEditMs"/> after the last edit. Caller holds the gate.
+    /// </summary>
+    private async Task RefreshEditedLockedAsync(string sheetId, string reason, string? requestId, CancellationToken ct)
+    {
+        try
+        {
+            var (version, package, changed) = await ExportAndVersionLockedAsync(sheetId, ct);
+            if (changed) await BroadcastAsync(sheetId, ServerMessages.Sheet(requestId, sheetId, version, reason, package), ct);
+        }
+        catch (KeyNotFoundException)
+        {
+            // The sheet was deleted in the host; the sheet list push tells the editor.
+        }
+        var others = SubscribedSheets();
+        others.Remove(sheetId);
+        if (others.Count > 0) QueueRefresh(others, options.OtherSheetsAfterEditMs);
     }
 
     private HashSet<string> SubscribedSheets()
@@ -291,7 +306,10 @@ public sealed class LinkHub : IAsyncDisposable
 
     // ─────────────── changes made in the host, not through the link ───────────────
 
-    private void OnModelChanged(IReadOnlyCollection<string>? sheetIds)
+    private void OnModelChanged(IReadOnlyCollection<string>? sheetIds) => QueueRefresh(sheetIds, options.ModelChangeDebounceMs);
+
+    /// <summary>Mark sheets (null: every open sheet) for the background refresh, and (re)start its timer.</summary>
+    private void QueueRefresh(IReadOnlyCollection<string>? sheetIds, int delayMs)
     {
         lock (stateLock)
         {
@@ -299,7 +317,7 @@ public sealed class LinkHub : IAsyncDisposable
             if (sheetIds is null) pendingChanged = null;
             else pendingChanged?.UnionWith(sheetIds);
         }
-        debounce.Change(options.ModelChangeDebounceMs, Timeout.Infinite);
+        debounce.Change(delayMs, Timeout.Infinite);
     }
 
     /// <summary>Run the pending model-change refresh now instead of after the debounce (tests, and hosts that know they are idle).</summary>
@@ -317,6 +335,7 @@ public sealed class LinkHub : IAsyncDisposable
         }
         try
         {
+            HashSet<string> known;
             await gate.WaitAsync(ct);
             try
             {
@@ -328,17 +347,37 @@ public sealed class LinkHub : IAsyncDisposable
                     lastSheetList = doc.Sheets;
                 }
                 if (listChanged) await BroadcastAllAsync(ServerMessages.SheetList(null, doc), ct);
-                var known = doc.Sheets.Select(s => s.Id).ToHashSet(StringComparer.Ordinal);
-                foreach (var sheetId in SubscribedSheets())
-                {
-                    if (!known.Contains(sheetId) || (changed is not null && !changed.Contains(sheetId))) continue;
-                    var (version, package, didChange) = await ExportAndVersionLockedAsync(sheetId, ct);
-                    if (didChange) await BroadcastAsync(sheetId, ServerMessages.Sheet(null, sheetId, version, "model_changed", package), ct);
-                }
+                known = doc.Sheets.Select(s => s.Id).ToHashSet(StringComparer.Ordinal);
             }
             finally
             {
                 gate.Release();
+            }
+            // One sheet per turn of the gate: an apply or revert that comes in meanwhile goes before the next sheet, and
+            // the sheets not done yet go back in the queue for after it.
+            var todo = SubscribedSheets().Where(id => known.Contains(id) && (changed is null || changed.Contains(id))).ToList();
+            for (var i = 0; i < todo.Count; i++)
+            {
+                if (Volatile.Read(ref editsWaiting) > 0)
+                {
+                    QueueRefresh(todo.Skip(i).ToList(), options.OtherSheetsAfterEditMs);
+                    return;
+                }
+                await gate.WaitAsync(ct);
+                try
+                {
+                    if (!SubscribedSheets().Contains(todo[i])) continue;
+                    var (version, package, didChange) = await ExportAndVersionLockedAsync(todo[i], ct);
+                    if (didChange) await BroadcastAsync(todo[i], ServerMessages.Sheet(null, todo[i], version, "model_changed", package), ct);
+                }
+                catch (KeyNotFoundException)
+                {
+                    // deleted in the host since the list was read
+                }
+                finally
+                {
+                    gate.Release();
+                }
             }
         }
         catch (OperationCanceledException)

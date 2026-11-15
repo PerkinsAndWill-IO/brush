@@ -1,6 +1,7 @@
 import type { ContextItem, ContextItemKind, Sheet, SheetContext } from '../types'
 import { bboxOf } from './internal/math'
-import type { DrawingManifest, ManifestElement } from './package-format'
+import type { DrawItem, DrawingElement, DrawingPage } from '../drawing'
+import type { DrawingManifest, ManifestElement, ManifestSheet } from './package-format'
 
 const CLOSED_BY_DEFAULT = new Set(['Rooms', 'Furniture', 'Casework'])
 
@@ -57,6 +58,53 @@ export function sheetsFromPackage(manifest: DrawingManifest): Sheet[] {
     if (s.scale !== undefined) sheet.scale = s.scale
     return sheet
   })
+}
+
+/** Under everything else when picking: a click inside a room picks the furniture on top, then the room. */
+const PICK_ORDER = ['Rooms', 'Casework', 'Furniture', 'Text', 'Walls', 'Windows', 'Doors', 'Grids']
+/** Stroke reach of an open footprint, sheet points: how close a pointer must come (the hit test adds its own tolerance). */
+const REACH: Record<string, number> = { Walls: 4, Grids: 1, Doors: 3, Windows: 3 }
+
+/**
+ * A pickable vector page for one sheet of a JSON package (the Revit link's sheets: a PDF plus a manifest, no vector
+ * items). Every element becomes items tied to its id, so the inspector, selection and hover highlights work on it:
+ * open footprints a path, closed ones a fill (pick inside) plus their outline. The PDF still draws the sheet; these
+ * items are only picked and highlighted. Elements carry what the manifest has: category, type, label and props.
+ */
+export function vectorPageFromPackage(sheet: ManifestSheet): { page: DrawingPage; elements: Record<string, DrawingElement> } {
+  const rank = (c: string) => {
+    const i = PICK_ORDER.indexOf(c)
+    return i < 0 ? PICK_ORDER.length : i
+  }
+  const ordered = sheet.elements.map((e, i) => ({ e, i })).sort((a, b) => rank(a.e.category) - rank(b.e.category) || a.i - b.i)
+  const items: DrawItem[] = []
+  const elements: Record<string, DrawingElement> = {}
+  for (const { e } of ordered) {
+    if (e.footprint.length === 0) continue
+    const xy = new Float32Array(e.footprint.flatMap((p) => [p.x, p.y]))
+    const closed = (e.closed ?? CLOSED_BY_DEFAULT.has(e.category)) && e.footprint.length > 2
+    if (closed) items.push({ t: 'fill', el: e.id, view: null, rings: [xy], c: [0, 0, 0] })
+    items.push({ t: 'path', el: e.id, view: null, xy, closed, w: REACH[e.category] ?? 1, c: [0, 0, 0], dash: [] })
+    if (elements[e.id]) continue
+    const { level, Level, ...rest } = e.props ?? {}
+    const info: DrawingElement = { category: e.category }
+    if (e.typeName) info.type = e.typeName
+    if (e.label) info.name = e.label
+    if (level ?? Level) info.level = level ?? Level
+    const params = Object.entries(rest).map(([name, value]) => ({ name, value: String(value) }))
+    if (params.length) info.params = params
+    elements[e.id] = info
+  }
+  const page: DrawingPage = {
+    id: sheet.id,
+    kind: 'sheet',
+    number: sheet.number ?? null,
+    name: sheet.name,
+    scale: sheet.scale ? `1 : ${sheet.scale}` : null,
+    sizePt: { ...sheet.sizePt },
+    items,
+  }
+  return { page, elements }
 }
 
 /** Context of one sheet of a package: origin 'package', confidence 1, hostRef set. Defaults to the first sheet. */

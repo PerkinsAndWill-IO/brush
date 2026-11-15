@@ -50,6 +50,9 @@ function PanelBody({ close }: { close: () => void }) {
   const [explain, setExplain] = useState(needsExplainer)
   // M6-10: sheets ticked to open together
   const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set())
+  // narrowing a long sheet list: free text over number and name, and one discipline (the number's letter prefix)
+  const [query, setQuery] = useState('')
+  const [discipline, setDiscipline] = useState<string | null>(null)
 
   if (state === 'off') {
     if (explain) return <Explainer onConnect={() => (setExplain(false), revit.connect())} />
@@ -82,9 +85,13 @@ function PanelBody({ close }: { close: () => void }) {
     )
   }
   const open = new Map(rv.open.map((o) => [o.id, o.version]))
-  const closed = sheets.filter((s) => !open.has(s.id) && !rv.opening.includes(s.id))
+  const disciplines = disciplineCounts(sheets)
+  const q = query.trim().toLowerCase()
+  const shown = sheets.filter((s) => (!discipline || disciplineOf(s) === discipline) && (!q || sheetLabel(s).toLowerCase().includes(q)))
+  const closed = shown.filter((s) => !open.has(s.id) && !rv.opening.includes(s.id))
   // in list order, and only sheets still waiting to be opened
-  const chosen = closed.filter((s) => picked.has(s.id)).map((s) => s.id)
+  const chosen = sheets.filter((s) => picked.has(s.id) && !open.has(s.id) && !rv.opening.includes(s.id)).map((s) => s.id)
+  const chosenShown = closed.filter((s) => picked.has(s.id)).length
   const toggle = (id: string) =>
     setPicked((p) => {
       const n = new Set(p)
@@ -124,6 +131,35 @@ function PanelBody({ close }: { close: () => void }) {
         <p className="secondary">This model has no sheets.</p>
       ) : (
         <>
+          {sheets.length > SEARCH_FROM && (
+            <div className="revit-filter">
+              <input
+                type="search"
+                className="revit-search"
+                placeholder="A103, floor plan, sections…"
+                aria-label="Filter sheets"
+                data-testid="revit-sheet-search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              {disciplines.length > 1 && (
+                <div className="revit-disciplines" role="group" aria-label="Discipline">
+                  {disciplines.map(([d, n]) => (
+                    <button
+                      key={d}
+                      type="button"
+                      className="chip-btn revit-discipline"
+                      aria-pressed={discipline === d}
+                      data-testid="revit-discipline"
+                      onClick={() => setDiscipline(discipline === d ? null : d)}
+                    >
+                      {d} <span className="mono-num">{n}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {closed.length > 1 && (
             <div className="revit-row revit-pick-bar">
               <span className="secondary">{chosen.length ? `${chosen.length} selected` : 'Tick sheets to open several at once.'}</span>
@@ -131,14 +167,22 @@ function PanelBody({ close }: { close: () => void }) {
                 type="button"
                 className="link-btn"
                 data-testid="revit-select-all"
-                onClick={() => setPicked(chosen.length === closed.length ? new Set() : new Set(closed.map((s) => s.id)))}
+                onClick={() =>
+                  setPicked((p) => {
+                    const n = new Set(p)
+                    if (chosenShown === closed.length) closed.forEach((s) => n.delete(s.id))
+                    else closed.forEach((s) => n.add(s.id))
+                    return n
+                  })
+                }
               >
-                {chosen.length === closed.length ? 'Select none' : 'Select all'}
+                {chosenShown === closed.length ? 'Select none' : 'Select all'}
               </button>
             </div>
           )}
+          {shown.length === 0 && <p className="secondary revit-none">No sheets match.</p>}
           <ul className="revit-sheets" data-testid="revit-sheets">
-            {sheets.map((s) => {
+            {shown.map((s) => {
               const v = open.get(s.id)
               const opening = rv.opening.includes(s.id)
               return (
@@ -194,12 +238,13 @@ function PanelBody({ close }: { close: () => void }) {
               )
             })}
           </ul>
-          {chosen.length > 0 && (
-            <button type="button" className="btn accent revit-open-chosen" data-testid="revit-open-selected" onClick={openChosen}>
-              {`${rv.open.length ? 'Add' : 'Open'} ${chosen.length} ${chosen.length === 1 ? 'sheet' : 'sheets'}`}
-            </button>
-          )}
         </>
+      )}
+      <div className="revit-foot">
+      {chosen.length > 0 && (
+        <button type="button" className="btn accent revit-open-chosen" data-testid="revit-open-selected" onClick={openChosen}>
+          {`${rv.open.length ? 'Add' : 'Open'} ${chosen.length} ${chosen.length === 1 ? 'sheet' : 'sheets'}`}
+        </button>
       )}
       <button
         type="button"
@@ -238,8 +283,25 @@ function PanelBody({ close }: { close: () => void }) {
           Disconnect
         </button>
       </div>
+      </div>
     </div>
   )
+}
+
+/** Above this many sheets the list gets a search box (and discipline chips when there are several). */
+const SEARCH_FROM = 8
+
+/** A sheet's discipline: the letters its number starts with (A103 → A, SD102 → SD). */
+const disciplineOf = (s: { number?: string }): string | null => s.number?.match(/^[A-Za-z]+/)?.[0].toUpperCase() ?? null
+
+/** Disciplines in the order they first appear, with how many sheets each has. */
+function disciplineCounts(sheets: readonly { number?: string }[]): [string, number][] {
+  const counts = new Map<string, number>()
+  for (const s of sheets) {
+    const d = disciplineOf(s)
+    if (d) counts.set(d, (counts.get(d) ?? 0) + 1)
+  }
+  return [...counts]
 }
 
 /** Top-bar entry: status dot, and the panel. */

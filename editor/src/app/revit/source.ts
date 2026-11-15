@@ -7,6 +7,7 @@
  * re-renders only the replaced sheet, and camera, strokes and the other sheets stay as they were.
  */
 import { DEFAULT_PALETTE, type FurnitureSymbol, type TypePalette, type WallStyle } from '@core/context'
+import type { DrawingElement } from '@core/drawing'
 import type { Sheet, SheetContext } from '@core/types'
 import { openSource, type DrawingSource, type LoadedSource, type PageRenderer, type VectorPage } from '../source'
 import type { LinkSheetSummary } from './protocol'
@@ -21,6 +22,8 @@ interface Part {
   innerId: string
   /** The sheet as placed in this document (pageIndex = position); kept while position and part are unchanged. */
   placed?: Sheet
+  /** The vector page handed out for this part, kept while its page and the shared elements are unchanged. */
+  vector?: VectorPage
 }
 
 /** How long a replaced part's PDF stays open, so a render that already started on it can finish. */
@@ -148,10 +151,28 @@ export class RevitSource implements DrawingSource {
     return { ...ctx, sheetId }
   }
 
-  /** Each part is its own `.drawing`; Revit element ids are shared, so an element is found on every sheet. */
+  /**
+   * Each part is its own package; Revit element ids are shared, so an element is found on every sheet. The elements
+   * are those of every open part together, so the inspector finds an element whichever sheet it looks it up on.
+   */
   vectorPage(sheetId: string): VectorPage | null {
     const p = this.parts.get(sheetId)
-    return p?.source.vectorPage?.(p.innerId) ?? null
+    const vp = p?.source.vectorPage?.(p.innerId)
+    if (!vp) return null
+    const elements = this.allElements()
+    if (p!.vector?.page !== vp.page || p!.vector.elements !== elements) p!.vector = { page: vp.page, elements }
+    return p!.vector
+  }
+
+  private elementsCache?: { parts: readonly Part[]; elements: Record<string, DrawingElement> }
+  private allElements(): Record<string, DrawingElement> {
+    const parts = this.order.map((id) => this.parts.get(id)!)
+    const c = this.elementsCache
+    if (c && c.parts.length === parts.length && c.parts.every((p, i) => p === parts[i])) return c.elements
+    const elements: Record<string, DrawingElement> = {}
+    for (const p of parts) Object.assign(elements, p.source.vectorPage?.(p.innerId)?.elements)
+    this.elementsCache = { parts, elements }
+    return elements
   }
 
   /** Symbols of every open sheet's package; the first sheet that draws a type wins. */

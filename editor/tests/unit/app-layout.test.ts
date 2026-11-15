@@ -43,6 +43,30 @@ describe('M1-03: grid layout', () => {
   it('one sheet sits at the origin', () => {
     expect(layoutSheets([sheets[0]])).toEqual([{ sheetId: 'sheet-0', pageIndex: 0, x: 0, y: 0, w: 1191, h: 842 }])
   })
+  it('a few oversized sheets do not stretch the grid of normal ones', () => {
+    const big = { w: A3.w * 7, h: A3.h * 7 }
+    const mixed = Array.from({ length: 20 }, (_, i) => ({ id: `s${i}`, pageIndex: i, sizePt: i === 5 || i === 6 ? big : A3 }))
+    const pl = layoutSheets(mixed)
+    const normal = pl.filter((_, i) => i !== 5 && i !== 6)
+    // normal sheets keep cells about one sheet wide: neighbors in a row are close, columns line up across rows
+    const step = pl[1].x - pl[0].x
+    expect(step).toBeLessThan(A3.w * 1.5)
+    for (const p of normal) expect(p.x / step).toBeCloseTo(Math.round(p.x / step), 9)
+    // the board stays landscape-ish instead of a tall strip of oversized sheets
+    const right = Math.max(...pl.map((p) => p.x + p.w))
+    const bottom = Math.max(...pl.map((p) => p.y + p.h))
+    expect(bottom / right).toBeLessThan(2)
+    // each oversized sheet starts its own row, at the left edge
+    expect(pl[5].x).toBe(0)
+    expect(pl[6].x).toBe(0)
+    expect(pl[6].y).toBeGreaterThan(pl[5].y + big.h)
+    for (let i = 0; i < pl.length; i++)
+      for (let j = i + 1; j < pl.length; j++) {
+        const a = pl[i]
+        const b = pl[j]
+        expect(a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y).toBe(true)
+      }
+  })
 })
 
 describe('M1-07: sheet coordinates', () => {

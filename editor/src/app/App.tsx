@@ -23,6 +23,7 @@ import sampleSmallIcon from './ui/assets/sample-small.png'
 import sampleMediumIcon from './ui/assets/sample-medium.png'
 import sampleLargeIcon from './ui/assets/sample-large.png'
 import { RevitHud, RevitStart } from './revit/RevitPanel'
+import { useRevit } from './revit/controller'
 import { isPhotoFile, photoImport, PhotoImportDialog } from './photo/PhotoImport'
 import { TraceControl } from './photo/TracePaper'
 
@@ -125,7 +126,53 @@ function ConversionProgress({ name, progress }: { name: string; progress: Conver
   )
 }
 
+/** Hand-drawn outline instead of a dashed border; stretched to the box, the stroke keeps its width. */
+function DropOutline() {
+  return (
+    <svg className="dropzone-outline" viewBox="0 0 1000 400" preserveAspectRatio="none" aria-hidden="true">
+      <path
+        d="M58 14 C 260 4, 610 20, 942 9 C 978 8, 993 30, 990 62 C 984 150, 997 262, 987 342 C 984 379, 963 393, 926 390 C 648 383, 302 398, 62 387 C 24 386, 9 368, 11 334 C 15 250, 5 138, 13 52 C 16 21, 36 9, 74 12 C 98 13, 118 15, 140 17"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  )
+}
+
+/**
+ * Linked to Revit: the drop card becomes the sheet picker. Logo and file button shrink to one header row, the card
+ * takes the window's height, and only the sheet list scrolls (its footer with the open button stays in view).
+ */
+function PickerState({ error }: { error?: string }) {
+  return (
+    <div className="empty landing picking" data-testid="empty-state">
+      <div className="landing-paper" aria-hidden="true" />
+      <div className="landing-stack picking">
+        <div className="dropzone picker-card" data-testid="revit-picker-card">
+          <DropOutline />
+          <div className="picker-head">
+            <img className="picker-logo" src={brushLogoRed} alt="Brush" />
+            <span className="picker-hint">
+              or drop a PDF, <span className="ext">.rvt</span> or <span className="ext">.drawing</span> anywhere
+            </span>
+            <button type="button" className="btn picker-file" title="Choose file (Ctrl+O)" onClick={() => void chooseFile()}>
+              Choose file
+            </button>
+          </div>
+          <RevitStart />
+          {error && (
+            <p className="error" role="alert" data-testid="load-error">
+              {error}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function EmptyState({ error, loading, bytes, progress }: { error?: string; loading?: string; bytes?: number; progress?: ConvertProgress }) {
+  const linked = useRevit().link.state === 'on'
+  if (linked && !loading) return <PickerState error={error} />
   return (
     <div className="empty landing" data-testid="empty-state">
       <div className="landing-paper" aria-hidden="true" />
@@ -136,13 +183,7 @@ function EmptyState({ error, loading, bytes, progress }: { error?: string; loadi
           <img className="landing-logo" src={brushLogoRed} alt="Brush" />
         )}
         <div className="dropzone">
-          {/* hand-drawn outline instead of a dashed border; stretched to the box, the stroke keeps its width */}
-          <svg className="dropzone-outline" viewBox="0 0 1000 400" preserveAspectRatio="none" aria-hidden="true">
-            <path
-              d="M58 14 C 260 4, 610 20, 942 9 C 978 8, 993 30, 990 62 C 984 150, 997 262, 987 342 C 984 379, 963 393, 926 390 C 648 383, 302 398, 62 387 C 24 386, 9 368, 11 334 C 15 250, 5 138, 13 52 C 16 21, 36 9, 74 12 C 98 13, 118 15, 140 17"
-              vectorEffect="non-scaling-stroke"
-            />
-          </svg>
+          <DropOutline />
           <h1>
             Drop a PDF, <span className="ext">.rvt</span> or <span className="ext">.drawing</span> to start
           </h1>

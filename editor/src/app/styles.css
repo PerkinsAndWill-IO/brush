@@ -359,6 +359,59 @@ button.revit-sheet-name:hover { text-decoration: underline; }
 .menu .link-btn { min-height: 0; display: inline; }
 .revit-start { margin-top: 4px; display: flex; flex-direction: column; align-items: center; }
 .revit-inline { width: 360px; max-width: 100%; text-align: left; background: var(--capsule); border: 1px solid var(--line-soft); border-radius: 14px; padding: 14px; }
+.revit-filter { display: flex; flex-direction: column; gap: 8px; }
+.revit-search { width: 100%; min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font: inherit; font-size: 12.5px; color: var(--text); }
+.revit-search:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.revit-disciplines { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-btn.revit-discipline { font-family: inherit; min-height: 28px; border: 1px solid var(--line-soft); background: rgba(255, 255, 255, 0.6); color: var(--text); font-weight: 500; }
+.chip-btn.revit-discipline .mono-num { color: var(--muted); font-size: 10.5px; }
+.chip-btn.revit-discipline[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.chip-btn.revit-discipline[aria-pressed='true'] .mono-num { color: rgba(255, 255, 255, 0.75); }
+.revit-none { margin: 4px 0; }
+.revit-foot { display: flex; flex-direction: column; gap: 10px; }
+
+/* Linked to Revit on the landing page: the drop card becomes the sheet picker (variant B). It is as tall as the
+   window allows between the top bar and the tool capsule, and only the sheet list scrolls. */
+.empty.landing.picking { padding: 20px 24px 100px; }
+.landing-stack.picking { width: min(100%, 920px); height: 100%; max-height: 820px; }
+.landing .dropzone.picker-card { height: 100%; min-height: 0; align-items: stretch; gap: 14px; padding: 18px 22px 18px; text-align: left; }
+.picker-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid rgba(62, 46, 40, 0.12); }
+.picker-logo { height: 46px; width: auto; display: block; flex: none; }
+.picker-hint { flex: 1; min-width: 160px; color: var(--ink-brown); font-size: 13px; }
+.picker-hint .ext { font-family: var(--mono); font-size: 0.9em; }
+.btn.picker-file { min-height: 38px; padding: 0 18px; border-radius: 999px; background: var(--terracotta); color: #fffdf8; font-size: 13px; font-weight: 600; }
+.btn.picker-file:hover:not(:disabled) { background: var(--terracotta-hover); }
+.picker-card .revit-start { flex: 1; min-height: 0; margin: 0; align-items: stretch; }
+.picker-card .revit-inline { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; padding: 0; border: 0; background: transparent; }
+.picker-card .revit-body { flex: 1; min-height: 0; }
+.picker-card .revit-h { font-size: 15px; color: var(--ink-brown); }
+.picker-card .revit-filter { flex-direction: row; flex-wrap: wrap; align-items: center; }
+.picker-card .revit-search { flex: 1 1 220px; width: auto; }
+.picker-card .revit-sheets { flex: 1; min-height: 0; max-height: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); align-content: start; gap: 2px 8px; padding-right: 2px; }
+.picker-card .revit-sheets li { background: rgba(255, 255, 255, 0.45); }
+.picker-card .revit-sheets li:has(input:checked) { background: #fff; box-shadow: inset 0 0 0 1.5px var(--accent); }
+.picker-card .revit-foot { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 16px; padding-top: 10px; border-top: 1px solid rgba(62, 46, 40, 0.12); }
+.picker-card .revit-foot .toggle-row.revit-stream { grid-column: 1; border-top: 0; padding-top: 0; min-height: 40px; }
+.picker-card .revit-foot .revit-open-chosen { grid-column: 2; grid-row: 1; align-self: center; }
+.picker-card .revit-foot > .revit-row, .picker-card .revit-foot > .revit-queued { grid-column: 1 / -1; }
+@media (max-width: 600px) {
+  .empty.landing.picking { padding: 8px 10px 92px; }
+  .landing .dropzone.picker-card { padding: 12px 14px; gap: 10px; }
+  .picker-logo { height: 32px; }
+  .picker-hint { display: none; }
+  .picker-head { justify-content: space-between; padding-bottom: 10px; }
+  .picker-card .revit-sheets { grid-template-columns: minmax(0, 1fr); }
+  /* the footer keeps only what acts: the open button, then the stream switch and Disconnect side by side */
+  .picker-card .revit-stream-sub, .picker-card .revit-foot > .revit-row:last-child > .secondary { display: none; }
+  .picker-card .revit-foot { grid-template-columns: minmax(0, 1fr) auto; }
+  .picker-card .revit-foot .revit-open-chosen { grid-column: 1 / -1; grid-row: 1; width: 100%; justify-content: center; }
+  .picker-card .revit-foot .toggle-row.revit-stream { grid-column: 1; }
+  .picker-card .revit-foot > .revit-row:last-child { grid-column: 2; grid-row: auto; }
+}
+@media (max-height: 560px) {
+  .empty.landing.picking { padding-top: 6px; padding-bottom: 84px; }
+  .picker-logo { height: 30px; }
+}
 .revit-results { position: absolute; inset: 0; pointer-events: none; z-index: 14; overflow: hidden; }
 .revit-result { position: absolute; display: flex; align-items: center; gap: 6px; max-width: 280px; padding: 4px 8px 4px 7px; border-radius: 10px; background: #fff; border: 1px solid var(--line-soft); box-shadow: 0 6px 18px rgba(24, 30, 46, 0.14); font-size: calc(11px * var(--label-scale, 1)); line-height: 1.3; }
 .revit-result .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--accent); }

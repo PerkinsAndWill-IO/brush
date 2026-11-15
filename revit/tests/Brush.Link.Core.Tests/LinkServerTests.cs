@@ -345,3 +345,187 @@ public class OriginPolicyTests
         Directory.Delete(Path.GetDirectoryName(path)!, true);
     }
 }
+
+/// <summary>
+/// An apply re-exports only the sheet it edited. Other open sheets are refreshed afterwards in the background, so the
+/// next edit does not wait behind exports of sheets nobody is drawing on (a large sheet's PDF can take a minute).
+/// </summary>
+public sealed class EditRefreshTests
+{
+    /// <summary>Counts exports per sheet, and can hold one sheet's export until released.</summary>
+    private sealed class CountingHost(ILinkHost inner) : ILinkHost
+    {
+        public readonly Dictionary<string, int> Exports = new(StringComparer.Ordinal);
+        public string? HoldSheet;
+        public TaskCompletionSource HoldStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public string Name => inner.Name;
+        public event Action<IReadOnlyCollection<string>?>? ModelChanged { add => inner.ModelChanged += value; remove => inner.ModelChanged -= value; }
+        public Task<DocumentInfo> GetDocumentAsync(CancellationToken ct) => inner.GetDocumentAsync(ct);
+        public async Task<SheetExport> ExportSheetAsync(string sheetId, CancellationToken ct)
+        {
+            lock (Exports) Exports[sheetId] = Exports.GetValueOrDefault(sheetId) + 1;
+            if (sheetId == HoldSheet)
+            {
+                HoldStarted.TrySetResult();
+                await Release.Task.WaitAsync(ct);
+            }
+            return await inner.ExportSheetAsync(sheetId, ct);
+        }
+        public int ExportsOf(string id) { lock (Exports) return Exports.GetValueOrDefault(id); }
+        public Task<IReadOnlyList<CommandResult>> ApplyAsync(string sheetId, IReadOnlyList<Command> commands, CancellationToken ct) => inner.ApplyAsync(sheetId, commands, ct);
+        public Task<IReadOnlyList<CommandResult>> RevertAsync(IReadOnlyList<string> commandIds, CancellationToken ct) => inner.RevertAsync(commandIds, ct);
+        public Task ShowSheetAsync(string sheetId, CancellationToken ct) => inner.ShowSheetAsync(sheetId, ct);
+        public Task<bool> ApproveOriginAsync(string origin, CancellationToken ct) => inner.ApproveOriginAsync(origin, ct);
+    }
+
+    private static (CountingHost counting, PackageHost inner) TwoSheetHost()
+    {
+        var (m, name, pdf) = DrawingPackage.Parse(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "fixtures", "office-1-sheet.drawing")));
+        var second = m.Sheets[0] with { Id = "A-202", Number = "A-202", Elements = [] };
+        var inner = new PackageHost(m with { Sheets = [m.Sheets[0], second] }, name, pdf);
+        return (new CountingHost(inner), inner);
+    }
+
+    private static CancellationToken Soon() => new CancellationTokenSource(TimeSpan.FromSeconds(10)).Token;
+
+    private static async Task<ClientWebSocket> Open(LinkServer server, params string[] sheetIds)
+    {
+        var ws = new ClientWebSocket();
+        await ws.ConnectAsync(server.Url, Soon());
+        await Send(ws, new JsonObject { ["type"] = "hello", ["protocol"] = 1 });
+        await Expect(ws, "welcome");
+        foreach (var id in sheetIds)
+        {
+            await Send(ws, new JsonObject { ["type"] = "open_sheet", ["sheetId"] = id });
+            await Expect(ws, "sheet");
+        }
+        return ws;
+    }
+
+    private static Task Send(ClientWebSocket ws, JsonObject m) => ws.SendAsync(Encoding.UTF8.GetBytes(m.ToJsonString()), WebSocketMessageType.Text, true, Soon());
+
+    private static async Task<JsonObject> Expect(ClientWebSocket ws, string type)
+    {
+        var buf = new byte[1 << 16];
+        using var ms = new MemoryStream();
+        while (true)
+        {
+            var r = await ws.ReceiveAsync(buf, Soon());
+            ms.Write(buf, 0, r.Count);
+            if (!r.EndOfMessage) continue;
+            var m = JsonNode.Parse(ms.ToArray())!.AsObject();
+            Assert.True(m["type"]!.GetValue<string>() == type, $"expected {type}, got {m["type"]}");
+            return m;
+        }
+    }
+
+    private static JsonObject Wall(string id, int y = 300) => JsonNode.Parse($$"""
+        {"type":"apply","sheetId":"A-201","commands":[{"op":"create_wall","id":"{{id}}","sheetId":"A-201","strokeId":"s","path":{"points":[{"x":300,"y":{{y}}},{"x":500,"y":{{y}}}],"closed":false},"wallType":"Generic - 200mm"}]}
+        """)!.AsObject();
+
+    [Fact]
+    public async Task An_apply_exports_only_the_edited_sheet_and_leaves_the_others_to_the_background_refresh()
+    {
+        var (host, _) = TwoSheetHost();
+        await using var server = new LinkServer(host, new LinkOptions { Port = 0, ModelChangeDebounceMs = 60_000, OtherSheetsAfterEditMs = 60_000 });
+        server.Start();
+        using var ws = await Open(server, "A-201", "A-202");
+        Assert.Equal(1, host.ExportsOf("A-202"));
+
+        await Send(ws, Wall("cmd-1"));
+        await Expect(ws, "applied");
+        Assert.Equal(2, (await Expect(ws, "sheet"))["version"]!.GetValue<int>());
+        Assert.Equal(2, host.ExportsOf("A-201"));
+        Assert.Equal(1, host.ExportsOf("A-202")); // not exported with the edit
+
+        await server.Hub.FlushModelChangesAsync();
+        Assert.Equal(2, host.ExportsOf("A-202")); // the background refresh does it
+        Assert.Equal(2, host.ExportsOf("A-201")); // and leaves the edited sheet alone
+    }
+
+    [Fact]
+    public async Task An_edit_during_the_background_refresh_goes_before_the_sheets_still_to_do()
+    {
+        var (host, inner) = TwoSheetHost();
+        await using var server = new LinkServer(host, new LinkOptions { Port = 0, ModelChangeDebounceMs = 60_000, OtherSheetsAfterEditMs = 60_000 });
+        server.Start();
+        using var ws = await Open(server, "A-202", "A-201");
+
+        // edits made in Revit on both open sheets: hold the first sheet's export while an apply comes in
+        host.HoldSheet = "A-202";
+        inner.ExternalEdit("A-202", _ => { });
+        inner.ExternalEdit("A-201", _ => { });
+        var flush = server.Hub.FlushModelChangesAsync();
+        await host.HoldStarted.Task.WaitAsync(Soon());
+
+        await Send(ws, Wall("cmd-2", 340));
+        await Task.Delay(100);
+        host.Release.TrySetResult();
+        await Expect(ws, "applied");
+        await Expect(ws, "sheet");
+        await flush;
+        // A-201 was exported for the apply, and the background refresh, which had it still to do, put it back in the
+        // queue instead of exporting it before the apply
+        Assert.Equal(2, host.ExportsOf("A-201"));
+    }
+}
+
+
+/// <summary>
+/// Revit starts and stops the link on its UI thread, and blocks that thread until the link has stopped. Work posted to
+/// the UI thread cannot run meanwhile, so neither the server's loops nor DisposeAsync may depend on it ("Reload the
+/// plugin" froze Revit when they did).
+/// </summary>
+public sealed class ServerStopTests
+{
+    /// <summary>A UI thread: runs posted work one item at a time, until it blocks on something.</summary>
+    private sealed class UiThread : SynchronizationContext, IDisposable
+    {
+        private readonly System.Collections.Concurrent.BlockingCollection<Action> work = new();
+        private readonly Thread thread;
+
+        public UiThread()
+        {
+            thread = new Thread(() =>
+            {
+                SetSynchronizationContext(this);
+                foreach (var a in work.GetConsumingEnumerable()) a();
+            }) { IsBackground = true };
+            thread.Start();
+        }
+
+        public override void Post(SendOrPostCallback d, object? state) => work.Add(() => d(state));
+
+        public Task Run(Action a)
+        {
+            var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            work.Add(() =>
+            {
+                try { a(); done.SetResult(); }
+                catch (Exception e) { done.SetException(e); }
+            });
+            return done.Task;
+        }
+
+        public void Dispose() => work.CompleteAdding();
+    }
+
+    [Fact]
+    public async Task Starting_and_then_blocking_on_dispose_from_the_ui_thread_with_an_editor_connected_does_not_deadlock()
+    {
+        using var ui = new UiThread();
+        var host = PackageHost.FromFile(Path.Combine(AppContext.BaseDirectory, "fixtures", "office-1-sheet.drawing"));
+        var server = new LinkServer(host, new LinkOptions { Port = 0 });
+        await ui.Run(server.Start);
+        using var ws = new ClientWebSocket();
+        ws.Options.SetRequestHeader("Origin", "http://localhost:5173");
+        await ws.ConnectAsync(server.Url, new CancellationTokenSource(TimeSpan.FromSeconds(5)).Token);
+
+        // what the plugin's StopLink did: block the UI thread on DisposeAsync
+        var stopped = ui.Run(() => server.DisposeAsync().AsTask().GetAwaiter().GetResult());
+        var finished = await Task.WhenAny(stopped, Task.Delay(TimeSpan.FromSeconds(5)));
+        Assert.True(finished == stopped, "stopping the server waited for the blocked UI thread");
+    }
+}
