@@ -1,7 +1,7 @@
 # revit: Brush Link for Revit
 
 A Revit add-in that the Brush Editor connects to while you sketch. The editor sends its commands (walls, doors,
-furniture, deletes) and Revit applies them to the open model. The sheet then goes back to the editor as a new
+furniture, deletes, type changes) and Revit applies them to the open model. The sheet then goes back to the editor as a new
 `.drawing` version, and edits made in Revit itself are pushed the same way.
 
 ```text
@@ -105,9 +105,9 @@ Log: `%LOCALAPPDATA%\Brush\revit-link.log`.
 Verified here: the core (36 tests, including socket round trips and origin and host checks), a real Chromium page on
 `localhost:5173` talking to the DevHost, and the add-in compiling against the Revit 2025, 2026 and 2027 APIs.
 
-**`set_type` (S1-06) verified inside Revit 2026** on 2026-11-15 with `tests/live/type-switcher.live.mjs` on a cloud
-model (list types, `set_type` sent as the editor sends it, revert, a change addressed to a 3D view; the test wall is
-deleted at the end). **The rest is not yet run inside Revit.** The Revit layer compiles against the real API but has not met a model. Check these
+**`list_types` and `set_type` checked inside Revit 2026** with `tests/live/type-switcher.live.mjs` (`BRUSH_LIVE=1`; it
+creates one wall, lists its types, changes and reverts its type the way the editor sends it, and deletes the wall).
+**The rest is not yet run inside Revit.** The Revit layer compiles against the real API but has not met a model. Check these
 first on a real project:
 
 - The PDF page matches the title-block extent, so the manifest overlays the PDF. If they disagree,
@@ -117,12 +117,11 @@ first on a real project:
 
 Known limits:
 
-- Walls, doors and furniture are placed through plan viewports only. Deletes and type changes (`set_type`, S1) also
-  apply when addressed to a view (plans, sections, elevations, 3D) by its id.
+- Only plan viewports take edits. Sections, elevations and 3D views are exported in the PDF only.
 - For a view with a split crop region, only the first region's transform is used.
 - Walls are straight segments. Arcs in the editor path come through as their polyline.
-- A `delete` cannot be reverted from the editor (use Undo in Revit). Element ids recorded per command are kept only for
-  the Revit session.
+- A `delete` cannot be reverted from the editor (use Undo in Revit). Element ids and replaced types recorded per command
+  are kept only for the Revit session.
 - Every model change re-exports every open sheet. Exports that did not change are not pushed, but they still cost
   Revit time.
 - The sheet goes back as the editor's JSON-envelope package (manifest + PDF), which the editor now treats as legacy.

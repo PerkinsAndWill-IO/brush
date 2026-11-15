@@ -30,13 +30,19 @@ public sealed record CloseSheet(string SheetId) : ClientMessage;
 /// <summary>Make the sheet the active view in the host, so the user sees in Revit the sheet they opened in the editor.</summary>
 public sealed record ShowSheet(string SheetId) : ClientMessage;
 
+/// <summary>
+/// Apply editor commands (<see cref="Command"/>, mirrored in <c>Model/Command.cs</c>): <c>create_wall</c>,
+/// <c>place_door</c>, <c>place_instance</c>, <c>delete</c>, and <c>set_type</c> (editor decision 0011):
+/// <code>{ op: 'set_type', id, sheetId, targets: string[], typeName: string, family?: string, strokeId: 'type:&lt;element id&gt;' }</code>
+/// which changes the type of existing elements (<see cref="SetType"/>). Unknown ops come back failed.
+/// </summary>
 public sealed record Apply(string SheetId, int? BaseVersion, IReadOnlyList<Command> Commands) : ClientMessage;
 
 public sealed record Revert(string SheetId, IReadOnlyList<string> CommandIds) : ClientMessage;
 
 public sealed record Ping : ClientMessage;
 
-/// <summary>S1-06: the types an element can switch to.</summary>
+/// <summary>S1-07: the types an element can switch to.</summary>
 public sealed record ListTypes(string ElementId) : ClientMessage;
 
 public sealed class ProtocolException(string code, string message, string? requestId = null) : Exception(message)
@@ -53,7 +59,7 @@ public static class ErrorCodes
     public const string NotHello = "hello_required";
     public const string UnknownSheet = "unknown_sheet";
     public const string HostError = "host_error";
-    /// <summary>S1-06: list_types for an element the model does not have.</summary>
+    /// <summary>S1-07: list_types for an element the model does not have.</summary>
     public const string UnknownElement = "unknown_element";
 }
 
@@ -120,7 +126,6 @@ public static class ServerMessages
         ["server"] = new JsonObject { ["name"] = serverName, ["version"] = typeof(ServerMessages).Assembly.GetName().Version?.ToString(3), ["host"] = hostName, ["epoch"] = epoch },
         ["document"] = Document(doc),
         ["sheets"] = Sheets(doc.Sheets),
-        ["views"] = Views(doc.Views),
     };
 
     public static JsonObject SheetList(string? requestId, DocumentInfo doc) => WithRequest(new JsonObject
@@ -128,22 +133,7 @@ public static class ServerMessages
         ["type"] = "sheets",
         ["document"] = Document(doc),
         ["sheets"] = Sheets(doc.Sheets),
-        ["views"] = Views(doc.Views),
     }, requestId);
-
-    /// <summary>S1-06: the answer to list_types.</summary>
-    public static JsonObject Types(string? requestId, TypeList t) => WithRequest(new JsonObject
-    {
-        ["type"] = "types",
-        ["elementId"] = t.ElementId,
-        ["current"] = t.Current is null ? null : Type(t.Current),
-        ["types"] = new JsonArray(t.Types.Select(x => (JsonNode)Type(x)).ToArray()),
-    }, requestId);
-
-    private static JsonObject Type(TypeInfo t) => new() { ["family"] = t.Family, ["typeName"] = t.TypeName, ["typeId"] = t.TypeId };
-
-    private static JsonArray Views(IReadOnlyList<ViewSummary>? views) =>
-        new((views ?? []).Select(v => (JsonNode)new JsonObject { ["id"] = v.Id, ["name"] = v.Name, ["kind"] = v.Kind }).ToArray());
 
     /// <summary>A new version of a sheet. <c>package</c> is the editor's .drawing JSON envelope (manifest + base64 PDF).</summary>
     public static JsonObject Sheet(string? requestId, string sheetId, int version, string reason, byte[] package) => WithRequest(new JsonObject
@@ -178,6 +168,17 @@ public static class ServerMessages
     }, requestId);
 
     public static JsonObject Pong(string? requestId) => WithRequest(new JsonObject { ["type"] = "pong" }, requestId);
+
+    /// <summary>S1-07: the answer to list_types.</summary>
+    public static JsonObject Types(string? requestId, TypeList t) => WithRequest(new JsonObject
+    {
+        ["type"] = "types",
+        ["elementId"] = t.ElementId,
+        ["current"] = t.Current is null ? null : TypeJson(t.Current),
+        ["types"] = new JsonArray(t.Types.Select(x => (JsonNode)TypeJson(x)).ToArray()),
+    }, requestId);
+
+    private static JsonObject TypeJson(TypeInfo t) => new() { ["family"] = t.Family, ["typeName"] = t.TypeName, ["typeId"] = t.TypeId };
 
     public static JsonObject Error(string? requestId, string code, string message) => WithRequest(new JsonObject
     {

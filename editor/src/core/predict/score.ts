@@ -1,5 +1,6 @@
 import type { DecisionKind } from '../types'
 import type { Evidence } from './evidence'
+import type { ViewMode } from './context-cache'
 
 /**
  * Rule-based scoring, one rule per decision kind (docs/spec.md "Decision vocabulary").
@@ -19,6 +20,27 @@ export const KINDS_FOR_COARSE: Record<Coarse, readonly DecisionKind[]> = {
   linear: ['wall', 'door', 'markup'],
   closed: ['furniture', 'markup'],
   unknown: ['wall', 'door', 'furniture', 'delete', 'markup'],
+}
+
+/**
+ * The same compatibility on elevation / section sheets: there a door is an upright outline seen face on (closed,
+ * or open at the bottom), and walls and furniture are plan readings that do not apply.
+ */
+export const KINDS_FOR_COARSE_ELEVATION: Record<Coarse, readonly DecisionKind[]> = {
+  linear: ['door', 'markup'],
+  closed: ['door', 'markup'],
+  unknown: ['door', 'delete', 'markup'],
+}
+
+/** Detail / axonometric / other sheets: no element reading; the sketch is ink, or an erase. */
+export const KINDS_FOR_COARSE_DETAIL: Record<Coarse, readonly DecisionKind[]> = {
+  linear: ['markup'],
+  closed: ['markup'],
+  unknown: ['delete', 'markup'],
+}
+
+export function kindsFor(coarse: Coarse, view: ViewMode): readonly DecisionKind[] {
+  return (view === 'elevation' ? KINDS_FOR_COARSE_ELEVATION : view === 'detail' ? KINDS_FOR_COARSE_DETAIL : KINDS_FOR_COARSE)[coarse]
 }
 
 export const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x)
@@ -47,6 +69,10 @@ export const RULES = {
   /** Thin = minor/major side of the oriented box below this (ticks, retraced lines). */
   thinAspect: [0.25, 0.4] as const,
   furnitureSize: [0.3, 0.45, 2.6, 3.4] as const,
+  /** Elevation door outline (face on): width and height in metres, height / width. */
+  elevDoorWidth: [0.5, 0.65, 2.0, 2.6] as const,
+  elevDoorHeight: [1.6, 1.85, 2.8, 3.4] as const,
+  elevDoorTall: [0.95, 1.1] as const,
   markupBase: 0.28,
   deleteScribblePow: 1.5,
   /** Weight of the previous run's raw scores while drawing (0 = no smoothing). */
@@ -244,9 +270,38 @@ export function scoreKinds(ev: Evidence): RuleResult {
   // a big ring (revision cloud, circling) encloses things; furniture is smaller
   if (cl < 0.2) markup += 0.5 * ev.ringness * ramp(S, 2.2, 2.8)
 
+  if (ev.view === 'detail') {
+    evidence.push(`${ev.pc.sheetType} sheet: plan readings (walls, doors, furniture) off, sketch stays ink`)
+    wall = 0
+    door = 0
+    furniture = 0
+    delete targets.door
+  } else if (ev.view === 'elevation') {
+    // elevation / section: no plan walls, swings or furniture; a door is an upright outline about a door's size
+    evidence.push('elevation sheet: openings read face on (plan walls, swings and furniture off)')
+    wall = 0
+    furniture = 0
+    delete targets.door
+    door = elevationDoor(ev, scribble)
+    if (door > 0.2) evidence.push(`upright ${ev.bboxM.w.toFixed(2)} × ${ev.bboxM.h.toFixed(2)} m ${ev.openBottom > 0.5 ? 'outline open at the bottom' : 'outline'}`)
+  }
+
   return {
     scores: { wall, door, furniture, delete: del, markup },
     evidence,
     targets,
   }
+}
+
+/** Elevation door score: an upright outline (closed, or open at the bottom) of a door's width and height. */
+function elevationDoor(ev: Evidence, scribble: number): number {
+  if (ev.stroke.tool === 'eraser') return 0
+  const { w, h } = ev.bboxM
+  if (w <= 1e-6) return 0
+  const cl = ev.f.closureRatio
+  const size = bump(w, ...RULES.elevDoorWidth) * bump(h, ...RULES.elevDoorHeight) * ramp(h / w, ...RULES.elevDoorTall)
+  const square = ramp(ev.upright, 0.75, 0.9)
+  const closed = 1 - ramp(cl, 0.12, 0.3)
+  const outline = Math.max(closed, ev.openBottom) * ramp(ev.inkDensity, 1.3, 1.6) * (1 - ramp(ev.inkDensity, 2.6, 3.2))
+  return size * square * outline * (1 - scribble) * 0.95
 }

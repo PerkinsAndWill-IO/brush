@@ -28,8 +28,11 @@ public sealed record InstanceOp(string CommandId, string ViewId, string? LevelId
 /// </summary>
 public sealed record DeleteOp(string CommandId, IReadOnlyList<string> HostIds, IReadOnlyList<string> CommandIds, IReadOnlyList<string> Unresolved) : ModelOp(CommandId);
 
-/// <summary>S1: switch <see cref="HostIds"/> to the type named by <see cref="TypeId"/>, else by family + type name.</summary>
-public sealed record ChangeTypeOp(string CommandId, IReadOnlyList<string> HostIds, string? Family, string TypeName, string? TypeId) : ModelOp(CommandId);
+/// <summary>
+/// Set type: give each of <see cref="HostIds"/> (Revit element ids) the type named <see cref="TypeName"/>, of
+/// <see cref="Family"/> when given. <see cref="Unresolved"/> are targets that name no element.
+/// </summary>
+public sealed record SetTypeOp(string CommandId, IReadOnlyList<string> HostIds, IReadOnlyList<string> Unresolved, string TypeName, string? Family) : ModelOp(CommandId);
 
 /// <summary>A command the planner could not translate; the reason goes back to the editor.</summary>
 public sealed record RejectedOp(string CommandId, string Reason) : ModelOp(CommandId);
@@ -46,20 +49,17 @@ public static partial class CommandPlanner
     [GeneratedRegex(@"^(?:wall|opening|grid|label|fixture|unknown)-(\d+)$")]
     private static partial Regex ContextItemPattern();
 
-    /// <param name="sheet">The sheet the command was drawn on; null for a view page (S1-06), where only ops that need no sheet
-    /// geometry (delete, set_type) can be planned.</param>
-    public static ModelOp Plan(Command command, SheetGeometry? sheet, Func<string, bool> isKnownCommand)
+    public static ModelOp Plan(Command command, SheetGeometry sheet, Func<string, bool> isKnownCommand)
     {
         try
         {
             return command switch
             {
-                CreateWall or PlaceDoor or PlaceInstance when sheet is null => new RejectedOp(command.Id, NotOnASheet(command)),
-                CreateWall c => PlanWall(c, sheet!),
-                PlaceDoor c => PlanDoor(c, sheet!, isKnownCommand),
-                PlaceInstance c => PlanInstance(c, sheet!),
+                CreateWall c => PlanWall(c, sheet),
+                PlaceDoor c => PlanDoor(c, sheet, isKnownCommand),
+                PlaceInstance c => PlanInstance(c, sheet),
                 DeleteElements c => PlanDelete(c, isKnownCommand),
-                SetType c => PlanChangeType(c),
+                SetType c => PlanSetType(c),
                 UnknownCommand c => new RejectedOp(c.Id, $"unknown op '{c.RawOp}'"),
                 _ => new RejectedOp(command.Id, $"unsupported op '{command.Op}'"),
             };
@@ -123,17 +123,6 @@ public static partial class CommandPlanner
         return new InstanceOp(c.Id, vp.ViewId, vp.LevelId, vp.ToModel(at), Math.Atan2(mx.Y, mx.X), mx.Length, my.Length, c.Family);
     }
 
-    private static string NotOnASheet(Command c) =>
-        $"{c.Id}: not on a sheet: {c.Op} needs a plan viewport on a sheet; on a view page only delete and set_type apply";
-
-    private static ModelOp PlanChangeType(SetType c)
-    {
-        var host = c.Targets.Select(HostId).OfType<string>().Distinct(StringComparer.Ordinal).ToList();
-        if (host.Count == 0) return new RejectedOp(c.Id, $"no target names a Revit element: {string.Join(", ", c.Targets)}");
-        if (string.IsNullOrWhiteSpace(c.TypeName) && c.TypeId is null) return new RejectedOp(c.Id, "no type named");
-        return new ChangeTypeOp(c.Id, host, c.Family, c.TypeName, c.TypeId);
-    }
-
     private static ModelOp PlanDelete(DeleteElements c, Func<string, bool> isKnownCommand)
     {
         var host = new List<string>();
@@ -148,6 +137,28 @@ public static partial class CommandPlanner
         if (host.Count == 0 && cmds.Count == 0) return new RejectedOp(c.Id, $"no target names a Revit element or an earlier command: {string.Join(", ", c.Targets)}");
         return new DeleteOp(c.Id, host, cmds, unresolved);
     }
+
+    private static ModelOp PlanSetType(SetType c)
+    {
+        var host = new List<string>();
+        var unresolved = new List<string>();
+        foreach (var t in c.Targets)
+        {
+            if (HostId(t) is { } id) { if (!host.Contains(id)) host.Add(id); }
+            else unresolved.Add(t);
+        }
+        if (host.Count == 0)
+            return new RejectedOp(c.Id, c.Targets.Count == 0 ? "set_type has no targets" : $"no target names a Revit element: {string.Join(", ", c.Targets)}");
+        return new SetTypeOp(c.Id, host, unresolved, c.TypeName, c.Family);
+    }
+
+    /// <summary>
+    /// The type name and family to look for. The sheet names a family type <c>Family: Type</c> (and the editor may
+    /// send that as <c>typeName</c> with or without <c>family</c>), so a <c>typeName</c> that starts with
+    /// <c>family + ": "</c> is cut to the type name.
+    /// </summary>
+    public static (string Name, string? Family) TypeQuery(string typeName, string? family) =>
+        family is { Length: > 0 } f && typeName.StartsWith(f + ": ", StringComparison.Ordinal) ? (typeName[(f.Length + 2)..], f) : (typeName, family);
 
     /// <summary>A Revit element id from a hostRef ("123456") or a package context item id ("wall-123456"); null otherwise.</summary>
     public static string? HostId(string? reference)

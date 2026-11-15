@@ -28,25 +28,6 @@ internal static class SheetReader
         (ParseId(sheetId) is { } id ? doc.GetElement(id) as ViewSheet : null)
         ?? throw new KeyNotFoundException($"no sheet with id '{sheetId}' in {doc.Title}");
 
-    /// <summary>S1-06: view kinds a `.drawing` exports as view pages, which edits may be addressed to.</summary>
-    private static readonly ViewType[] EditableViewTypes =
-    [
-        ViewType.FloorPlan, ViewType.CeilingPlan, ViewType.AreaPlan, ViewType.EngineeringPlan,
-        ViewType.Section, ViewType.Elevation, ViewType.ThreeD,
-    ];
-
-    /// <summary>S1-06: the model's views (not templates) that edits may be addressed to, by name.</summary>
-    public static IEnumerable<View> Views(Document doc) =>
-        new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
-            .Where(v => !v.IsTemplate && v is not ViewSheet && EditableViewTypes.Contains(v.ViewType))
-            .OrderBy(v => v.Name, StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>S1-06: a sheet, or a view edits may be addressed to.</summary>
-    public static View FindSheetOrView(Document doc, string id) =>
-        (ParseId(id) is { } eid ? doc.GetElement(eid) as View : null) is { IsTemplate: false } v && (v is ViewSheet || EditableViewTypes.Contains(v.ViewType))
-            ? v
-            : throw new KeyNotFoundException($"no sheet or view with id '{id}' in {doc.Title}");
-
     // ─────────────── geometry ───────────────
 
     public static Vec3 V(XYZ p) => new(p.X, p.Y, p.Z);

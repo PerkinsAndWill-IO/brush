@@ -56,26 +56,12 @@ public sealed class PackageHost : ILinkHost
         public ManifestSheet Snapshot() => Sheet with { Elements = Elements.ToList() };
     }
 
-    private readonly List<ViewSummary> views = [];
-
-    /// <summary>S1-06: a view page the dev host pretends the model has (no geometry; tests address edits to it).</summary>
-    public void AddView(string id, string name, string kind)
-    {
-        lock (gate) views.Add(new ViewSummary(id, name, kind));
-    }
-
-    /// <summary>How many manifest elements on all sheets have this id (tests).</summary>
-    public int ElementCount(string elementId)
-    {
-        lock (gate) return sheets.Sum(s => s.Elements.Count(e => e.Id == elementId));
-    }
-
     private MutableSheet Find(string sheetId) =>
         sheets.FirstOrDefault(s => s.Sheet.Id == sheetId) ?? throw new KeyNotFoundException($"no sheet '{sheetId}'");
 
     public Task<DocumentInfo> GetDocumentAsync(CancellationToken ct)
     {
-        lock (gate) return Task.FromResult(new DocumentInfo(Title, null, project, sheets.Select(s => new SheetSummary(s.Sheet.Id, s.Sheet.Number, s.Sheet.Name)).ToList(), views.ToList()));
+        lock (gate) return Task.FromResult(new DocumentInfo(Title, null, project, sheets.Select(s => new SheetSummary(s.Sheet.Id, s.Sheet.Number, s.Sheet.Name)).ToList()));
     }
 
     public Task<SheetExport> ExportSheetAsync(string sheetId, CancellationToken ct)
@@ -100,10 +86,8 @@ public sealed class PackageHost : ILinkHost
     {
         lock (gate)
         {
-            // a view page has no sheet geometry: only delete and change_type plan there (S1-06)
-            var isView = views.Any(v => v.Id == sheetId);
-            var sheet = isView ? null : Find(sheetId);
-            var geometry = sheet is null ? null : GeometryOf(sheet.Sheet);
+            var sheet = Find(sheetId);
+            var geometry = GeometryOf(sheet.Sheet);
             var results = new List<CommandResult>();
             foreach (var c in commands)
             {
@@ -121,9 +105,9 @@ public sealed class PackageHost : ILinkHost
                 results.Add(op switch
                 {
                     RejectedOp r => CommandResult.Failed(c.Id, r.Reason),
-                    DeleteOp d => Delete(d),
-                    ChangeTypeOp t => ChangeTypeOf(t),
-                    _ => Add(sheet!, c),
+                    DeleteOp d => Delete(sheet, d),
+                    SetTypeOp t => SetTypes(sheet, t),
+                    _ => Add(sheet, c),
                 });
             }
             return Task.FromResult<IReadOnlyList<CommandResult>>(results);
@@ -146,38 +130,123 @@ public sealed class PackageHost : ILinkHost
         return CommandResult.Applied(c.Id, [id]);
     }
 
-    private CommandResult Delete(DeleteOp d)
+    private CommandResult Delete(MutableSheet sheet, DeleteOp d)
     {
         var ids = d.HostIds.Concat(d.CommandIds.SelectMany(ledger.ElementsOf)).ToHashSet(StringComparer.Ordinal);
-        var removed = sheets.SelectMany(s => s.Elements).Where(e => ids.Contains(e.Id)).Select(e => e.Id).Distinct().ToList();
-        foreach (var s in sheets) s.Elements.RemoveAll(e => ids.Contains(e.Id));
+        var removed = sheet.Elements.Where(e => ids.Contains(e.Id)).Select(e => e.Id).ToList();
+        sheet.Elements.RemoveAll(e => ids.Contains(e.Id));
         if (removed.Count == 0) return CommandResult.Skipped(d.CommandId, "targets are already gone");
         ledger.Record(d.CommandId, []);
         var notes = d.Unresolved.Count > 0 ? new[] { $"ignored targets that name no element: {string.Join(", ", d.Unresolved)}" } : null;
         return CommandResult.Applied(d.CommandId, removed, notes);
     }
 
-    /// <summary>S1-06: set the elements' type name (the dev host's types are names), remembering the previous one.</summary>
-    private CommandResult ChangeTypeOf(ChangeTypeOp t)
+    /// <summary>
+    /// The DevHost's model has no type table: an element can take any type its category uses on any sheet, or that the
+    /// palette lists for it. Matched like Revit (<see cref="TypeMatch"/>).
+    /// </summary>
+    private CommandResult SetTypes(MutableSheet sheet, SetTypeOp op)
     {
-        var targets = sheets.SelectMany(s => s.Elements).Where(e => t.HostIds.Contains(e.Id)).ToList();
-        if (targets.Count > 0 && targets.All(e => e.TypeName == t.TypeName))
-            return CommandResult.Skipped(t.CommandId, "the elements already have that type");
-        var changes = new List<(string ElementId, string PreviousTypeId)>();
-        foreach (var s in sheets)
-            for (var i = 0; i < s.Elements.Count; i++)
+        var notes = new List<string>();
+        var errors = new List<string>();
+        var changes = new List<TypeChange>();
+        var touched = new List<string>();
+        if (op.Unresolved.Count > 0) notes.Add($"ignored targets that name no element: {string.Join(", ", op.Unresolved)}");
+        foreach (var id in op.HostIds)
+        {
+            var i = sheet.Elements.FindIndex(e => e.Id == id);
+            if (i < 0)
             {
-                var e = s.Elements[i];
-                if (!t.HostIds.Contains(e.Id)) continue;
-                if (!changes.Exists(c => c.ElementId == e.Id)) changes.Add((e.Id, e.TypeName ?? ""));
-                s.Elements[i] = e with { TypeName = t.TypeName };
+                errors.Add($"no element {id} on this sheet");
+                continue;
             }
-        if (changes.Count == 0) return CommandResult.Failed(t.CommandId, "the targets are not in the model");
-        ledger.RecordTypeChange(t.CommandId, changes);
-        return CommandResult.Applied(t.CommandId, changes.Select(c => c.ElementId).ToList());
+            var e = sheet.Elements[i];
+            var m = TypeMatch.Find(TypesFor(e.Category), op.TypeName, op.Family, e.Category);
+            if (m.Hit is null)
+            {
+                errors.Add($"{id}: {m.Error}");
+                continue;
+            }
+            if (m.Note is not null && !notes.Contains(m.Note)) notes.Add(m.Note);
+            touched.Add(id);
+            var to = m.Hit.Key;
+            if (e.TypeName == to)
+            {
+                notes.Add($"{id} is already '{to}'");
+                continue;
+            }
+            changes.Add(new TypeChange(id, e.TypeName ?? "", to));
+            sheet.Elements[i] = e with { TypeName = to };
+        }
+        if (touched.Count == 0) return CommandResult.Failed(op.CommandId, string.Join("; ", errors));
+        notes.AddRange(errors);
+        ledger.RecordTypeChanges(op.CommandId, changes);
+        return CommandResult.Applied(op.CommandId, touched, notes);
     }
 
-    /// <summary>S1-06: the dev host's types: the palette's for walls, doors and furniture, plus the names its category uses.</summary>
+    private List<TypeCandidate<string>> TypesFor(string category)
+    {
+        var names = sheets.SelectMany(s => s.Elements).Where(e => e.Category == category && e.TypeName is { Length: > 0 }).Select(e => e.TypeName!);
+        var palette = category switch
+        {
+            "Walls" => this.palette?.Walls?.Select(w => w.Name),
+            "Doors" => this.palette?.Doors?.Select(d => d.Name),
+            "Furniture" => this.palette?.Furniture?.Select(f => f.Name),
+            _ => null,
+        };
+        return names.Concat(palette ?? []).Distinct(StringComparer.Ordinal).Select(n => new TypeCandidate<string>(n, n, null)).ToList();
+    }
+
+    public Task<IReadOnlyList<CommandResult>> RevertAsync(IReadOnlyList<string> commandIds, CancellationToken ct)
+    {
+        lock (gate)
+        {
+            var results = new List<CommandResult>();
+            foreach (var id in commandIds)
+            {
+                if (!ledger.Knows(id))
+                {
+                    results.Add(CommandResult.Skipped(id, "not a command of this link"));
+                    continue;
+                }
+                if (ledger.TypeChangesOf(id) is { } changes)
+                {
+                    results.Add(RestoreTypes(id, changes));
+                    continue;
+                }
+                var els = ledger.ElementsOf(id).ToHashSet(StringComparer.Ordinal);
+                foreach (var s in sheets) s.Elements.RemoveAll(e => els.Contains(e.Id));
+                ledger.Forget(id);
+                results.Add(els.Count == 0 ? CommandResult.Skipped(id, "a delete cannot be reverted by the dev host") : CommandResult.Applied(id, els.ToList()));
+            }
+            return Task.FromResult<IReadOnlyList<CommandResult>>(results);
+        }
+    }
+
+    /// <summary>Put back the types a set_type replaced, on the elements that still have the type it gave them.</summary>
+    private CommandResult RestoreTypes(string commandId, IReadOnlyList<TypeChange> changes)
+    {
+        var restored = new List<string>();
+        var notes = new List<string>();
+        foreach (var c in changes)
+        {
+            var s = sheets.FirstOrDefault(x => x.Elements.Any(e => e.Id == c.ElementId));
+            var i = s?.Elements.FindIndex(e => e.Id == c.ElementId) ?? -1;
+            if (s is null || i < 0) notes.Add($"{c.ElementId} is gone");
+            else if (s.Elements[i].TypeName != c.To) notes.Add($"{c.ElementId} was changed since, to '{s.Elements[i].TypeName}': left as it is");
+            else
+            {
+                s.Elements[i] = s.Elements[i] with { TypeName = c.From.Length == 0 ? null : c.From };
+                restored.Add(c.ElementId);
+            }
+        }
+        ledger.Forget(commandId);
+        return restored.Count == 0
+            ? CommandResult.Skipped(commandId, notes.Count == 0 ? "no type to put back" : string.Join("; ", notes))
+            : CommandResult.Applied(commandId, restored, notes);
+    }
+
+    /// <summary>S1-07: the dev host's types: the palette's for walls, doors and furniture, plus the names its category uses.</summary>
     public Task<TypeList> ListTypesAsync(string elementId, CancellationToken ct)
     {
         lock (gate)
@@ -196,42 +265,6 @@ public sealed class PackageHost : ILinkHost
                 .Where(n => n.Length > 0).Distinct(StringComparer.Ordinal).Select(n => new TypeInfo(null, n, n)).ToList();
             var current = string.IsNullOrEmpty(e.TypeName) ? null : new TypeInfo(null, e.TypeName, e.TypeName);
             return Task.FromResult(new TypeList(elementId, current, all));
-        }
-    }
-
-    public Task<IReadOnlyList<CommandResult>> RevertAsync(IReadOnlyList<string> commandIds, CancellationToken ct)
-    {
-        lock (gate)
-        {
-            var results = new List<CommandResult>();
-            foreach (var id in commandIds)
-            {
-                if (!ledger.Knows(id))
-                {
-                    results.Add(CommandResult.Skipped(id, "not a command of this link"));
-                    continue;
-                }
-                var typeChanges = ledger.TypeChangesOf(id);
-                if (typeChanges.Count > 0)
-                {
-                    // a type change goes back to the previous types; the elements stay
-                    foreach (var s in sheets)
-                        for (var i = 0; i < s.Elements.Count; i++)
-                        {
-                            var el = s.Elements[i];
-                            var prev = typeChanges.Where(c => c.ElementId == el.Id).Select(c => c.PreviousTypeId).FirstOrDefault();
-                            if (prev is not null) s.Elements[i] = el with { TypeName = prev.Length > 0 ? prev : null };
-                        }
-                    ledger.Forget(id);
-                    results.Add(CommandResult.Applied(id, typeChanges.Select(c => c.ElementId).ToList()));
-                    continue;
-                }
-                var els = ledger.ElementsOf(id).ToHashSet(StringComparer.Ordinal);
-                foreach (var s in sheets) s.Elements.RemoveAll(e => els.Contains(e.Id));
-                ledger.Forget(id);
-                results.Add(els.Count == 0 ? CommandResult.Skipped(id, "a delete cannot be reverted by the dev host") : CommandResult.Applied(id, els.ToList()));
-            }
-            return Task.FromResult<IReadOnlyList<CommandResult>>(results);
         }
     }
 

@@ -57,17 +57,17 @@ public sealed record DeleteElements : Command
 }
 
 /// <summary>
-/// S1: switch host elements to another type (editor decision 0011). <see cref="TypeId"/> is the Revit type id when the
-/// editor got its list from Revit; otherwise the type is found by <see cref="Family"/> + <see cref="TypeName"/>.
+/// Change the type of host elements already on the sheet (editor decision 0011). <see cref="Targets"/> are Revit
+/// element ids; <see cref="TypeName"/> is the type as the sheet names it (<c>ManifestElement.TypeName</c>: a wall
+/// type's name, or <c>Family: Type</c> for a family instance), <see cref="Family"/> its family when the editor knows it.
+/// The editor sends one per element, with <c>strokeId</c> <c>type:&lt;element id&gt;</c>.
 /// </summary>
 public sealed record SetType : Command
 {
     public override string Op => "set_type";
     public required IReadOnlyList<string> Targets { get; init; }
-    public string? Family { get; init; }
     public required string TypeName { get; init; }
-    public string? TypeId { get; init; }
-    public string? PreviousTypeName { get; init; }
+    public string? Family { get; init; }
 }
 
 /// <summary>An op this plugin does not know. Kept so the reply can say "skipped" for it instead of failing the batch.</summary>
@@ -105,7 +105,7 @@ public sealed class CommandJsonConverter : JsonConverter<Command>
             PlaceDoor c => new PlaceDoorDto { Op = c.Op, Id = c.Id, SheetId = c.SheetId, StrokeId = c.StrokeId, At = PointDto.Of(c.At), WidthPt = c.WidthPt, AngleRad = c.AngleRad, HostWallRef = c.HostWallRef, FamilyType = c.FamilyType },
             PlaceInstance c => new PlaceInstanceDto { Op = c.Op, Id = c.Id, SheetId = c.SheetId, StrokeId = c.StrokeId, At = PointDto.Of(c.At), Bbox = RectDto.Of(c.Bbox), AngleRad = c.AngleRad, Family = c.Family },
             DeleteElements c => new DeleteDto { Op = c.Op, Id = c.Id, SheetId = c.SheetId, StrokeId = c.StrokeId, Targets = c.Targets.ToList() },
-            SetType c => new SetTypeDto { Op = c.Op, Id = c.Id, SheetId = c.SheetId, StrokeId = c.StrokeId, Targets = c.Targets.ToList(), Family = c.Family, TypeName = c.TypeName, TypeId = c.TypeId, PreviousTypeName = c.PreviousTypeName },
+            SetType c => new SetTypeDto { Op = c.Op, Id = c.Id, SheetId = c.SheetId, StrokeId = c.StrokeId, Targets = c.Targets.ToList(), TypeName = c.TypeName, Family = c.Family },
             _ => new BaseDto { Op = value.Op, Id = value.Id, SheetId = value.SheetId, StrokeId = value.StrokeId },
         };
         JsonSerializer.Serialize(writer, dto, dto.GetType(), options);
@@ -225,20 +225,14 @@ public sealed class CommandJsonConverter : JsonConverter<Command>
     private sealed class SetTypeDto : BaseDto
     {
         public List<string>? Targets { get; set; }
-        public string? Family { get; set; }
         public string? TypeName { get; set; }
-        public string? TypeId { get; set; }
-        public string? PreviousTypeName { get; set; }
+        public string? Family { get; set; }
 
         public SetType ToCommand()
         {
             var (id, sheet) = Ids();
-            return new SetType
-            {
-                Id = id, SheetId = sheet, StrokeId = StrokeId, Targets = Need(Targets, "targets", id), Family = Family,
-                TypeName = string.IsNullOrEmpty(TypeName) ? throw new JsonException($"{id}: missing typeName") : TypeName,
-                TypeId = TypeId, PreviousTypeName = PreviousTypeName,
-            };
+            var name = TypeName is { Length: > 0 } n ? n : throw new JsonException($"{id}: missing typeName");
+            return new SetType { Id = id, SheetId = sheet, StrokeId = StrokeId, Targets = Need(Targets, "targets", id), TypeName = name, Family = string.IsNullOrEmpty(Family) ? null : Family };
         }
     }
 }

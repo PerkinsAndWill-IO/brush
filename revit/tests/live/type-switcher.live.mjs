@@ -1,10 +1,10 @@
-// S1-06: the type switcher inside Revit, over the link socket. Runs only with BRUSH_LIVE=1.
+// S1-06, S1-07: list_types and set_type inside Revit, over the link socket. Runs only with BRUSH_LIVE=1.
 //
 //   BRUSH_LIVE=1 node revit/tests/live/type-switcher.live.mjs [sheetNumber]
 //
 // Touches only what it creates: one short wall on a plan sheet, deleted again at the end (also when a step fails).
 // Steps: create the wall → list_types → set_type → list_types shows it → revert → current is back →
-// set_type addressed to a 3D view → revert → delete the wall → list_types says unknown_element.
+// delete the wall → list_types says unknown_element.
 // Do not sync the model with central while it runs.
 
 if (process.env.BRUSH_LIVE !== '1') {
@@ -63,13 +63,9 @@ const check = (cond, what) => {
 
 send({ type: 'hello', protocol: 1, client: 'type-switcher.live' })
 const welcome = await expect('welcome')
-console.log(`Revit: ${welcome.server.host}, model "${welcome.document.title}", ${welcome.sheets.length} sheets, ${welcome.views?.length ?? 0} views`)
-check(Array.isArray(welcome.views) && welcome.views.length > 0, 'welcome lists views (new add-in loaded)')
+console.log(`Revit: ${welcome.server.host}, model "${welcome.document.title}", ${welcome.sheets.length} sheets`)
 const sheet = welcome.sheets.find((s) => s.number === SHEET_NUMBER) ?? welcome.sheets.find((s) => /PLN/.test(s.name))
 check(sheet, `a plan sheet (${SHEET_NUMBER})`)
-const view3d = welcome.views.find((v) => v.kind === 'ThreeD' && v.name === '{3D}') ?? welcome.views.find((v) => v.kind === 'ThreeD')
-check(view3d, 'a 3D view')
-console.log(`sheet ${sheet.number} ${sheet.name} (${sheet.id}); 3D view "${view3d.name}" (${view3d.id})`)
 
 // where to draw: next to an existing wall on that sheet (inside its plan viewport); then stop the sheet pushes
 let r = send({ type: 'open_sheet', sheetId: sheet.id })
@@ -109,15 +105,6 @@ try {
   r = send({ type: 'list_types', elementId: wallId })
   check((await expect('types', r)).current.typeId === t0.current.typeId, 'current is the old type again')
   ok('revert restores the previous type')
-
-  r = send({ type: 'apply', sheetId: view3d.id, commands: [{ op: 'set_type', id: 'live-ct-2', sheetId: view3d.id, targets: [wallId], typeName: other.typeName, family: other.family ?? undefined, strokeId: `type:${wallId}` }] })
-  const c2 = await expect('applied', r)
-  check(c2.results[0].status === 'applied', `set_type on the 3D view applied (${c2.results[0].message ?? ''})`)
-  r = send({ type: 'list_types', elementId: wallId })
-  check((await expect('types', r)).current.typeId === other.typeId, 'current is the new type (3D view)')
-  r = send({ type: 'revert', sheetId: view3d.id, commandIds: ['live-ct-2'] })
-  check((await expect('reverted', r)).results[0].status === 'applied', 'revert on the 3D view applied')
-  ok('set_type and revert addressed to the 3D view')
 } catch (e) {
   console.log(`  FAIL ${e.message}`)
   process.exitCode = 1

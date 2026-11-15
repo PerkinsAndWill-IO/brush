@@ -55,21 +55,22 @@ Every message may carry a `requestId` (string). The reply, or the error, echoes 
 | `apply` | `sheetId`, `baseVersion?`, `commands: Command[]` | `applied`, then `sheet` (`reason: "apply"`) if anything changed |
 | `revert` | `sheetId`, `commandIds: string[]` | `reverted`, then `sheet` (`reason: "revert"`) if anything changed |
 | `ping` | | `pong` |
-| `list_types` | `elementId` | `types` (S1-06): the types the element can switch to, as the host lists them (Revit: `Element.GetValidTypes()`), and its current type. Error `unknown_element` for an id the model does not have. An older plugin answers `unknown_type`. |
-
-**Sheets and views (S1-06).** `apply` and `revert` take a sheet id **or a view id** (from `welcome.views`) as `sheetId`. On a
-view only ops that need no sheet geometry apply (`delete`, `set_type`); `create_wall`, `place_door` and
-`place_instance` fail with "not on a sheet". No `sheet` push follows a change made on a view.
-
-**`set_type` (editor decision 0011, S1-06).** `{ op: "set_type", id, sheetId, targets: string[], typeName, family?,
-typeId?, strokeId }`: the targets (Revit ids or package context ids) switch to the type `typeId` when given, else to the
-valid type (`Element.GetValidTypes()`) named `typeName` (with `family` when given), `"Family: Type"` or
-`"Family Type"`. Targets that already have that type answer `skipped`. `revert` sets each element back to the type it
-had before.
+| `list_types` | `elementId` | `types` (S1-07): the types the element can switch to, as the host lists them (Revit: `Element.GetValidTypes()`), and its current type. Error `unknown_element` for an id the model does not have. An older plugin answers `unknown_type`. |
 
 `commands` are the editor's `Command` objects unchanged (`editor/src/core/types/index.ts`): `create_wall`,
-`place_door`, `place_instance` and `delete`, with coordinates in sheet points (1/72 in, origin top-left, y down) on the
-sheet the package described. Unknown ops are reported as failed. They do not break the batch.
+`place_door`, `place_instance`, `delete` and `set_type`, with coordinates in sheet points (1/72 in, origin top-left,
+y down) on the sheet the package described. Unknown ops are reported as failed. They do not break the batch.
+
+`set_type` (editor decision 0011) changes the type of elements already in the model, keeping their ids, hosted
+elements, tags and parameters:
+
+```jsonc
+{ "op": "set_type", "id": "cmd-0012", "sheetId": "382617",
+  "targets": ["912001"],                       // Revit element ids (or `wall-<id>`-style context ids)
+  "typeName": "M_Single-Flush: 0915 x 2134mm", // as the sheet names it: a wall type's name, or "Family: Type"
+  "family": "M_Single-Flush",                  // optional
+  "strokeId": "type:912001" }                  // no stroke makes it: one command per element
+```
 
 ## Plugin → editor
 
@@ -77,8 +78,7 @@ sheet the package described. Unknown ops are reported as failed. They do not bre
 { "type": "welcome", "protocol": 1,
   "server": { "name": "brush-revit-link", "version": "0.1.0", "host": "Revit 2026", "epoch": "a1b2c3d4e5f6" },
   "document": { "title": "Tower A", "path": "C:\\…\\Tower A.rvt", "project": "Tower A" },
-  "sheets": [ { "id": "382617", "number": "A102", "name": "Plans" } ],
-  "views": [ { "id": "960621", "name": "{3D}", "kind": "ThreeD" } ] }          // S1-06; also in `sheets`
+  "sheets": [ { "id": "382617", "number": "A102", "name": "Plans" } ] }
 
 { "type": "sheets", "requestId": "…", "document": { … }, "sheets": [ … ] }   // also pushed, unasked, when the list changes
 
@@ -137,7 +137,16 @@ exception; `message` holds its text). An error never closes the connection, exce
 - `place_instance`: a Furniture family, matched like doors (by width and depth), then rotated.
 - `delete`: targets that are Revit ids, `wall-<id>`-style context ids, or command ids of this link. Inferred ids
   (from a plain PDF) cannot be resolved and are listed in `notes`.
+- `set_type`: `ChangeTypeId` on each target. The type is looked up among the types the element can take
+  (`Element.GetValidTypes`: its category, and its kind for walls): by `family` and `typeName`, or with no `family` by
+  `typeName` as the type name or as `Family: Type` (a `typeName` that already starts with `family: ` is read as that
+  key); then the same ignoring case. When none matches, the closest match is a type of that name in another family,
+  applied with a note (`no Doors type 'X: Y', used 'Z: Y'`). With no such type the command fails, and `message` lists
+  the types there are. `elementIds` are the elements retyped; a target that is missing or cannot take the type is a
+  note, and the command fails only when no target can.
 - The whole batch is one Undo step in Revit. Each command runs in its own transaction, so a command Revit rejects
   rolls back alone. Revit warnings do not open dialogs: they come back as `notes`.
-- `revert` deletes what the given commands created. Deletes cannot be reverted through the link; the user can use
-  Undo in Revit.
+- `revert` deletes what the given commands created. For a `set_type` it puts back the type each element had before,
+  on the elements that still have the type the command gave them (an element retyped since, in Revit or by a later
+  command, is left as it is and named in `notes`; if none is put back the result is `skipped`). Deletes cannot be
+  reverted through the link; the user can use Undo in Revit.

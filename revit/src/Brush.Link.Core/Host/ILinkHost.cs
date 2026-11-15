@@ -27,7 +27,7 @@ public interface ILinkHost
     Task<IReadOnlyList<CommandResult>> RevertAsync(IReadOnlyList<string> commandIds, CancellationToken ct);
 
     /// <summary>
-    /// S1-06: the types <paramref name="elementId"/> can switch to, as the host lists them, and its current type.
+    /// S1-07: the types <paramref name="elementId"/> can switch to, as the host lists them, and its current type.
     /// Throws <see cref="KeyNotFoundException"/> for an unknown element.
     /// </summary>
     Task<TypeList> ListTypesAsync(string elementId, CancellationToken ct);
@@ -45,12 +45,9 @@ public interface ILinkHost
     event Action<IReadOnlyCollection<string>?>? ModelChanged;
 }
 
-/// <param name="Views">S1-06: the model's views (plans, sections, elevations, 3D) that edits may be addressed to.</param>
-public sealed record DocumentInfo(string Title, string? Path, string? Project, IReadOnlyList<SheetSummary> Sheets, IReadOnlyList<ViewSummary>? Views = null);
+public sealed record DocumentInfo(string Title, string? Path, string? Project, IReadOnlyList<SheetSummary> Sheets);
 
-public sealed record ViewSummary(string Id, string Name, string Kind);
-
-/// <summary>S1-06: a type an element can take. <see cref="TypeId"/> is the host's id for it.</summary>
+/// <summary>S1-07: a type an element can take. <see cref="TypeId"/> is the host's id for it.</summary>
 public sealed record TypeInfo(string? Family, string TypeName, string TypeId);
 
 public sealed record TypeList(string ElementId, TypeInfo? Current, IReadOnlyList<TypeInfo> Types);
@@ -81,20 +78,36 @@ public sealed record CommandResult(string Id, string Status, IReadOnlyList<strin
     public static CommandResult Failed(string id, string why) => new(id, CommandStatus.Failed, [], why);
 }
 
+/// <summary>One element's type change by a <c>set_type</c> command: the type it had and the type it was given.</summary>
+public sealed record TypeChange(string ElementId, string From, string To);
+
 /// <summary>
-/// Which elements each command of this link created, so delete-by-command and revert can find them.
-/// The backing store can be handed in so it outlives this object (the Revit add-in keeps it across hot reloads);
-/// it only holds BCL types for that reason.
+/// Which elements each command of this link created, so delete-by-command and revert can find them, and which types a
+/// <c>set_type</c> command replaced, so revert can put them back.
+/// The backing stores can be handed in so they outlive this object (the Revit add-in keeps them across hot reloads);
+/// they only hold BCL types for that reason. A type change is kept as a flat list of (element, from, to) triples.
 /// </summary>
-public sealed class CommandLedger(Dictionary<string, List<string>> created)
+public sealed class CommandLedger(Dictionary<string, List<string>> created, Dictionary<string, List<string>> retyped)
 {
     private readonly object gate = created;
 
     public CommandLedger() : this(new Dictionary<string, List<string>>(StringComparer.Ordinal)) { }
 
+    public CommandLedger(Dictionary<string, List<string>> created) : this(created, new Dictionary<string, List<string>>(StringComparer.Ordinal)) { }
+
     public void Record(string commandId, IEnumerable<string> elementIds)
     {
         lock (gate) created[commandId] = elementIds.ToList();
+    }
+
+    /// <summary>A <c>set_type</c> command: it created nothing, it changed these elements' types.</summary>
+    public void RecordTypeChanges(string commandId, IEnumerable<TypeChange> changes)
+    {
+        lock (gate)
+        {
+            created[commandId] = [];
+            retyped[commandId] = changes.SelectMany(c => new[] { c.ElementId, c.From, c.To }).ToList();
+        }
     }
 
     public bool Knows(string commandId)
@@ -107,39 +120,22 @@ public sealed class CommandLedger(Dictionary<string, List<string>> created)
         lock (gate) return created.TryGetValue(commandId, out var l) ? l.ToList() : [];
     }
 
+    /// <summary>The type changes of a <c>set_type</c> command; null for any other command.</summary>
+    public IReadOnlyList<TypeChange>? TypeChangesOf(string commandId)
+    {
+        lock (gate)
+        {
+            if (!retyped.TryGetValue(commandId, out var l)) return null;
+            return Enumerable.Range(0, l.Count / 3).Select(i => new TypeChange(l[3 * i], l[3 * i + 1], l[3 * i + 2])).ToList();
+        }
+    }
+
     public void Forget(string commandId)
     {
         lock (gate)
         {
             created.Remove(commandId);
-            created.Remove(TypeChangeKey(commandId));
-        }
-    }
-
-    // S1-06: the previous type of each element a change_type switched, so revert can set it back. Kept in the same
-    // shared dictionary as the created elements (under a key no command id can have), so it survives a new ledger
-    // per call and a hot reload like the rest. Entries are "elementId|previousTypeId".
-    private const string TypeChangePrefix = "type-change:";
-
-    private static string TypeChangeKey(string commandId) => TypeChangePrefix + commandId;
-
-    /// <summary>Record an applied change_type: the command is known, and what each element's type was before.</summary>
-    public void RecordTypeChange(string commandId, IReadOnlyList<(string ElementId, string PreviousTypeId)> changes)
-    {
-        lock (gate)
-        {
-            created[commandId] = [];
-            created[TypeChangeKey(commandId)] = changes.Select(c => $"{c.ElementId}|{c.PreviousTypeId}").ToList();
-        }
-    }
-
-    /// <summary>The elements a change_type switched and their previous types; empty for any other command.</summary>
-    public IReadOnlyList<(string ElementId, string PreviousTypeId)> TypeChangesOf(string commandId)
-    {
-        lock (gate)
-        {
-            if (!created.TryGetValue(TypeChangeKey(commandId), out var l)) return [];
-            return l.Select(e => e.Split('|', 2)).Where(p => p.Length == 2).Select(p => (p[0], p[1])).ToList();
+            retyped.Remove(commandId);
         }
     }
 }

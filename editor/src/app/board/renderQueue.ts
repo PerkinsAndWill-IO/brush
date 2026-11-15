@@ -28,6 +28,7 @@ function pump() {
       .finally(() => {
         if (running.get(job.key) === job) running.delete(job.key)
         pump()
+        checkIdle()
       })
   }
 }
@@ -52,4 +53,29 @@ export function cancelRender(key: string) {
     r.ac.abort()
     running.delete(key)
   }
+  checkIdle()
+}
+
+const idleWaiters = new Set<() => void>()
+function checkIdle() {
+  if (queue.length || running.size) return
+  idleWaiters.forEach((w) => w())
+  idleWaiters.clear()
+}
+
+/**
+ * Resolves once no page render is queued or running (or after `maxMs`). Renders are queued a frame or two after the
+ * camera moves, so callers that just moved it should wait a couple of frames first.
+ */
+export function whenRendersIdle(maxMs = 3000): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer)
+      idleWaiters.delete(done)
+      resolve()
+    }
+    const timer = setTimeout(done, maxMs)
+    idleWaiters.add(done)
+    checkIdle()
+  })
 }
