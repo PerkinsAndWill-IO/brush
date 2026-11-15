@@ -108,8 +108,18 @@ public sealed class LinkPlugin : IBrushPlugin
         var s = server;
         server = null;
         if (remember && ctx is not null) ctx.State[StateKeys.LinkOn] = false;
-        // DisposeAsync only cancels and waits for the accept loop; it never needs the Revit thread, so blocking is safe.
-        s?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        if (s is null) return;
+        // Runs on Revit's UI thread. Dispose on the thread pool, so no await inside it can need this (blocked) thread,
+        // and give up after a few seconds rather than freeze Revit: the socket is already cancelled by then.
+        var done = Task.Run(() => s.DisposeAsync().AsTask());
+        try
+        {
+            if (!done.Wait(TimeSpan.FromSeconds(5))) log.Error("the link did not stop within 5 s; continuing without waiting");
+        }
+        catch (AggregateException e)
+        {
+            log.Error("stopping the link failed", e.InnerException ?? e);
+        }
     }
 }
 

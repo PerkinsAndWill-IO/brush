@@ -36,6 +36,13 @@ public sealed record LinkOptions
     /// <summary>Wait this long after the last model change before re-exporting open sheets.</summary>
     public int ModelChangeDebounceMs { get; init; } = 600;
 
+    /// <summary>
+    /// After an apply or revert only the edited sheet is re-exported at once. The other open sheets (which may show the
+    /// same elements) are refreshed this long after the last edit, so a run of sketched walls does not wait behind
+    /// exports of sheets the user is not looking at.
+    /// </summary>
+    public int OtherSheetsAfterEditMs { get; init; } = 3000;
+
     public static LinkOptions Load(string path)
     {
         if (!File.Exists(path)) return new LinkOptions();
