@@ -369,7 +369,13 @@ async function retype(sheetId: string, f: Frac, typeName: string): Promise<strin
     vp.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: at.x, clientY: at.y, button: 2, buttons: 2 }))
     await sleep(150)
     penAt(at.x, at.y, false)
-    row = await until(pickRow, 4000, 'the type').catch(() => undefined)
+    // the menu is for the table once its type list shows a furniture type; then only Revit's full list is awaited
+    // (asking again would queue another request in Revit)
+    const forTable = await until(() => rows().some((b) => /table|banquette|chair|bed|shelving/i.test(b.dataset.type ?? '')), 2500, 'the menu').then(
+      () => true,
+      () => false,
+    )
+    row = forTable ? await until(pickRow, 20000, 'the type').catch(() => undefined) : undefined
     if (!row) {
       document.querySelector<HTMLElement>('[data-testid="type-menu"]')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
       await sleep(800)

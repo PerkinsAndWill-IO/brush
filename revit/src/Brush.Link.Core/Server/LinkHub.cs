@@ -26,7 +26,11 @@ public sealed class LinkHub : IAsyncDisposable
     private readonly Timer debounce;
     private HashSet<string>? pendingChanged = [];
     private bool hasPendingChange;
-    /// <summary>Applies and reverts waiting for the gate: a background refresh yields to them between sheets.</summary>
+    /// <summary>
+    /// Editor requests waiting for the gate (applies, reverts, and the requests behind the open sheets and the type menu):
+    /// a background refresh yields to them between sheets. One connection's messages are handled in order, so a request
+    /// that waits behind the refresh also holds up the edit sent after it.
+    /// </summary>
     private int editsWaiting;
     private IReadOnlyList<SheetSummary> lastSheetList = [];
 
@@ -129,7 +133,7 @@ public sealed class LinkHub : IAsyncDisposable
             case OpenSheet o:
             {
                 lock (stateLock) clients[conn.Id].sheets.Add(o.SheetId);
-                await gate.WaitAsync(ct);
+                await EditGateAsync(ct);
                 try
                 {
                     var (version, package, changed) = await ExportAndVersionLockedAsync(o.SheetId, ct);
@@ -213,7 +217,7 @@ public sealed class LinkHub : IAsyncDisposable
 
     private async Task<T> Gated<T>(Func<CancellationToken, Task<T>> f, CancellationToken ct)
     {
-        await gate.WaitAsync(ct);
+        await EditGateAsync(ct);
         try
         {
             return await f(ct);
@@ -245,7 +249,7 @@ public sealed class LinkHub : IAsyncDisposable
         }
     }
 
-    /// <summary>Take the gate for an apply or revert, counted so a background refresh lets it in before its next sheet.</summary>
+    /// <summary>Take the gate for an editor request, counted so a background refresh lets it in before its next sheet.</summary>
     private async Task EditGateAsync(CancellationToken ct)
     {
         Interlocked.Increment(ref editsWaiting);

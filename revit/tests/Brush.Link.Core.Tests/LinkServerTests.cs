@@ -471,6 +471,34 @@ public sealed class EditRefreshTests
         // queue instead of exporting it before the apply
         Assert.Equal(2, host.ExportsOf("A-201"));
     }
+
+    [Fact]
+    public async Task A_type_list_request_during_the_background_refresh_goes_before_the_sheets_still_to_do()
+    {
+        // The type menu asks Revit for the types first; the editor's next message (the set_type apply) is only read
+        // after it is answered. Waiting behind a whole refresh, the type change took 22 s on Snowdon Towers.
+        var (host, inner) = TwoSheetHost();
+        await using var server = new LinkServer(host, new LinkOptions { Port = 0, ModelChangeDebounceMs = 60_000, OtherSheetsAfterEditMs = 60_000 });
+        server.Start();
+        using var ws = await Open(server, "A-202", "A-201");
+
+        host.HoldSheet = "A-202";
+        inner.ExternalEdit("A-202", _ => { });
+        inner.ExternalEdit("A-201", _ => { });
+        var flush = server.Hub.FlushModelChangesAsync();
+        await host.HoldStarted.Task.WaitAsync(Soon());
+
+        // the menu opened twice: two requests in a row. Each one that is not counted as waiting lets one more sheet of
+        // the refresh go before it.
+        await Send(ws, new JsonObject { ["type"] = "list_types", ["requestId"] = "t1", ["elementId"] = "no-such-element" });
+        await Send(ws, new JsonObject { ["type"] = "list_types", ["requestId"] = "t2", ["elementId"] = "no-such-element" });
+        await Task.Delay(100);
+        host.Release.TrySetResult();
+        await Expect(ws, "error"); // answered (this element is unknown)
+        await Expect(ws, "error");
+        Assert.Equal(1, host.ExportsOf("A-201")); // both before A-201's refresh
+        await flush;
+    }
 }
 
 
