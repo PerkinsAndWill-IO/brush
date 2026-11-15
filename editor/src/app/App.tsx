@@ -19,6 +19,7 @@ import brushLogoRed from './ui/assets/brush-logo-red.png'
 import { chooseFile, LeftSidebar, RightSidebar, ToolCapsule, TopBar } from './ui/Chrome'
 import { RevitHud, RevitStart } from './revit/RevitPanel'
 import { isPhotoFile, photoImport, PhotoImportDialog } from './photo/PhotoImport'
+import { TraceControl } from './photo/TracePaper'
 
 installBrain()
 registerSheetOverlay(MeasureOverlay) // above the brain overlays
@@ -189,6 +190,7 @@ export function App() {
             />
           )}
           {ready && <RevitHud />}
+          {ready && <TraceControl />}
           <ToolCapsule disabled={!ready} />
         </main>
         {ready && <RightSidebar />}
