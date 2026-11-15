@@ -84,21 +84,36 @@ export interface FilterState {
 
 const STORAGE_KEY = 'brush.filters.v1'
 
+/**
+ * Categories hidden until someone shows them: room fills lie under everything else on a plan, get in the way of
+ * picking what is on top of them, and are noise while sketching. Applied once per browser (also where choices were
+ * saved before this default existed); after that a shown category stays shown.
+ */
+export const HIDDEN_BY_DEFAULT: readonly string[] = ['Rooms']
+let defaultsApplied: string[] = []
+
 function load(): Pick<FilterState, 'hiddenCategories' | 'hiddenKinds'> {
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null
-    const p = raw ? (JSON.parse(raw) as { categories?: unknown; kinds?: unknown }) : {}
-    const cats = Array.isArray(p.categories) ? p.categories.filter((c): c is string => typeof c === 'string') : []
+    const p = raw ? (JSON.parse(raw) as { categories?: unknown; kinds?: unknown; defaults?: unknown }) : {}
+    const cats = new Set(Array.isArray(p.categories) ? p.categories.filter((c): c is string => typeof c === 'string') : [])
     const kinds = Array.isArray(p.kinds) ? p.kinds.filter((k): k is ItemKind => ITEM_KINDS.some((o) => o.kind === k)) : []
-    return { hiddenCategories: new Set(cats), hiddenKinds: new Set(kinds) }
+    defaultsApplied = Array.isArray(p.defaults) ? p.defaults.filter((c): c is string => typeof c === 'string') : []
+    for (const c of HIDDEN_BY_DEFAULT) {
+      if (defaultsApplied.includes(c)) continue
+      cats.add(c)
+      defaultsApplied.push(c)
+    }
+    return { hiddenCategories: cats, hiddenKinds: new Set(kinds) }
   } catch {
-    return { hiddenCategories: new Set(), hiddenKinds: new Set() }
+    defaultsApplied = [...HIDDEN_BY_DEFAULT]
+    return { hiddenCategories: new Set(HIDDEN_BY_DEFAULT), hiddenKinds: new Set() }
   }
 }
 
 function save() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ categories: [...state.hiddenCategories], kinds: [...state.hiddenKinds] }))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ categories: [...state.hiddenCategories], kinds: [...state.hiddenKinds], defaults: defaultsApplied }))
   } catch {
     /* storage unavailable: filters last for this page only */
   }

@@ -17,11 +17,14 @@ import { cardCategory, inspect, itemsOf, paramLabel, resolveElement, shownElemen
 
 const px = (n: number) => `calc(${n}px / var(--z))`
 
-/** Highlight ids for the element on show, resolved against the elements of the open document. */
-function useResolved(): Resolved | null {
+/**
+ * Highlight ids for the element on show, resolved against the elements of the open document. `pinnedOnly`: the
+ * element pinned by a click, not the one under the pointer (the panel shows only what was selected).
+ */
+function useResolved(pinnedOnly = false): Resolved | null {
   const s = useInspect()
   const { source, sheets } = useDocState()
-  const id = shownElement(s)
+  const id = pinnedOnly ? s.pinned : shownElement(s)
   return useMemo(() => {
     if (id === null || !source?.vectorPage) return null
     for (const sh of sheets) {
@@ -164,25 +167,19 @@ function ChevronIcon({ open }: { open: boolean }) {
 /**
  * The element panel in the left sidebar while the Select tool is on (V3-02/03), a compact property list: the element's
  * name, then collapsible General / Parameters / Sheets groups of label-value rows. Sheets fit the board on a click.
+ * Only for a selected (pinned) element: hovering highlights on the sheets but does not open the card, which flickered
+ * as the pointer crossed elements. Nothing at all while nothing is selected.
  */
 export function ElementPanel() {
   const s = useInspect()
-  const r = useResolved()
+  const r = useResolved(true)
   const { sheets } = useDocState()
   const pinned = s.pinned !== null
   const found = useMemo(() => (r ? appearances(r) : []), [r, sheets])
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set())
   const toggle = (g: string) => setClosed((c) => (c.has(g) ? new Set([...c].filter((x) => x !== g)) : new Set([...c, g])))
 
-  if (!r)
-    return (
-      <div className="inspect-panel empty" data-testid="inspect-panel" data-element="">
-        <div className="prop-title">
-          <span className="name">No element</span>
-        </div>
-        <p className="hint">Hover an element on a sheet to see its properties and highlight it on every sheet it appears on. Click to pin it, Esc releases. Drag pans.</p>
-      </div>
-    )
+  if (!r) return null
   const { id, info } = r
   const general: [string, string | null | undefined][] = [
     ['category', info?.category],

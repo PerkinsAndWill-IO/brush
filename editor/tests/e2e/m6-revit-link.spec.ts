@@ -338,7 +338,7 @@ test('M6-13: on the start page, a linked model with many sheets turns the drop c
   }
 })
 
-test('M6-14: the inspector works on a linked Revit sheet: hovering a wall shows its data and highlights it', async ({ page }) => {
+test('M6-14: the inspector works on a linked Revit sheet: hovering a wall highlights it, selecting it shows its data', async ({ page }) => {
   await mockPlugin(page, () => [])
   await openApp(page)
   await page.evaluate(() => window.__brushDev!.revitConnect())
@@ -371,6 +371,10 @@ test('M6-14: the inspector works on a linked Revit sheet: hovering a wall shows 
 
   await page.mouse.move(target!.x, target!.y)
   await page.mouse.move(target!.x + 0.5, target!.y)
+  await expect(page.getByTestId('inspect-highlight').first()).toHaveAttribute('data-element', target!.el)
+  // the card is for a selected element: click it
+  await page.mouse.down()
+  await page.mouse.up()
   const card = page.getByTestId('left-sidebar').getByTestId('inspect-panel')
   await expect(card).toHaveAttribute('data-element', target!.el)
   await expect(card).toContainText('Walls')

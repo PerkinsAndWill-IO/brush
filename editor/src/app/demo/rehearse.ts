@@ -18,6 +18,7 @@ import { sheetToScreen } from '../board/layout'
 import { getCamera, setCamera } from '../camera'
 import { getSession, session } from '../session'
 import { contextFor } from '../brain/contextStore'
+import { inspect } from '../drawing/inspect'
 import { getDocState, openDocument } from '../store'
 import { importPhotoMarkup, setPhotoReplay } from '../photo/import'
 import { tracePaper } from '../photo/trace'
@@ -449,7 +450,8 @@ async function retype(sheetId: string, f: Frac, typeName: string): Promise<strin
 }
 
 /** The host element the inspector is showing now (hovered or pinned), if any. */
-const inspected = () => document.querySelector<HTMLElement>('[data-testid="inspect-panel"]')?.dataset.element || undefined
+/** The host element highlighted on the sheets now: the one under the pointer (the card opens only on a click). */
+const inspected = () => document.querySelector<HTMLElement>('[data-testid="inspect-highlight"]')?.dataset.element || undefined
 
 /** A pointer event on the board at a screen point. */
 function pointer(type: string, at: { x: number; y: number }, buttons = 0) {
@@ -510,6 +512,8 @@ async function selectElement(sheetId: string, elementId: string, near?: Frac) {
       tries.push({ x: c.x + normal.x * off, y: c.y + normal.y * off })
     }
   for (const p of tries) {
+    // a pinned element owns the highlight: release it so the hover shows what is under the pointer
+    inspect.unpin()
     const at = toScreen(sheetId, p)
     await glide(at, 120)
     pointer('pointermove', at)

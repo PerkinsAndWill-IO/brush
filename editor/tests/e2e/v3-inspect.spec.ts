@@ -52,15 +52,14 @@ async function pointOn(page: Page, sheetId: string, el: string) {
   )
 }
 
-test('V3-01..03: hover highlights an element on every sheet, its data shows in the Select sidebar, click pins it', async ({ page }) => {
+test('V3-01..03: hover highlights an element on every sheet; a click selects it and its data shows in the Select sidebar', async ({ page }) => {
   await openApp(page)
   await openHouse(page)
   await page.keyboard.press('v')
   const card = page.getByTestId('left-sidebar').getByTestId('inspect-panel')
-  await expect(page.getByTestId('left-sidebar').getByTestId('section-element')).toBeVisible()
-  await expect(card).toHaveAttribute('data-element', '')
-  await expect(card).toContainText('Hover an element')
-  await expect(page.getByTestId('left-sidebar')).toHaveClass(/wide/)
+  // nothing selected: no card (no "No element" placeholder), and the sidebar stays narrow
+  await expect(card).toHaveCount(0)
+  await expect(page.getByTestId('left-sidebar')).not.toHaveClass(/wide/)
 
   // zoom on the plans so the fireplace is easy to hit
   await page.evaluate(async (id) => {
@@ -72,13 +71,23 @@ test('V3-01..03: hover highlights an element on every sheet, its data shows in t
   const pt = await pointOn(page, PLANS, FIREPLACE)
   expect(pt).not.toBeNull()
 
-  // V3-01: hover → highlighted on all three pages
+  // V3-01: hover → highlighted on all three pages, but no card: the card is for a selected element
   await page.mouse.move(pt!.x, pt!.y)
-  await expect(card).toHaveAttribute('data-element', FIREPLACE)
-  await expect(card).toHaveAttribute('data-pinned', 'false')
   await expect(page.locator(`[data-testid="inspect-highlight"][data-element="${FIREPLACE}"]`)).toHaveCount(3)
+  await expect(card).toHaveCount(0)
 
-  // V3-02: the panel shows the element's data
+  // moving off the element clears the hover
+  await page.mouse.move(pt!.x + 400, pt!.y + 400)
+  await page.mouse.move(5, 300)
+  await expect(page.getByTestId('inspect-highlight')).toHaveCount(0)
+
+  // V3-02: a click selects (pins) it, and the panel shows the element's data
+  await page.mouse.move(pt!.x, pt!.y)
+  await page.mouse.down()
+  await page.mouse.up()
+  await expect(card).toHaveAttribute('data-element', FIREPLACE)
+  await expect(card).toHaveAttribute('data-pinned', 'true')
+  await expect(page.getByTestId('left-sidebar')).toHaveClass(/wide/)
   await expect(card).toContainText('Generic Models')
   await expect(card).toContainText('fire place hang')
   const general = card.locator('[data-group="general"]')
@@ -87,17 +96,7 @@ test('V3-01..03: hover highlights an element on every sheet, its data shows in t
   // V3-03: and the sheets it appears on
   await expect(card.getByTestId('inspect-appears')).toHaveAttribute('data-count', '3')
 
-  // moving off the element clears the hover
-  await page.mouse.move(pt!.x + 400, pt!.y + 400)
-  await page.mouse.move(5, 300)
-  await expect(page.getByTestId('inspect-highlight')).toHaveCount(0)
-  await expect(card).toHaveAttribute('data-element', '')
-
-  // V3-02: click pins; hovering elsewhere keeps it; Esc releases
-  await page.mouse.move(pt!.x, pt!.y)
-  await page.mouse.down()
-  await page.mouse.up()
-  await expect(card).toHaveAttribute('data-pinned', 'true')
+  // hovering elsewhere keeps it; Esc releases
   await page.mouse.move(pt!.x + 300, pt!.y + 200)
   await expect(card).toHaveAttribute('data-element', FIREPLACE)
   await expect(page.locator(`[data-testid="inspect-highlight"][data-element="${FIREPLACE}"]`)).toHaveCount(3)
@@ -112,7 +111,7 @@ test('V3-01..03: hover highlights an element on every sheet, its data shows in t
   await expect(card).toHaveAttribute('data-pinned', 'true')
 
   await page.keyboard.press('Escape')
-  await expect(card).toHaveAttribute('data-element', '')
+  await expect(card).toHaveCount(0)
   await expect(page.getByTestId('inspect-highlight')).toHaveCount(0)
 
   // a drag with the Select tool pans and does not pin

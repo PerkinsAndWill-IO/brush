@@ -602,9 +602,10 @@ function CommitSection() {
 export function LeftSidebar() {
   const { tool, settings, eraserSize } = useSession()
   const canInspect = useCanInspect()
+  const { pinned } = useInspect()
   const meta = TOOL_META[tool]
   return (
-    <aside className={`sidebar left${tool === 'select' && canInspect ? ' wide' : ''}`} aria-label={`${meta.label} options`} data-testid="left-sidebar">
+    <aside className={`sidebar left${tool === 'select' && canInspect && pinned !== null ? ' wide' : ''}`} aria-label={`${meta.label} options`} data-testid="left-sidebar">
       <div className="tool-head">
         <span className="tool-badge" aria-hidden="true">
           {meta.icon}
@@ -1039,6 +1040,8 @@ function ElementSection() {
         <p className="hint">Element data is available on .drawing files and Revit sheets. PDFs carry no elements.</p>
       </div>
     )
+  // the card is for a selected element only: nothing while nothing is selected
+  if (pinned === null) return null
   return (
     <section className="section element-section" data-testid="section-element" data-pinned={pinned}>
       <ElementPanel />
