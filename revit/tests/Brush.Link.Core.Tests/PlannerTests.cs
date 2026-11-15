@@ -134,6 +134,19 @@ public class PlannerTests
         Assert.IsType<RejectedOp>(CommandPlanner.Plan(cmd, Sheet(), _ => false));
     }
 
+    [Fact]
+    public void Set_type_resolves_element_and_context_ids_and_rejects_only_unknown_ones()
+    {
+        var cmd = new SetType { Id = "t", SheetId = "s", Targets = ["101000", "opening-101001", "101000", "w4-5"], TypeName = "Single-Flush 1400x2100", Family = "Single-Flush" };
+        var op = Assert.IsType<SetTypeOp>(CommandPlanner.Plan(cmd, Sheet(), _ => false));
+        Assert.Equal(["101000", "101001"], op.HostIds);
+        Assert.Equal(["w4-5"], op.Unresolved);
+        Assert.Equal("Single-Flush 1400x2100", op.TypeName);
+        Assert.Equal("Single-Flush", op.Family);
+        var none = Assert.IsType<RejectedOp>(CommandPlanner.Plan(cmd with { Targets = ["w4-5"] }, Sheet(), _ => false));
+        Assert.Contains("w4-5", none.Reason);
+    }
+
     [Theory]
     [InlineData("123456", "123456")]
     [InlineData("wall-123456", "123456")]
@@ -156,6 +169,8 @@ public class CommandJsonTests
       {"id":"cmd-0002","sheetId":"A-201","op":"place_door","at":{"x":200,"y":120},"widthPt":25.5,"angleRad":0,"strokeId":"s2","hostWallRef":"100000"},
       {"op":"place_instance","id":"cmd-0003","sheetId":"A-201","at":{"x":300,"y":300},"bbox":{"x":277,"y":289,"w":46,"h":22},"angleRad":0.5,"strokeId":"s3","family":"Desk 1600x800"},
       {"op":"delete","id":"cmd-0004","sheetId":"A-201","targets":["100001"],"strokeId":"s4"},
+      {"op":"set_type","id":"cmd-0006","sheetId":"A-201","targets":["101000"],"typeName":"Single-Flush 1400x2100","strokeId":"type:101000"},
+      {"op":"set_type","targets":["102000"],"typeName":"Desk 1600x800","family":"Desk","id":"cmd-0007","sheetId":"A-201","strokeId":"type:102000"},
       {"op":"rename_room","id":"cmd-0005","sheetId":"A-201","strokeId":"s5"}
     ]
     """;
@@ -173,7 +188,13 @@ public class CommandJsonTests
         var inst = Assert.IsType<PlaceInstance>(cmds[2]);
         Assert.Equal(46, inst.Bbox.W);
         Assert.Equal(["100001"], Assert.IsType<DeleteElements>(cmds[3]).Targets);
-        Assert.Equal("rename_room", Assert.IsType<UnknownCommand>(cmds[4]).Op);
+        var retype = Assert.IsType<SetType>(cmds[4]);
+        Assert.Equal(["101000"], retype.Targets);
+        Assert.Equal("Single-Flush 1400x2100", retype.TypeName);
+        Assert.Null(retype.Family);
+        Assert.Equal("type:101000", retype.StrokeId);
+        Assert.Equal("Desk", Assert.IsType<SetType>(cmds[5]).Family);
+        Assert.Equal("rename_room", Assert.IsType<UnknownCommand>(cmds[6]).Op);
     }
 
     [Fact]
@@ -182,6 +203,7 @@ public class CommandJsonTests
         var cmds = JsonSerializer.Deserialize<List<Command>>(EditorBatch, Json.Options)!;
         var again = JsonSerializer.Deserialize<List<Command>>(JsonSerializer.Serialize(cmds, Json.Options), Json.Options)!;
         Assert.Equal(JsonSerializer.Serialize(cmds, Json.Options), JsonSerializer.Serialize(again, Json.Options));
+        Assert.Contains("""{"op":"set_type","id":"cmd-0007","sheetId":"A-201","strokeId":"type:102000","targets":["102000"],"typeName":"Desk 1600x800","family":"Desk"}""", JsonSerializer.Serialize(cmds, Json.Options));
         Assert.StartsWith("""[{"op":"create_wall","id":"cmd-0001","sheetId":"A-201","strokeId":"s1","path":""", JsonSerializer.Serialize(cmds, Json.Options));
     }
 
@@ -189,6 +211,8 @@ public class CommandJsonTests
     [InlineData("""{"op":"place_door","id":"d","sheetId":"s","widthPt":3,"angleRad":0}""", "missing at")]
     [InlineData("""{"op":"create_wall","id":"w","path":{"points":[],"closed":false}}""", "missing sheetId")]
     [InlineData("""{"op":"place_door","id":"d","sheetId":"s","at":{"x":1},"widthPt":3,"angleRad":0}""", "bad point")]
+    [InlineData("""{"op":"set_type","id":"t","sheetId":"s","targets":["1"],"strokeId":"type:1"}""", "missing typeName")]
+    [InlineData("""{"op":"set_type","id":"t","sheetId":"s","typeName":"X","strokeId":"type:1"}""", "missing targets")]
     public void Missing_fields_name_the_problem(string json, string expected)
     {
         var e = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Command>(json, Json.Options));
@@ -218,5 +242,70 @@ public class PackageTests
         var (m2, _, pdf2) = DrawingPackage.Parse(bytes);
         Assert.Equal(m.Sheets[0].Elements.Count, m2.Sheets[0].Elements.Count);
         Assert.Equal(pdf, pdf2);
+    }
+}
+
+public class TypeMatchTests
+{
+    private static readonly IReadOnlyList<TypeCandidate<int>> Doors =
+    [
+        new(1, "0915 x 2134mm", "M_Single-Flush"),
+        new(2, "0864 x 2134mm", "M_Single-Flush"),
+        new(3, "1830 x 2134mm", "M_Double-Flush"),
+        new(4, "0915 x 2134mm", "M_Single-Glass"),
+    ];
+
+    private static readonly IReadOnlyList<TypeCandidate<int>> Walls =
+    [
+        new(10, "Generic - 200mm", null),
+        new(11, "Partition - 100mm", null),
+    ];
+
+    [Theory]
+    [InlineData("0864 x 2134mm", "M_Single-Flush", 2)] // family and name
+    [InlineData("M_Single-Flush: 0864 x 2134mm", "M_Single-Flush", 2)] // the sheet's key, family repeated
+    [InlineData("M_Double-Flush: 1830 x 2134mm", null, 3)] // the sheet's key alone
+    [InlineData("1830 x 2134mm", null, 3)] // a name only one family has
+    [InlineData("m_single-glass: 0915 X 2134MM", null, 4)] // case
+    public void Finds_the_type_by_family_and_name_or_by_the_sheets_key(string typeName, string? family, int expected)
+    {
+        var m = TypeMatch.Find(Doors, typeName, family, "door");
+        Assert.Equal(expected, m.Hit?.Value);
+        Assert.Null(m.Note);
+        Assert.Null(m.Error);
+    }
+
+    [Fact]
+    public void Wall_types_match_by_name()
+    {
+        Assert.Equal(11, TypeMatch.Find(Walls, "Partition - 100mm", null, "wall").Hit?.Value);
+    }
+
+    [Fact]
+    public void A_type_name_in_another_family_is_the_closest_match_with_a_note()
+    {
+        var m = TypeMatch.Find(Doors, "1830 x 2134mm", "M_Double-Glass", "door");
+        Assert.Equal(3, m.Hit?.Value);
+        Assert.Equal("no door type 'M_Double-Glass: 1830 x 2134mm', used 'M_Double-Flush: 1830 x 2134mm'", m.Note);
+        var key = TypeMatch.Find(Doors, "Single-Flush: 0864 x 2134mm", null, "door");
+        Assert.Equal(2, key.Hit?.Value);
+        Assert.NotNull(key.Note);
+    }
+
+    [Fact]
+    public void A_name_several_families_share_takes_the_first_and_says_so()
+    {
+        var m = TypeMatch.Find(Doors, "0915 x 2134mm", null, "door");
+        Assert.Equal(1, m.Hit?.Value);
+        Assert.Contains("2 families", m.Note);
+    }
+
+    [Fact]
+    public void An_unknown_type_fails_and_lists_the_types_there_are()
+    {
+        var m = TypeMatch.Find(Walls, "Curtain Wall 1", null, "wall");
+        Assert.Null(m.Hit);
+        Assert.Equal("no wall type 'Curtain Wall 1' in this model; there are 'Generic - 200mm', 'Partition - 100mm'", m.Error);
+        Assert.Contains("there is none", TypeMatch.Find(Array.Empty<TypeCandidate<int>>(), "X", null, "wall").Error);
     }
 }

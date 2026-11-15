@@ -67,20 +67,36 @@ public sealed record CommandResult(string Id, string Status, IReadOnlyList<strin
     public static CommandResult Failed(string id, string why) => new(id, CommandStatus.Failed, [], why);
 }
 
+/// <summary>One element's type change by a <c>set_type</c> command: the type it had and the type it was given.</summary>
+public sealed record TypeChange(string ElementId, string From, string To);
+
 /// <summary>
-/// Which elements each command of this link created, so delete-by-command and revert can find them.
-/// The backing store can be handed in so it outlives this object (the Revit add-in keeps it across hot reloads);
-/// it only holds BCL types for that reason.
+/// Which elements each command of this link created, so delete-by-command and revert can find them, and which types a
+/// <c>set_type</c> command replaced, so revert can put them back.
+/// The backing stores can be handed in so they outlive this object (the Revit add-in keeps them across hot reloads);
+/// they only hold BCL types for that reason. A type change is kept as a flat list of (element, from, to) triples.
 /// </summary>
-public sealed class CommandLedger(Dictionary<string, List<string>> created)
+public sealed class CommandLedger(Dictionary<string, List<string>> created, Dictionary<string, List<string>> retyped)
 {
     private readonly object gate = created;
 
     public CommandLedger() : this(new Dictionary<string, List<string>>(StringComparer.Ordinal)) { }
 
+    public CommandLedger(Dictionary<string, List<string>> created) : this(created, new Dictionary<string, List<string>>(StringComparer.Ordinal)) { }
+
     public void Record(string commandId, IEnumerable<string> elementIds)
     {
         lock (gate) created[commandId] = elementIds.ToList();
+    }
+
+    /// <summary>A <c>set_type</c> command: it created nothing, it changed these elements' types.</summary>
+    public void RecordTypeChanges(string commandId, IEnumerable<TypeChange> changes)
+    {
+        lock (gate)
+        {
+            created[commandId] = [];
+            retyped[commandId] = changes.SelectMany(c => new[] { c.ElementId, c.From, c.To }).ToList();
+        }
     }
 
     public bool Knows(string commandId)
@@ -93,8 +109,22 @@ public sealed class CommandLedger(Dictionary<string, List<string>> created)
         lock (gate) return created.TryGetValue(commandId, out var l) ? l.ToList() : [];
     }
 
+    /// <summary>The type changes of a <c>set_type</c> command; null for any other command.</summary>
+    public IReadOnlyList<TypeChange>? TypeChangesOf(string commandId)
+    {
+        lock (gate)
+        {
+            if (!retyped.TryGetValue(commandId, out var l)) return null;
+            return Enumerable.Range(0, l.Count / 3).Select(i => new TypeChange(l[3 * i], l[3 * i + 1], l[3 * i + 2])).ToList();
+        }
+    }
+
     public void Forget(string commandId)
     {
-        lock (gate) created.Remove(commandId);
+        lock (gate)
+        {
+            created.Remove(commandId);
+            retyped.Remove(commandId);
+        }
     }
 }

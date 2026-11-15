@@ -82,6 +82,7 @@ export async function photoToMarkup(photo: RgbImage, ref: RgbImage, dpi: number,
 
   const reg = await registerPhoto(photo, ref, { log, refine })
   const s = reg.report.scale
+  log('separating the ink from the print…')
   const iso = await isolateMarkup(reg, { scale: s, ink, colorThresh, darkThresh, minArea, maxStroke, log })
 
   const layers: MarkupLayer[] = []
