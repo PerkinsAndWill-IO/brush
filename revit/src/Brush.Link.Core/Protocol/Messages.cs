@@ -42,6 +42,9 @@ public sealed record Revert(string SheetId, IReadOnlyList<string> CommandIds) : 
 
 public sealed record Ping : ClientMessage;
 
+/// <summary>S1-07: the types an element can switch to.</summary>
+public sealed record ListTypes(string ElementId) : ClientMessage;
+
 public sealed class ProtocolException(string code, string message, string? requestId = null) : Exception(message)
 {
     public string Code { get; } = code;
@@ -56,6 +59,8 @@ public static class ErrorCodes
     public const string NotHello = "hello_required";
     public const string UnknownSheet = "unknown_sheet";
     public const string HostError = "host_error";
+    /// <summary>S1-07: list_types for an element the model does not have.</summary>
+    public const string UnknownElement = "unknown_element";
 }
 
 public static class ClientMessageParser
@@ -92,6 +97,7 @@ public static class ClientMessageParser
                     (o["commandIds"] as JsonArray ?? throw new ProtocolException(ErrorCodes.BadMessage, "revert needs commandIds", requestId))
                         .Select(n => n?.GetValue<string>() ?? throw new ProtocolException(ErrorCodes.BadMessage, "commandIds holds a null", requestId)).ToList()),
                 "ping" => new Ping(),
+                "list_types" => new ListTypes(Need(o, "elementId", requestId)),
                 _ => throw new ProtocolException(ErrorCodes.UnknownType, $"unknown message type '{type}'", requestId),
             };
             return m with { RequestId = requestId };
@@ -162,6 +168,17 @@ public static class ServerMessages
     }, requestId);
 
     public static JsonObject Pong(string? requestId) => WithRequest(new JsonObject { ["type"] = "pong" }, requestId);
+
+    /// <summary>S1-07: the answer to list_types.</summary>
+    public static JsonObject Types(string? requestId, TypeList t) => WithRequest(new JsonObject
+    {
+        ["type"] = "types",
+        ["elementId"] = t.ElementId,
+        ["current"] = t.Current is null ? null : TypeJson(t.Current),
+        ["types"] = new JsonArray(t.Types.Select(x => (JsonNode)TypeJson(x)).ToArray()),
+    }, requestId);
+
+    private static JsonObject TypeJson(TypeInfo t) => new() { ["family"] = t.Family, ["typeName"] = t.TypeName, ["typeId"] = t.TypeId };
 
     public static JsonObject Error(string? requestId, string code, string message) => WithRequest(new JsonObject
     {

@@ -83,6 +83,20 @@ export function documentTypes(elementMaps: readonly Record<string, DrawingElemen
 }
 
 /** Options merged by label, first list first (a palette type and the same type found in the document are one row). */
+/**
+ * S1-07: menu options for the types Revit lists, in its order. A type the document already names keeps the document's
+ * option (its label, and the name a set_type sends); one only Revit knows is labelled "Family Type" like door families.
+ */
+export function revitOptions(doc: readonly TypeOption[], revit: readonly { family: string | null; typeName: string }[]): TypeOption[] {
+  return revit.map((t) => {
+    const known = doc.find((o) => o.typeName === t.typeName && (!o.family || !t.family || o.family === t.family))
+    if (known) return known
+    const o: TypeOption = { label: typeLabel(t.family, t.typeName), typeName: t.typeName }
+    if (t.family) o.family = t.family
+    return o
+  })
+}
+
 export function mergeOptions(...lists: TypeOption[][]): TypeOption[] {
   const out = new Map<string, TypeOption>()
   for (const l of lists) for (const o of l) if (!out.has(o.label)) out.set(o.label, o)

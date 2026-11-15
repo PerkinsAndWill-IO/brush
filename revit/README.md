@@ -106,7 +106,9 @@ Log: `%LOCALAPPDATA%\Brush\revit-link.log`.
 Verified here: the core (36 tests, including socket round trips and origin and host checks), a real Chromium page on
 `localhost:5173` talking to the DevHost, and the add-in compiling against the Revit 2025, 2026 and 2027 APIs.
 
-**Not yet run inside Revit.** The Revit layer compiles against the real API but has not met a model. Check these
+**`list_types` and `set_type` checked inside Revit 2026** with `tests/live/type-switcher.live.mjs` (`BRUSH_LIVE=1`; it
+creates one wall, lists its types, changes and reverts its type the way the editor sends it, and deletes the wall).
+**The rest is not yet run inside Revit.** The Revit layer compiles against the real API but has not met a model. Check these
 first on a real project:
 
 - The PDF page matches the title-block extent, so the manifest overlays the PDF. If they disagree,

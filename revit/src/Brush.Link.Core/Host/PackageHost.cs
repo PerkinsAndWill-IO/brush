@@ -246,6 +246,28 @@ public sealed class PackageHost : ILinkHost
             : CommandResult.Applied(commandId, restored, notes);
     }
 
+    /// <summary>S1-07: the dev host's types: the palette's for walls, doors and furniture, plus the names its category uses.</summary>
+    public Task<TypeList> ListTypesAsync(string elementId, CancellationToken ct)
+    {
+        lock (gate)
+        {
+            var e = sheets.SelectMany(s => s.Elements).FirstOrDefault(x => x.Id == elementId)
+                ?? throw new KeyNotFoundException($"no element '{elementId}'");
+            IEnumerable<string> names = e.Category switch
+            {
+                "Walls" => palette?.Walls?.Select(w => w.Name) ?? [],
+                "Doors" => palette?.Doors?.Select(d => d.Name) ?? [],
+                "Furniture" => palette?.Furniture?.Select(f => f.Name) ?? [],
+                _ => [],
+            };
+            var all = names
+                .Concat(sheets.SelectMany(s => s.Elements).Where(x => x.Category == e.Category).Select(x => x.TypeName).OfType<string>())
+                .Where(n => n.Length > 0).Distinct(StringComparer.Ordinal).Select(n => new TypeInfo(null, n, n)).ToList();
+            var current = string.IsNullOrEmpty(e.TypeName) ? null : new TypeInfo(null, e.TypeName, e.TypeName);
+            return Task.FromResult(new TypeList(elementId, current, all));
+        }
+    }
+
     /// <summary>The sheet last shown with <see cref="ShowSheetAsync"/> (the DevHost has no views; tests read this).</summary>
     public string? ShownSheet { get; private set; }
 
