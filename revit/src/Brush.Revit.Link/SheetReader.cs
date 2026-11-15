@@ -130,7 +130,7 @@ internal static class SheetReader
                 return new ManifestElement
                 {
                     Id = id, Category = "Walls", TypeName = w.WallType.Name, Footprint = toSheet(lc.Curve.Tessellate()),
-                    Props = new Dictionary<string, string> { ["thicknessMm"] = Mm(w.Width), ["level"] = LevelName(e) },
+                    Props = WithParameters(e, new Dictionary<string, string> { ["thicknessMm"] = Mm(w.Width), ["level"] = LevelName(e) }),
                 };
             case Grid g:
                 return new ManifestElement { Id = id, Category = "Grids", Label = g.Name, Footprint = toSheet(g.Curve.Tessellate()) };
@@ -140,7 +140,7 @@ internal static class SheetReader
                 if (loops is null || loops.Count == 0) return null;
                 var pts = loops[0].SelectMany(s => s.GetCurve().Tessellate().SkipLast(1));
                 var name = r.get_Parameter(BuiltInParameter.ROOM_NAME)?.AsString();
-                return new ManifestElement { Id = id, Category = "Rooms", Label = $"{name} {r.Number}".Trim(), Closed = true, Footprint = toSheet(pts) };
+                return new ManifestElement { Id = id, Category = "Rooms", Label = $"{name} {r.Number}".Trim(), Closed = true, Footprint = toSheet(pts), Props = WithParameters(e, []) };
             }
             case FamilyInstance fi when fi.Category?.BuiltInCategory is BuiltInCategory.OST_Doors or BuiltInCategory.OST_Windows:
             {
@@ -151,14 +151,14 @@ internal static class SheetReader
                 var cat = fi.Category.BuiltInCategory == BuiltInCategory.OST_Doors ? "Doors" : "Windows";
                 var props = new Dictionary<string, string> { ["widthMm"] = Mm(width), ["level"] = LevelName(e) };
                 if (fi.Host is Wall host) props["hostWall"] = IdOf(host);
-                return new ManifestElement { Id = id, Category = cat, TypeName = KeyOf(fi.Symbol), Footprint = toSheet([lp.Point - half, lp.Point + half]), Props = props };
+                return new ManifestElement { Id = id, Category = cat, TypeName = KeyOf(fi.Symbol), Footprint = toSheet([lp.Point - half, lp.Point + half]), Props = WithParameters(e, props) };
             }
             case FamilyInstance fi:
             {
                 var corners = FootprintOf(fi, view);
                 if (corners is null) return null;
                 var cat = fi.Category?.BuiltInCategory == BuiltInCategory.OST_Casework ? "Casework" : "Furniture";
-                return new ManifestElement { Id = id, Category = cat, TypeName = KeyOf(fi.Symbol), Closed = true, Footprint = toSheet(corners), Props = new Dictionary<string, string> { ["level"] = LevelName(e) } };
+                return new ManifestElement { Id = id, Category = cat, TypeName = KeyOf(fi.Symbol), Closed = true, Footprint = toSheet(corners), Props = WithParameters(e, new Dictionary<string, string> { ["level"] = LevelName(e) }) };
             }
             default:
                 return null;
@@ -178,6 +178,36 @@ internal static class SheetReader
         }
         if (fi.get_BoundingBox(view) is not { } bb) return null;
         return [new XYZ(bb.Min.X, bb.Min.Y, 0), new XYZ(bb.Max.X, bb.Min.Y, 0), new XYZ(bb.Max.X, bb.Max.Y, 0), new XYZ(bb.Min.X, bb.Max.Y, 0)];
+    }
+
+    /// <summary>Most instance parameters an element sends (a wall has about 30); keeps a package of a busy sheet small.</summary>
+    private const int MaxParameters = 60;
+
+    /// <summary>
+    /// <paramref name="props"/> plus the element's instance parameters as Revit's Properties panel shows them (display
+    /// name → value with units, e.g. "Unconnected Height" → "10' 0\""), for the editor's inspector. Empty values are left
+    /// out; a name already in <paramref name="props"/> keeps its value.
+    /// </summary>
+    private static Dictionary<string, string> WithParameters(Element e, Dictionary<string, string> props)
+    {
+        var found = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Parameter p in e.Parameters)
+        {
+            var name = p.Definition?.Name;
+            if (string.IsNullOrWhiteSpace(name) || props.ContainsKey(name) || found.ContainsKey(name) || !p.HasValue) continue;
+            string? value;
+            try
+            {
+                value = p.StorageType == StorageType.String ? p.AsString() : p.AsValueString();
+            }
+            catch (Autodesk.Revit.Exceptions.ApplicationException)
+            {
+                continue;
+            }
+            if (!string.IsNullOrWhiteSpace(value)) found[name] = value;
+        }
+        foreach (var (name, value) in found.Take(MaxParameters)) props[name] = value;
+        return props;
     }
 
     private static string LevelName(Element e) => e.Document.GetElement(e.LevelId) is Level l ? l.Name : "";

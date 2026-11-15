@@ -12,11 +12,11 @@ sketch is real Revit model: walls, doors, furniture. The sheet comes back redraw
 | Time | Beat | On screen | Say |
 |---|---|---|---|
 | 0:00 | **Hook** | The napkin photo (or the start page) | "Every building starts as a sketch. Then it takes weeks of clicking to become *this*." |
-| 0:30 | **Setup** | Start page, Revit linked: the sheet picker. Pick **A102**, Open. | "Revit is open with the real model, Snowdon Towers. Brush lists its sheets. I pick one." |
+| 0:30 | **Setup** | Start page, Revit linked: the sheet picker. Tick **A102, A103, A104, A105**, then **Open 4 sheets**. Zoom into A102. | "Revit is open with the real model, Snowdon Towers. Brush lists its sheets. I take four floors." (They take about 20 s to arrive: keep talking.) |
 | 1:00 | **The loop** | Sketch a **wall**, a **door** in it, a **table** beside it. The timer counts each one home. | "A wall… a door… a table." Then stop talking and let the room watch the timer. |
 | 2:15 | **Change your mind** | Select tool, **right-click the table**: the type menu lists every type Revit has. Pick **Table-Dining Round w Chairs: 60" Diameter**. The timer counts the swap. | "Not the table I wanted. Right-click, pick another type: Revit swaps it and redraws the sheet." |
 | 2:45 | **Hand over the pen** | A judge draws one wall. | "You've never opened Revit. Draw a wall." |
-| 3:15 | **It reads the building** | Select tool, hover the wall just drawn: the inspector shows its Revit type and level. | "That's not ink any more. It's a real Revit wall, with its type and its level." |
+| 3:15 | **It reads the building** | Select tool, hover the wall just drawn: the inspector shows its Revit type, level and parameters. Then **click the long north facade wall** on A102 and zoom out: it lights up on **all four floors**, and the card lists the four sheets. | "That's not ink any more. It's a real Revit wall, with its parameters." Then: "And Brush knows it's one building: select a wall on one floor, and it lights up on every sheet it's on." |
 | 3:45 | **Why it matters** | One slide | "Weeks become minutes, and the people who sketch can change the model directly." |
 | 4:30 | **Close** | Show the timer's best time. | "Brush. Sketch it, and it's built." |
 
@@ -44,8 +44,11 @@ Live/Work Unit **205**, the empty top half of the room, below the north wall:
 - **Type change:** select tool, right-click the middle of the table once it's drawn by Revit (not while it's still
   ink), and pick `Table-Dining Round w Chairs: 60" Diameter` from the menu. The menu fills in Revit's full list a
   moment after it opens. A dashed mark with "→ new type" shows until Revit has redrawn it.
-- **Inspector:** select tool, hover the new wall between its top end and the door. The card shows *Walls*, its type
-  and *level L2*.
+- **Inspector:** select tool, hover the new wall between its top end and the door. The card shows *Walls*, its type,
+  *level L2* and its Revit parameters (base and top constraint, height, length, area, volume…).
+- **One wall, four sheets:** the long exterior rainscreen wall along the north facade (Revit id `1919205`) is drawn on
+  A102, A103, A104 and A105. Click it on A102 between windows (a window on top of it picks the window), then press
+  **0** (fit) to zoom out to the four sheets. With the browser full screen the highlight reads from the back of the room.
 
 Use the **Mode** buttons (Wall, Door, Furniture) to force each reading on stage, so a wobbly stroke can't be read
 as something else. Set the mode back to **Auto** for the judge's turn: it's more impressive when Brush guesses.
@@ -54,6 +57,8 @@ as something else. Set the mode back to **Auto** for the judge's turn: it's more
 
 ## Setup checklist (30 minutes before)
 
+0. **Brush Link built from this branch:** it sends each element's Revit parameters (the inspector shows them).
+   After deploying, click *Reload the plugin* in Revit (Add-Ins → Brush) or restart Revit.
 1. **Revit 2026** open with *Snowdon Towers Sample Architectural* (`C:\Program Files\Autodesk\Revit 2026\Samples`).
    Brush Link on: Add-Ins → Brush → Brush Link. The pill in Brush's top bar should go green.
 2. **Editor:** `pnpm --dir editor dev` and open `http://localhost:5173/?timer`.

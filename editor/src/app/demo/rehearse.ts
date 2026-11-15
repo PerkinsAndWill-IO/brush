@@ -17,6 +17,7 @@ import { boardView, getViewportEl } from '../board/Board'
 import { sheetToScreen } from '../board/layout'
 import { getCamera, setCamera } from '../camera'
 import { getSession, session } from '../session'
+import { contextFor } from '../brain/contextStore'
 import { getDocState } from '../store'
 import { revit, revitSnapshot } from '../revit/controller'
 import { roundTrips, tripStats } from '../revit/roundtrip'
@@ -37,6 +38,10 @@ export interface DemoSpots {
   retypeTo: string
   /** A point on an existing wall, for the inspector. */
   inspect: Frac
+  /** More sheets opened with the main one, so one element can be shown on all of them. */
+  alsoOpen: string[]
+  /** A Revit element drawn on the main sheet and on every `alsoOpen` sheet: selected, it lights up on all of them. */
+  everywhere: { element: string; label: string }
   /** What the camera shows while sketching: the centre and how much of the sheet's width fills the view. */
   view: { center: Frac; width: number }
 }
@@ -68,6 +73,9 @@ export const SNOWDON_SPOTS: DemoSpots = {
   retypeTo: 'Table-Dining Round w Chairs: 60" Diameter',
   // the wall just sketched, between its top and the door: "that is a real Revit wall now"
   inspect: [0.5039, 0.329],
+  // floors 3 to 5: the north facade's long exterior wall is drawn on A102, A103, A104 and A105
+  alsoOpen: ['A103', 'A104', 'A105'],
+  everywhere: { element: '1919205', label: 'the north facade wall' },
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
@@ -379,6 +387,90 @@ async function retype(sheetId: string, f: Frac, typeName: string): Promise<strin
   return row.dataset.type!
 }
 
+/** The host element the inspector is showing now (hovered or pinned), if any. */
+const inspected = () => document.querySelector<HTMLElement>('[data-testid="inspect-panel"]')?.dataset.element || undefined
+
+/** A pointer event on the board at a screen point. */
+function pointer(type: string, at: { x: number; y: number }, buttons = 0) {
+  getViewportEl()?.dispatchEvent(
+    new PointerEvent(type, { bubbles: true, cancelable: true, clientX: at.x, clientY: at.y, pointerType: 'mouse', pointerId: 1, isPrimary: true, button: type === 'pointermove' ? -1 : 0, buttons }),
+  )
+}
+
+/**
+ * Select host element `elementId` on a sheet with a click, the way a person does: bring a stretch of it into view, find
+ * a point on it that picks it (not a window or a tag on top of it), and click there.
+ */
+async function selectElement(sheetId: string, elementId: string) {
+  const ctx = await contextFor(sheetId)
+  const item = ctx?.items.find((i) => i.hostRef === elementId)
+  if (!item) throw new Error(`demo: element ${elementId} is not on sheet ${sheetId}`)
+  const pts = item.geometry.points
+  const { sheet } = placement(sheetId)
+  const along = (t: number) => {
+    // a point at fraction t of the polyline's length
+    const segs = pts.slice(1).map((p, i) => Math.hypot(p.x - pts[i].x, p.y - pts[i].y))
+    let d = t * segs.reduce((a, b) => a + b, 0)
+    for (let i = 0; i < segs.length; i++) {
+      if (d <= segs[i] || i === segs.length - 1) {
+        const k = segs[i] ? Math.min(1, d / segs[i]) : 0
+        return { x: pts[i].x + (pts[i + 1].x - pts[i].x) * k, y: pts[i].y + (pts[i + 1].y - pts[i].y) * k }
+      }
+      d -= segs[i]
+    }
+    return pts[0]
+  }
+  session.setTool('select')
+  const mid = along(0.5)
+  await look(sheetId, [mid.x / sheet.sizePt.w, mid.y / sheet.sizePt.h], 0.3, 1100)
+  for (const t of [0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74, 0.18, 0.82]) {
+    const p = along(t)
+    const at = toScreen(sheetId, p)
+    await glide(at, 250)
+    pointer('pointermove', at)
+    await frame()
+    await frame()
+    if (inspected() !== elementId) continue
+    // the card opening may move the board: aim again, then click
+    const again = toScreen(sheetId, p)
+    penAt(again.x, again.y, true)
+    pointer('pointermove', again)
+    await frame()
+    pointer('pointerdown', again, 1)
+    pointer('pointerup', again)
+    await frame()
+    penAt(again.x, again.y, false)
+    return
+  }
+  throw new Error(`demo: no point on element ${elementId} picks it`)
+}
+
+/** Glide the camera to show every sheet on the board. */
+async function fitAll(ms = 1200) {
+  const from = getCamera()
+  boardView.fit()
+  const to = getCamera()
+  setCamera(from, { settleNow: true })
+  const vp = getViewportEl()
+  if (!vp) return
+  const r = vp.getBoundingClientRect()
+  const fx = r.width / 2 / from.z - from.x
+  const fy = r.height / 2 / from.z - from.y
+  const tx = r.width / 2 / to.z - to.x
+  const ty = r.height / 2 / to.z - to.y
+  const t0 = performance.now()
+  for (;;) {
+    const k = Math.min(1, (performance.now() - t0) / ms)
+    const e = 1 - (1 - k) ** 3
+    const z = from.z * (to.z / from.z) ** e
+    const mx = fx + (tx - fx) * e
+    const my = fy + (ty - fy) * e
+    setCamera({ x: r.width / 2 / z - mx, y: r.height / 2 / z - my, z }, { settleNow: k >= 1 })
+    if (k >= 1) return
+    await frame()
+  }
+}
+
 // ─────────────── beats ───────────────
 
 export interface RunOptions {
@@ -389,7 +481,9 @@ export interface RunOptions {
 
 const SAY = {
   hook: 'Architects think with a pen. Revit makes them think in dialog boxes.',
-  setup: 'Revit is open with the real model. Brush lists its sheets: pick one.',
+  setup: 'Revit is open with the real model. Brush lists its sheets: pick four floors.',
+  opening: 'Revit sends each sheet as it is now: the PDF plus every element on it.',
+  everywhere: 'Select a wall of the building on one floor: Brush lights it up on every sheet it is on.',
   wall: 'Sketch a wall…',
   door: '…a door in it…',
   table: '…and a table.',
@@ -420,25 +514,35 @@ async function beat(name: Beat, opts: RunOptions = {}) {
         await until(() => revitSnapshot().state === 'on', 20000, 'Revit to connect')
       }
       const s = sheetByNumber(spots.sheet)
-      if (!revitSnapshot().open.some((o) => o.id === s.id)) {
-        // pick it in the picker the way a person would, when the picker is on screen
-        const row = document.querySelector<HTMLButtonElement>(`li[data-sheet-id="${CSS.escape(s.id)}"] [data-testid="revit-pick-sheet"]`)
-        if (row) {
-          row.scrollIntoView({ block: 'center', behavior: 'smooth' })
-          const r = row.getBoundingClientRect()
-          await glide({ x: r.left + 20, y: r.top + r.height / 2 }, 700)
-          if (row.getAttribute('aria-checked') !== 'true') row.click()
-          await talk(800)
+      const all = [s, ...spots.alsoOpen.map(sheetByNumber)]
+      const missing = all.filter((x) => !revitSnapshot().open.some((o) => o.id === x.id))
+      if (missing.length) {
+        // pick them in the picker the way a person would, when the picker is on screen
+        const rowOf = (id: string) => document.querySelector<HTMLButtonElement>(`li[data-sheet-id="${CSS.escape(id)}"] [data-testid="revit-pick-sheet"]`)
+        if (rowOf(missing[0].id)) {
+          for (const m of missing) {
+            const row = rowOf(m.id)
+            if (!row) continue
+            row.scrollIntoView({ block: 'center' })
+            await frame()
+            const r = row.getBoundingClientRect()
+            await glide({ x: r.left + 20, y: r.top + r.height / 2 }, 500)
+            if (row.getAttribute('aria-checked') !== 'true') row.click()
+            await talk(350)
+          }
           const open = document.querySelector<HTMLButtonElement>('[data-testid="revit-open-selected"]')
-          if (open) {
+          if (open && !open.disabled) {
             const o = open.getBoundingClientRect()
             await glide({ x: o.left + o.width / 2, y: o.top + o.height / 2 }, 600)
             open.click()
-          } else revit.openSheet(s.id)
-        } else revit.openSheet(s.id)
+          } else revit.openSheets(missing.map((m) => m.id))
+        } else revit.openSheets(missing.map((m) => m.id))
         penOff()
-        await until(() => revitSnapshot().open.some((o) => o.id === s.id), 120000, `sheet ${spots.sheet} to open`)
+        // all of them before drawing: a sheet arriving moves the board under the pen
+        caption('0:30 · Setup', SAY.opening)
+        await until(() => all.every((x) => revitSnapshot().open.some((o) => o.id === x.id)), 240000, 'the sheets to open')
         await until(() => document.querySelector(`[data-testid="sheet"][data-sheet-id="${CSS.escape(s.id)}"][data-rendered="true"]`), 30000, 'the sheet to draw')
+        caption('0:30 · Setup', SAY.setup)
       }
       const { sheet } = placement(s.id)
       boardView.focusSheet(sheet.pageIndex, 1.6)
@@ -484,6 +588,17 @@ async function beat(name: Beat, opts: RunOptions = {}) {
       caption('3:15 · It reads the building', SAY.inspect)
       await hover(s.id, spots.inspect)
       await talk(6000)
+      if (spots.alsoOpen.length && revitSnapshot().open.length > 1) {
+        caption('3:15 · It reads the building', SAY.everywhere)
+        await selectElement(s.id, spots.everywhere.element)
+        penOff()
+        await talk(1200)
+        await fitAll()
+        caption('3:15 · It reads the building', `One wall, ${revitSnapshot().open.filter((o) => document.querySelector(`[data-sheet-id="${CSS.escape(o.id)}"] [data-testid="selected-sheet"]`)).length || spots.alsoOpen.length + 1} sheets: ${spots.everywhere.label} on every floor it is on.`)
+        await talk(6000)
+        // back to where the demo was
+        await look(s.id, spots.view.center, spots.view.width, 1200)
+      }
       penOff()
       session.setTool('brush')
       return
