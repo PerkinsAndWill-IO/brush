@@ -33,6 +33,9 @@ registerSheetOverlay(SelectionOverlay) // selection and type changes (S1)
 registerSheetOverlay(InspectOverlay) // element highlight (V3), on top
 
 const TldrawSmoke = lazy(() => import('./dev/TldrawSmoke'))
+/** The presenter's "Show more" button (DEMO.md), with `?demo` in the URL; loaded only then. */
+const Presenter = lazy(() => import('./demo/Presenter'))
+const DEMO_MODE = typeof location !== 'undefined' && new URLSearchParams(location.search).has('demo')
 
 async function openDropped(e: DragEvent) {
   e.preventDefault()
@@ -286,6 +289,11 @@ export function App() {
       </div>
       <PhotoImportDialog />
       <TypeMenu />
+      {DEMO_MODE && (
+        <Suspense fallback={null}>
+          <Presenter />
+        </Suspense>
+      )}
     </div>
   )
 }

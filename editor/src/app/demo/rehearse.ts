@@ -126,8 +126,12 @@ function ensureUi() {
   return ui
 }
 
+/** Presenting live: the presenter talks, so no captions. */
+let quiet = false
+
 /** Show a caption: the beat's name and what is being said or done. Empty text hides it. */
 export function caption(beat: string, text = '') {
+  if (quiet && (beat || text)) return
   const u = ensureUi()
   u.beat.textContent = beat
   u.text.textContent = text
@@ -689,6 +693,109 @@ async function reset() {
   caption('', '')
   return { deleted }
 }
+
+// ─────────────── presenting live ───────────────
+
+/** One click of the presenter's "Show more" button. */
+export interface Step {
+  id: string
+  /** What the button says it will do next. */
+  label: string
+  run(): Promise<void>
+}
+
+/**
+ * The demo as small steps for a presenter to click through at their own pace (no captions, no scripted pauses).
+ * Each step waits for what it needs (the table to be in Revit before its type changes) and returns as soon as its own
+ * action is done, so the talk goes on while Revit works and the timer counts.
+ */
+export function presenterSteps(spots: DemoSpots = SNOWDON_SPOTS): Step[] {
+  const sheet = () => sheetByNumber(spots.sheet)
+  const at = (f: Frac) => toSheet(sheet().id, f)
+  const settle = () => waitLanded(120000).catch(() => undefined)
+  const quietly = async (f: () => Promise<unknown>) => {
+    quiet = true
+    try {
+      await f()
+    } finally {
+      penOff()
+    }
+  }
+  return [
+    { id: 'floors', label: 'Open four floors', run: () => quietly(() => beat('setup', { spots, fast: true })) },
+    {
+      id: 'wall',
+      label: 'Sketch a wall',
+      run: () => quietly(async () => {
+        await draw('wall', sheet().id, spots.wall.map(at), 1100)
+        session.setSetting('mode', 'auto')
+      }),
+    },
+    {
+      id: 'door',
+      label: 'Add a door',
+      run: () => quietly(async () => {
+        await draw('door', sheet().id, spots.door.map(at), 450)
+        session.setSetting('mode', 'auto')
+      }),
+    },
+    {
+      id: 'table',
+      label: 'Add a table',
+      run: () => quietly(async () => {
+        const [a, b] = spots.table.map(at)
+        await draw('furniture', sheet().id, [a, { x: b.x, y: a.y }, b, { x: a.x, y: b.y }, a], 1300)
+        session.setSetting('mode', 'auto')
+      }),
+    },
+    {
+      id: 'retype',
+      label: 'Make it round',
+      run: () => quietly(async () => {
+        // the table must be a Revit element (drawn by Revit) before its type can change
+        await settle()
+        const [a, b] = spots.table
+        await retype(sheet().id, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], spots.retypeTo)
+        session.setTool('brush')
+      }),
+    },
+    {
+      id: 'inspect',
+      label: 'What is it?',
+      run: () => quietly(async () => {
+        await settle()
+        await look(sheet().id, spots.view.center, spots.view.width, 600)
+        await hover(sheet().id, spots.inspect)
+      }),
+    },
+    {
+      id: 'everywhere',
+      label: 'Every floor',
+      run: () => quietly(async () => {
+        await selectElement(sheet().id, spots.everywhere.element)
+        await sleep(700)
+        await fitAll()
+      }),
+    },
+    {
+      id: 'back',
+      label: 'Back to the room',
+      run: () => quietly(async () => {
+        await look(sheet().id, spots.view.center, spots.view.width, 1200)
+        session.setTool('brush')
+      }),
+    },
+  ]
+}
+
+/** Leave presenting: captions come back for rehearsals. */
+export function endPresenting() {
+  quiet = false
+  penOff()
+}
+
+/** `reset()` for the presenter's Start over. */
+export const resetRehearsal = () => reset()
 
 export function createRehearsal() {
   return {

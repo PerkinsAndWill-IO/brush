@@ -55,6 +55,32 @@ as something else. Set the mode back to **Auto** for the judge's turn: it's more
 
 ---
 
+## Presenting: the "Show more" button
+
+Open the editor with **`?demo`** (`http://localhost:5173/?demo`). A terracotta **Show more** button sits in the bottom
+right corner, saying what it will do next. Each click plays one step in the real app while you talk:
+
+| # | Button says | What happens |
+|---|---|---|
+| 1 | Open four floors | Connects to Revit, ticks A102–A105 in the picker, opens them, zooms into Live/Work Unit 205. |
+| 2 | Sketch a wall | Draws the wall; Revit models it while you talk. |
+| 3 | Add a door | Draws the door in it. |
+| 4 | Add a table | Draws the table. |
+| 5 | Make it round | Waits for the table to be in Revit, right-clicks it and picks the 60" round dining table. |
+| 6 | What is it? | Hovers the new wall: the inspector shows its Revit parameters. |
+| 7 | Every floor | Selects the north facade wall and zooms out: it lights up on all four floors. |
+| 8 | Back to the room | Zooms back in. |
+
+- **Keys:** **PageDown**, **→** or **N** advance (what presentation clickers send). **H** hides the button for a clean
+  screen, and brings it back.
+- **Pace:** a step returns as soon as its own action is done, so you keep talking while Revit works and the timer counts.
+  Steps that need Revit's result wait for it (5 waits for the table).
+- **Out of time:** just stop clicking. Nothing is left half done.
+- **A step fails:** the button says why and turns into **Try again**; the next click retries that step.
+- **After the last step:** "That's the demo ✦" and **Start over**, which takes everything back out of Revit (like
+  `reset()`) and goes back to step 1.
+- No captions in this mode: you are the voice. (`__brushDemo.run()` still plays the captioned rehearsal.)
+
 ## Setup checklist (30 minutes before)
 
 1. **Brush Link built from this branch:** it sends each element's Revit parameters (the inspector shows them).
@@ -67,7 +93,8 @@ as something else. Set the mode back to **Auto** for the judge's turn: it's more
    up the type change). Read at Revit start (or *Reload the plugin*).
 4. **Revit 2026** open with *Snowdon Towers Sample Architectural* (`C:\Program Files\Autodesk\Revit 2026\Samples`).
    Brush Link on: Add-Ins → Brush → Brush Link. The pill in Brush's top bar should go green.
-5. **Editor:** `pnpm --dir editor dev` and open `http://localhost:5173/?timer`.
+5. **Editor:** `pnpm --dir editor dev` and open `http://localhost:5173/?demo` (the Show more button; it turns the
+   timer on at step 1).
    `?timer` turns the round-trip timer on (it's also a switch in the Revit panel, and it's remembered).
 6. **Warm up:** open A102, draw and undo one wall. The first export after Revit opens a model is the slow one.
 7. **Close everything else** that talks to Revit (a second browser tab on the editor, PW Tools sessions).
