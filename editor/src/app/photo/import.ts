@@ -19,7 +19,7 @@ import { session, getSession } from '../session'
 import { openSource, type DrawingSource, type PageRenderer, type SourceInput } from '../source'
 import { getDocState } from '../store'
 import type { InkChoice, MarkupLayer, MarkupResult, Probe } from './pipeline'
-import { MAX_AUTO_SHEETS, PROBE_DPI, candidateSheets, matchPrintedSheet, pickSheet, printedScale, sheetLabel, workingDpi } from './plan'
+import { MAX_AUTO_SHEETS, PROBE_DPI, candidateSheets, matchPrintedSheet, pickSheet, printedCandidates, printedScale, sheetLabel, workingDpi } from './plan'
 import type { PhotoRequest, PhotoResponse, RasterMessage } from './protocol'
 import { markupToStrokes, rgbToHex } from './toStrokes'
 
@@ -148,7 +148,9 @@ export async function importPhotoMarkup(photo: Blob, opts: PhotoImportOptions = 
     if (opts.printed) printed = await openPrinted(opts.printed)
     // the drawing the photo is matched against: the printed file, else the open document
     const refPages = printed?.pages ?? pages
-    const candidates = printed ? printed.sheets.slice(0, MAX_AUTO_SHEETS) : candidateSheets(doc.sheets, opts.sheetId, getSession().activeSheetId)
+    // with the open sheet chosen, the printed pages titled like it are compared first, wherever they are in the file
+    const target = doc.sheets.find((s) => s.id === opts.sheetId)
+    const candidates = printed ? printedCandidates(printed.sheets, target, MAX_AUTO_SHEETS) : candidateSheets(doc.sheets, opts.sheetId, getSession().activeSheetId)
     if (!candidates.length) throw new PhotoImportError(printed ? `${printed.name} has no pages to match the photo against.` : 'That sheet is not in the open document.')
 
     say('Reading the photo…')
@@ -166,8 +168,10 @@ export async function importPhotoMarkup(photo: Blob, opts: PhotoImportOptions = 
     }
     const best = pickSheet(probes)
     if (!best) {
-      if (printed)
-        throw new PhotoImportError(`The photo does not match ${candidates.length === 1 ? 'the page' : 'any page'} of ${printed.name}. Check that the paper in the photo was printed from this file, and that the photo is flat and in focus.`)
+      if (printed) {
+        const some = printed.sheets.length > candidates.length ? ` (compared the first ${candidates.length} of its ${printed.sheets.length} pages${target ? ', those titled like the chosen sheet first' : '; choose the sheet the strokes go on to compare its page first'})` : ''
+        throw new PhotoImportError(`The photo does not match ${printed.sheets.length === 1 ? 'the page' : 'any page'} of ${printed.name}${some}. Check that the paper in the photo was printed from this file, and that the photo is flat and in focus.`)
+      }
       const tried = doc.sheets.length > candidates.length && !opts.sheetId ? ` (tried the first ${candidates.length} of ${doc.sheets.length} sheets; choose the sheet to try another)` : ''
       throw new PhotoImportError(
         (opts.sheetId

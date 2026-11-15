@@ -51,6 +51,34 @@ export function pickSheet<P extends { tiles: number }>(results: readonly { sheet
 
 const norm = (s: string | undefined) => (s ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim()
 
+/** A sheet's number (any length from 2 characters: "A01") and name (from 4: short names say little), normalised. */
+const titleTokens = (s: Sheet) => [norm(s.number), norm(s.name)].filter((t, i) => t.length >= (i === 0 ? 2 : 4))
+const titleText = (s: Sheet) => ` ${norm(`${s.number ?? ''} ${s.name}`)} `
+
+/**
+ * How much of two sheets' titles is shared: the length of each one's number and name found, as whole words, in the
+ * other's title ("0001" is in "N01 0001 007", not in "10001"). Every number and name found counts, so two sheets with
+ * one name ("LEVEL 1") are told apart by their numbers, short ones too ("A01", "A02"). 0 when nothing is shared.
+ */
+export function titleScore(a: Sheet, b: Sheet): number {
+  const ta = titleText(a)
+  const tb = titleText(b)
+  return [...titleTokens(a).filter((t) => tb.includes(` ${t} `)), ...titleTokens(b).filter((t) => ta.includes(` ${t} `))].reduce((n, t) => n + t.length, 0)
+}
+
+/**
+ * Pages of the printed file to compare the photo with (P1-09), at most `max`. With the open sheet chosen, the pages
+ * whose title matches it come first, so its page is compared wherever it is in a long file; otherwise the first pages.
+ */
+export function printedCandidates(pages: readonly Sheet[], target: Sheet | undefined, max = MAX_AUTO_SHEETS): Sheet[] {
+  if (!target) return pages.slice(0, max)
+  return pages
+    .map((p, i) => ({ p, i, score: titleScore(p, target) }))
+    .sort((x, y) => y.score - x.score || x.i - y.i)
+    .slice(0, max)
+    .map((x) => x.p)
+}
+
 /**
  * The open sheet that a page of the printed file is (P1-09): the photo was matched to the printed page, the strokes
  * go on this sheet. In order: the sheet chosen in the dialog; the sheet whose number and name appear in the printed
@@ -64,17 +92,11 @@ export function matchPrintedSheet(
   sheetId?: string,
 ): Sheet | null {
   if (sheetId) return sheets.find((s) => s.id === sheetId) ?? null
-  const title = ` ${norm(`${printed.number ?? ''} ${printed.name}`)} `
-  const theirs = [printed.number, printed.name].map(norm).filter((t) => t.length >= 4)
   let best: Sheet | null = null
   let bestLen = 0
   let tie = false
   for (const s of sheets) {
-    const mine = [s.number, s.name].map(norm).filter((t) => t.length >= 4)
-    const text = ` ${norm(`${s.number ?? ''} ${s.name}`)} `
-    // whole words only: "0001" is in "N01 0001 007", not in "10001". Every number and name found counts, so two
-    // sheets with one name ("LEVEL 1") are told apart by their numbers
-    const len = [...mine.filter((t) => title.includes(` ${t} `)), ...theirs.filter((t) => text.includes(` ${t} `))].reduce((n, t) => n + t.length, 0)
+    const len = titleScore(printed, s)
     if (len > bestLen) [best, bestLen, tie] = [s, len, false]
     else if (len && len === bestLen) tie = true
   }

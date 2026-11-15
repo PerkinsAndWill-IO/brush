@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import type { Sheet, Stroke } from '@core/types'
 import { StrokeHistory } from '../../src/app/board/history'
 import { inkRender } from '../../src/app/board/ink'
-import { MAX_AUTO_SHEETS, MAX_WORK_SIDE, MIN_TILES, candidateSheets, knownSheetId, matchPrintedSheet, pickSheet, printedScale, sheetLabel, workingDpi } from '../../src/app/photo/plan'
+import { MAX_AUTO_SHEETS, MAX_WORK_SIDE, MIN_TILES, candidateSheets, knownSheetId, matchPrintedSheet, pickSheet, printedCandidates, printedScale, sheetLabel, workingDpi } from '../../src/app/photo/plan'
 import { markupToStrokes, resampleCentreline, rgbToHex } from '../../src/app/photo/toStrokes'
 import type { MarkupLayer } from '../../src/app/photo/pipeline'
 
@@ -194,6 +194,26 @@ describe('P1-09: the photo matched to the printed file, the strokes on the open 
     ]
     expect(matchPrintedSheet({ id: 'p', name: 'LEVEL 1', pageIndex: 0, sizePt: A3 }, 4, twins)).toBeNull()
     expect(matchPrintedSheet({ id: 'p', number: 'A-102', name: 'LEVEL 1', pageIndex: 0, sizePt: A3 }, 4, twins)?.id).toBe('b')
+  })
+
+  it('P1-09: short sheet numbers count too: reordered pages with one name go on the sheet with their number', () => {
+    const open: Sheet[] = [
+      { id: 'a', number: 'A01', name: 'FLOOR PLAN', pageIndex: 0, sizePt: A3 },
+      { id: 'b', number: 'A02', name: 'FLOOR PLAN', pageIndex: 1, sizePt: A3 },
+    ]
+    // the printed file has the pages the other way round
+    expect(matchPrintedSheet({ id: 'p0', number: 'A02', name: 'FLOOR PLAN', pageIndex: 0, sizePt: A3 }, 2, open)?.id).toBe('b')
+    expect(matchPrintedSheet({ id: 'p1', number: 'A01', name: 'FLOOR PLAN', pageIndex: 1, sizePt: A3 }, 2, open)?.id).toBe('a')
+  })
+
+  it('P1-09: with the open sheet chosen, its printed page is compared first, however far into a long file it is', () => {
+    const pages: Sheet[] = Array.from({ length: 40 }, (_, i) => ({ id: `p${i}`, number: `A-${String(i + 1).padStart(3, '0')}`, name: 'PLAN', pageIndex: i, sizePt: A3 }))
+    const target: Sheet = { id: 't', number: 'A-031', name: 'PLAN', pageIndex: 0, sizePt: A3 }
+    const tried = printedCandidates(pages, target, MAX_AUTO_SHEETS)
+    expect(tried).toHaveLength(MAX_AUTO_SHEETS)
+    expect(tried[0].id).toBe('p30')
+    // without a chosen sheet: the first pages, in order
+    expect(printedCandidates(pages, undefined, MAX_AUTO_SHEETS).map((p) => p.id)).toEqual(pages.slice(0, MAX_AUTO_SHEETS).map((p) => p.id))
   })
 
   it('P1-09: strokes scale from the printed page to the open sheet; other proportions are refused', () => {
