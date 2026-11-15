@@ -4,7 +4,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { openApp, screenPath } from './helpers'
+import { openApp, screenPath, openSidePanel } from './helpers'
 import { boardCenter, camera, fixturePath, inkCount, line, openWith, openAppMenu, readRecording, replay, sampleInk, settle, strokes } from './m1-helpers'
 
 const SIX = 'office-6-sheets.pdf'
@@ -262,6 +262,7 @@ test('M1-06: the brush draws ink that follows the pointer, with size and smoothi
   await settle(page)
 
   // size + smoothing from the left sidebar, color from the capsule
+  await openSidePanel(page)
   await page.locator('#brush-size').fill('6')
   await page.locator('#brush-smoothing').fill('60')
   await expect(page.getByTestId('left-sidebar')).toContainText('6 px')
@@ -454,6 +455,7 @@ test('M1-10: work autosaves to the sidecar and is restored when the same PDF is 
 
 test('M1-11: left sidebar shows the active tool’s options; sections collapse; Mode, Snapping, Commit present (enabled from M2/M3; Mode off with Live off)', async ({ page }) => {
   await openWith(page, SIX)
+  await openSidePanel(page)
   const side = page.getByTestId('left-sidebar')
   await expect(side.locator('.tool-name')).toHaveText('Brush')
   await expect(side.locator('#brush-size')).toBeEnabled()
@@ -504,6 +506,7 @@ test('M1-12: strokes can be recorded to fixture files from a dev-only toggle (wr
   src.points = src.points.map((p, i) => ({ ...p, p: 0.3 + i * 0.02 }))
   await replay(page, src, true)
   const [drawn] = await strokes(page)
+  await openSidePanel(page)
   await expect(page.getByTestId('recordings-list').locator('li')).toHaveCount(1)
   await page.screenshot({ path: screenPath('m1-12-recording') })
 

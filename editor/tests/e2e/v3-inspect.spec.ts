@@ -5,7 +5,7 @@
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
-import { openApp, screenPath } from './helpers'
+import { openApp, screenPath, openSidePanel } from './helpers'
 
 const HOUSE = fileURLToPath(new URL('../../../schema/public/examples/house.drawing', import.meta.url))
 test.skip(!existsSync(HOUSE), 'needs schema/public/examples/house.drawing')
@@ -56,6 +56,7 @@ test('V3-01..03: hover highlights an element on every sheet, its data shows in t
   await openApp(page)
   await openHouse(page)
   await page.keyboard.press('v')
+  await openSidePanel(page)
   const card = page.getByTestId('left-sidebar').getByTestId('inspect-panel')
   await expect(page.getByTestId('left-sidebar').getByTestId('section-element')).toBeVisible()
   await expect(card).toHaveAttribute('data-element', '')

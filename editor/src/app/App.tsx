@@ -17,7 +17,7 @@ import { formatDuration, formatEta, type ConvertProgress } from './convertProgre
 import { getDocState, openDocument, openFile, useDocState } from './store'
 import brushLogoRed from './ui/assets/brush-logo-red.png'
 import { BrushLoader } from './ui/BrushLoader'
-import { chooseFile, LeftSidebar, RightSidebar, ToolCapsule, TopBar } from './ui/Chrome'
+import { chooseFile, SidePanel, ToolCapsule, TopBar } from './ui/Chrome'
 import { HandLoader } from './ui/HandLoader'
 import sampleSmallIcon from './ui/assets/sample-small.png'
 import sampleMediumIcon from './ui/assets/sample-medium.png'
@@ -265,7 +265,7 @@ export function App() {
     >
       <TopBar />
       <div className="body">
-        {ready && <LeftSidebar />}
+        {ready && <SidePanel />}
         <main className="canvas-area">
           {ready ? (
             <Board pages={st.pages} loadId={st.loadId} sheets={st.sheets} placements={st.placements} fileName={st.fileName ?? ''} />
@@ -281,7 +281,6 @@ export function App() {
           {ready && <TraceControl />}
           <ToolCapsule disabled={!ready} />
         </main>
-        {ready && <RightSidebar />}
       </div>
       <PhotoImportDialog />
       <TypeMenu />

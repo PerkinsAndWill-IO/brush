@@ -78,8 +78,18 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 2px 6px; border-radius
 
 /* ── sidebars ── */
 .sidebar { flex: 0 0 auto; display: flex; flex-direction: column; background: var(--surface); overflow-y: auto; min-height: 0; }
-.sidebar.left { width: 208px; border-right: 1px solid var(--line); }
-.sidebar.right { width: 300px; border-left: 1px solid var(--line); }
+/* Every panel in one drawer over the left of the board, opened by the ☰ at the top left (closed by default). */
+.body { position: relative; }
+.side-panel { position: absolute; top: 0; left: 0; bottom: 0; z-index: 25; width: 300px; max-width: calc(100% - 24px); border-right: 1px solid var(--line); box-shadow: 6px 0 24px rgba(24, 30, 46, 0.12); animation: side-panel-in 0.16s ease-out; }
+@keyframes side-panel-in { from { transform: translateX(-16px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .side-panel { animation: none; } }
+.panel-group { display: flex; flex-direction: column; }
+.panel-group.right { border-top: 1px solid var(--line); }
+/* the scale bar moves out from under the open panel */
+.side-panel ~ .canvas-area .scale-hud { left: 312px; }
+.panel-toggle { color: var(--text); margin-right: -2px; }
+.panel-toggle.on { background: var(--tool-selected); }
+.panel-toggle .sketch-icon { display: block; }
 /* The tool header is not drawn any more (the capsule shows the active tool); it stays for screen readers. */
 .tool-head { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .tool-badge { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 9px; background: var(--accent); color: #fff; }
@@ -297,9 +307,8 @@ button.pen-chip:hover { border-color: var(--accent); }
 .measure.draft path { stroke-dasharray: 6 4; }
 .scale-hud { position: absolute; left: 12px; bottom: 12px; z-index: 18; padding: 8px 10px 6px; border-radius: 10px; background: rgba(253, 253, 251, 0.92); border: 1px solid var(--line-soft); box-shadow: 0 4px 14px rgba(24, 30, 46, 0.1); pointer-events: none; font-size: calc(11px * var(--label-scale, 1)); color: var(--text); }
 .scale-hud .scale-title { color: var(--muted); margin-bottom: 5px; white-space: nowrap; }
-.scale-hud .scale-bar { display: flex; height: 7px; border: 1.25px solid var(--text); transition: width 0.12s; }
-.scale-hud .scale-bar span { flex: 1; }
-.scale-hud .scale-bar span:nth-child(odd) { background: var(--text); }
+.scale-hud .scale-bar { height: 10px; }
+.scale-hud .sketch-scale { display: block; fill: none; stroke: var(--text); stroke-linecap: round; stroke-linejoin: round; }
 .scale-hud .scale-labels { display: flex; justify-content: space-between; margin-top: 3px; font-family: var(--mono); font-size: 0.95em; transition: width 0.12s; }
 .scale-hud .scale-labels span:first-child { transform: translateX(-35%); }
 .scale-hud .scale-labels span:nth-child(2) { transform: translateX(0); }
@@ -476,7 +485,6 @@ button.revit-sheet-name:hover { text-decoration: underline; }
 .inspect-hl .fill { fill: var(--highlight-soft); stroke: none; }
 .inspect-hl .box { fill: rgba(217, 88, 63, 0.14); stroke: var(--highlight); }
 
-.sidebar.left.wide { width: 280px; }
 .element-section { padding: 0 0 6px; }
 .inspect-panel .prop-title { display: flex; align-items: center; gap: 8px; padding: 10px 12px 8px; }
 .inspect-panel .titles { display: flex; flex-direction: column; min-width: 0; flex: 1; }

@@ -5,7 +5,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
-import { openApp, screenPath } from './helpers'
+import { openApp, screenPath, openSidePanel } from './helpers'
 import { fixturePath, line, openAppMenu, settle } from './m1-helpers'
 
 test('M5: a .drawing package opens like a PDF; a wall stroke logs create_wall against its package context; commands export', async ({ page }) => {
@@ -84,6 +84,7 @@ test('Clear session: the hamburger menu wipes strokes and commands, and the empt
   await expect(page.getByTestId('app-menu')).toHaveCount(0)
   expect(await page.evaluate(() => window.__brush!.strokes().length)).toBe(0)
   expect(await page.evaluate(() => window.__brush!.commands().length)).toBe(0)
+  await openSidePanel(page)
   await expect(page.getByTestId('section-session')).toContainText('0 strokes')
   await expect(page.getByRole('button', { name: 'Undo' })).toBeDisabled()
 

@@ -6,7 +6,7 @@
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
-import { openApp, screenPath } from './helpers'
+import { openApp, screenPath, openSidePanel } from './helpers'
 
 const HOUSE = fileURLToPath(new URL('../../../schema/public/examples/house.drawing', import.meta.url))
 test.skip(!existsSync(HOUSE), 'needs schema/public/examples/house.drawing')
@@ -39,6 +39,7 @@ test('V2-01..03: filters list the categories, hide categories and kinds, and sur
   await openApp(page)
   await expect(page.getByTestId('section-filters')).toHaveCount(0) // nothing open: no filters
   await openHouse(page)
+  await openSidePanel(page)
   const section = page.getByTestId('right-sidebar').getByTestId('section-filters')
   await expect(section).toBeVisible()
   const walls = section.locator('input[data-category="Walls"]')
@@ -72,6 +73,7 @@ test('V2-01..03: filters list the categories, hide categories and kinds, and sur
   // remembered per browser
   await page.reload()
   await openHouse(page)
+  await openSidePanel(page)
   await expect(page.getByTestId('section-filters').locator('input[data-category="Walls"]')).not.toBeChecked()
   await expect(page.getByTestId('section-filters').locator('[data-kind="fills"]')).toHaveAttribute('aria-pressed', 'false')
 

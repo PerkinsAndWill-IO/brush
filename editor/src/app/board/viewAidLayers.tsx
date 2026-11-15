@@ -123,6 +123,42 @@ function sheetForHud(vw: number, vh: number): { sheet: Sheet; scale: number } | 
   return at && scale ? { sheet: at, scale } : null
 }
 
+/** A steady wobble: the same bar draws the same way on every render, so it does not shimmer while zooming. */
+const wob = (i: number, amp: number) => Math.sin(i * 12.9898 + 4.1) * amp
+
+/**
+ * The scale bar drawn like a marker sketch: a wobbly outline that overshoots its corners a little, and the 1st and
+ * 3rd quarters filled with a quick zigzag scribble. Exactly `px` wide between its end ticks (the overshoot spills
+ * outside), so the bar still measures true.
+ */
+function SketchScaleBar({ px }: { px: number }) {
+  const H = 10
+  const q = px / 4
+  const f = (n: number) => n.toFixed(1)
+  const line = (x0: number, y0: number, x1: number, y1: number, k: number) => {
+    const mx = (x0 + x1) / 2 + wob(k, 0.6)
+    const my = (y0 + y1) / 2 + wob(k + 1, 1.3)
+    return `M${f(x0)} ${f(y0)}Q${f(mx)} ${f(my)} ${f(x1)} ${f(y1)}`
+  }
+  let outline = line(-1.5, 1 + wob(1, 0.4), px + 1.2, 1.2 + wob(2, 0.4), 3) + line(-1, H - 0.8 + wob(4, 0.4), px + 1.6, H - 1 + wob(5, 0.4), 6)
+  for (let i = 0; i <= 4; i++) outline += line(i * q + wob(i + 7, 0.5), -0.8, i * q + wob(i + 9, 0.6), H + 0.6, i + 11)
+  let fill = ''
+  for (const seg of [0, 2]) {
+    const x0 = seg * q + 1.4
+    const x1 = (seg + 1) * q - 1.4
+    const step = 1.6
+    let d = `M${f(x0)} ${f(H - 1.6)}`
+    for (let x = x0, up = true; x < x1; x += step, up = !up) d += `L${f(Math.min(x + step, x1))} ${f(up ? 1.6 + wob(x, 0.5) : H - 1.6 + wob(x, 0.5))}`
+    fill += d
+  }
+  return (
+    <svg className="sketch-scale" width={px} height={H} viewBox={`0 0 ${f(px)} ${H}`} overflow="visible">
+      <path d={fill} strokeWidth="2.3" />
+      <path d={outline} strokeWidth="1.7" />
+    </svg>
+  )
+}
+
 export function ScaleBarHud({ viewport }: { viewport: () => { w: number; h: number } }) {
   const { scaleBar } = useView()
   useContexts() // re-render when a scale is found
@@ -139,10 +175,7 @@ export function ScaleBarHud({ viewport }: { viewport: () => { w: number; h: numb
         {target.sheet.number ?? target.sheet.name} · 1:{target.scale}
       </div>
       <div className="scale-bar" style={{ width: bar.px }} aria-hidden="true">
-        <span />
-        <span />
-        <span />
-        <span />
+        <SketchScaleBar px={bar.px} />
       </div>
       <div className="scale-labels" style={{ width: bar.px }} aria-hidden="true">
         {bar.labels.map((l, i) => (

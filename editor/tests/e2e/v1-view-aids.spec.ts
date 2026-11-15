@@ -4,7 +4,7 @@
  * Screenshots: reports/screens/v1-*.png.
  */
 import { expect, test, type Page } from '@playwright/test'
-import { screenPath } from './helpers'
+import { screenPath, openSidePanel } from './helpers'
 import { boardCenter, camera, openWith, settle } from './m1-helpers'
 
 const ONE = 'office-1-sheet.pdf'
@@ -18,6 +18,7 @@ async function openScaled(page: Page) {
 }
 
 async function openView(page: Page) {
+  await openSidePanel(page)
   const section = page.getByTestId('section-view')
   if ((await section.getAttribute('data-open')) !== 'true') await section.getByRole('button', { name: 'View' }).click()
 }
@@ -56,6 +57,7 @@ test('V1-02: the Measure tool measures in real units, drag or click-click; Backs
   await settle(page)
   await page.keyboard.press('m')
   await expect(page.getByTestId('tool-capsule').locator('[data-tool="measure"]')).toHaveAttribute('aria-pressed', 'true')
+  await openSidePanel(page)
   await expect(page.getByTestId('section-measure')).toBeVisible()
 
   const { x, y } = await boardCenter(page)
@@ -101,6 +103,10 @@ test('V1-03: a metric grid can be shown on scaled sheets; its spacing adapts to 
   await page.getByTestId('grid-toggle').click()
   const grid = page.getByTestId('sheet-grid')
   await expect(grid).toHaveCount(1)
+  await page.getByTestId('panel-toggle').click() // close the panel: the grid setting stays on
+  // start zoomed out: with no sidebars the sheet fits at a zoom where the grid is already as fine as this sheet allows
+  for (let i = 0; i < 4; i++) await page.keyboard.press('-')
+  await settle(page)
   const coarse = Number(await grid.getAttribute('data-minor-m'))
   for (let i = 0; i < 8; i++) await page.keyboard.press('=') // zoom in ×6 about the middle
   await settle(page)

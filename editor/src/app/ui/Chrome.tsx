@@ -3,7 +3,7 @@
  * sidebar (tool options) and right sidebar (session list). M1 only — the
  * Reading panel, host status, latency readout and Live toggle arrive in M3.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { DECISION_KINDS, type BrushMode, type DecisionKind } from '@core/types'
 import { KIND_LABEL } from '../brain/overlays'
 import { acceptReading } from '../brain/predictEngine'
@@ -19,7 +19,7 @@ import { getDocState, openFile, useDocState, useSheetsLoading } from '../store'
 import { DrawingFileSource, buildCommandFile, commandFileName, serializeCommandFile, writeCommandFile } from '../source'
 import { ITEM_KINDS, categoriesOf, filters, isAnnotationCategory, useFilters } from '../drawing/filters'
 import { useContexts } from '../brain/contextStore'
-import { BrushIcon, ChevronDown, ChevronRight, EraserIcon, MeasureIcon, MenuIcon, PanIcon, RedoIcon, SelectIcon, UndoIcon } from './icons'
+import { BrushIcon, ChevronDown, ChevronRight, EraserIcon, MeasureIcon, MenuIcon, PanIcon, RedoIcon, SelectIcon, SketchMenuIcon, UndoIcon } from './icons'
 import brushLogo from './assets/brush-logo.png'
 import selectToolIcon from './assets/tool-select.png'
 import brushToolIcon from './assets/tool-brush.png'
@@ -279,6 +279,7 @@ export function TopBar() {
   return (
     <header className="topbar">
       <div className="title">
+        {ready && <SidePanelToggle />}
         <img className="brand-logo" src={brushLogo} alt="Brush" />
         <span className="project">{ready ? doc.fileName?.replace(/\.(pdf|drawing)$/i, '') : 'No drawing open'}</span>
         {ready && (
@@ -437,6 +438,63 @@ export function ToolCapsule({ disabled = false }: { disabled?: boolean }) {
         </>
       )}
     </nav>
+  )
+}
+
+// ───────────── side panel ─────────────
+
+/** Is the side panel (tool settings, reading, session, filters) open? Closed whenever the app starts. */
+let sidePanelOpen = false
+const sidePanelListeners = new Set<() => void>()
+export const sidePanel = {
+  isOpen: () => sidePanelOpen,
+  set(open: boolean) {
+    if (open === sidePanelOpen) return
+    sidePanelOpen = open
+    for (const l of sidePanelListeners) l()
+  },
+  toggle: () => sidePanel.set(!sidePanelOpen),
+}
+const subscribeSidePanel = (l: () => void) => (sidePanelListeners.add(l), () => void sidePanelListeners.delete(l))
+export const useSidePanelOpen = () => useSyncExternalStore(subscribeSidePanel, sidePanel.isOpen)
+
+/** The ☰ at the top left: shows and hides the side panel. */
+function SidePanelToggle() {
+  const open = useSidePanelOpen()
+  return (
+    <button
+      type="button"
+      className={`icon-btn panel-toggle${open ? ' on' : ''}`}
+      aria-label={open ? 'Hide settings' : 'Show settings'}
+      title={open ? 'Hide settings' : 'Settings'}
+      aria-expanded={open}
+      aria-controls="side-panel"
+      data-testid="panel-toggle"
+      onClick={() => sidePanel.toggle()}
+    >
+      <SketchMenuIcon />
+    </button>
+  )
+}
+
+/**
+ * Every setting and session panel in one drawer over the left of the board, hidden until the ☰ is clicked. The
+ * board keeps its size when it opens or closes. Only the ☰ opens and closes it (Escape keeps its meaning inside, e.g.
+ * unpinning an inspected element).
+ */
+export function SidePanel() {
+  const open = useSidePanelOpen()
+  if (!open) return null
+  return (
+    <aside
+      id="side-panel"
+      className="sidebar side-panel"
+      aria-label="Settings"
+      data-testid="side-panel"
+    >
+      <LeftSidebar />
+      <RightSidebar />
+    </aside>
   )
 }
 
@@ -604,7 +662,7 @@ export function LeftSidebar() {
   const canInspect = useCanInspect()
   const meta = TOOL_META[tool]
   return (
-    <aside className={`sidebar left${tool === 'select' && canInspect ? ' wide' : ''}`} aria-label={`${meta.label} options`} data-testid="left-sidebar">
+    <div className={`panel-group left${tool === 'select' && canInspect ? ' wide' : ''}`} role="group" aria-label={`${meta.label} options`} data-testid="left-sidebar">
       <div className="tool-head">
         <span className="tool-badge" aria-hidden="true">
           {meta.icon}
@@ -645,7 +703,7 @@ export function LeftSidebar() {
       <SnappingSection />
       <CommitSection />
       <ViewSection />
-    </aside>
+    </div>
   )
 }
 
@@ -1049,13 +1107,13 @@ function ElementSection() {
 export function RightSidebar() {
   const { strokes } = useSession()
   return (
-    <aside className="sidebar right" aria-label="Inspector" data-testid="right-sidebar">
+    <div className="panel-group right" role="group" aria-label="Inspector" data-testid="right-sidebar">
       <ReadingPanel />
       <Section title="This session" aside={`${strokes.length} ${strokes.length === 1 ? 'stroke' : 'strokes'}`} testId="section-session">
         <SessionList />
       </Section>
       <FiltersSection />
       {recorderAvailable() && <RecordingsList />}
-    </aside>
+    </div>
   )
 }

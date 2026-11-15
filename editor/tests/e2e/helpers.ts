@@ -35,3 +35,14 @@ export function p95(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b)
   return s[Math.min(s.length - 1, Math.ceil(0.95 * s.length) - 1)]
 }
+
+/**
+ * Open the side panel (tool settings, reading, session, filters): it is hidden until the ☰ at the top left is
+ * clicked. Does nothing when it is already open. Needs a drawing open (the ☰ shows only then).
+ */
+export async function openSidePanel(page: Page) {
+  const toggle = page.getByTestId('panel-toggle')
+  await toggle.waitFor()
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+  await page.getByTestId('side-panel').waitFor()
+}

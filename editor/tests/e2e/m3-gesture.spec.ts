@@ -6,7 +6,7 @@
  */
 import { expect, test, type Page } from '@playwright/test'
 import type { StrokeRecording } from '../../src/core/types'
-import { screenPath } from './helpers'
+import { screenPath, openSidePanel } from './helpers'
 import { openWith, readRecording, settle } from './m1-helpers'
 
 const SIX = 'office-6-sheets.pdf'
@@ -87,6 +87,7 @@ for (const gap of [250, 600]) {
     expect(live.phase === 'committed' ? live.decision?.kind : live.hypothesis?.kind).toBe('furniture')
 
     // "This session" folds the gesture into one row
+    await openSidePanel(page)
     const rows = page.locator('[data-testid="session-list"] li[data-stroke-id]')
     await expect(rows).toHaveCount(1)
     await expect(rows.first()).toHaveAttribute('data-stroke-id', last)

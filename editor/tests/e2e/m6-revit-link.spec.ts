@@ -7,7 +7,7 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:chil
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test'
-import { openApp, screenPath } from './helpers'
+import { openApp, screenPath, openSidePanel } from './helpers'
 import { ROOT, line, settle } from './m1-helpers'
 
 const REVIT = resolve(ROOT, '..', 'revit')
@@ -346,6 +346,7 @@ test('M6-14: the inspector works on a linked Revit sheet: hovering a wall shows 
   await page.keyboard.press('v')
 
   // a point on a wall of the package, found through the app's own modules
+  await openSidePanel(page) // open first: the card shows what is hovered while it is open
   const target = await page.evaluate(async (sheetId) => {
     const load = (p: string) => import(/* @vite-ignore */ p)
     const { getDocState } = await load('/src/app/store.ts')
@@ -361,7 +362,9 @@ test('M6-14: the inspector works on a linked Revit sheet: hovering a wall shows 
       if (it.t !== 'path' || vp.elements[it.el]?.category !== 'Walls') continue
       const x = (it.xy[0] + it.xy[2]) / 2, y = (it.xy[1] + it.xy[3]) / 2
       if (elementAt(vp.page, x, y, 4 / cam.z) !== it.el) continue
-      return { el: it.el, type: vp.elements[it.el].type as string, x: r.left + (x + pl.x + cam.x) * cam.z, y: r.top + (y + pl.y + cam.y) * cam.z }
+      const sx = r.left + (x + pl.x + cam.x) * cam.z
+      if (sx < 330) continue // not under the side panel
+      return { el: it.el, type: vp.elements[it.el].type as string, x: sx, y: r.top + (y + pl.y + cam.y) * cam.z }
     }
     return null
   }, SHEET)

@@ -4,7 +4,7 @@
  * shape-only note on scanned sheets. Screenshots: reports/screens/m2-*.png.
  */
 import { expect, test } from '@playwright/test'
-import { screenPath } from './helpers'
+import { screenPath, openSidePanel } from './helpers'
 import { line, openWith, replay, settle } from './m1-helpers'
 
 const SIX = 'office-6-sheets.pdf'
@@ -53,6 +53,7 @@ test('M2: a stroke ending ~4 pt short of a wall corner shows a snap marker at th
 test('M2: debug overlay draws the detected context; a scanned sheet says shape only', async ({ page }) => {
   await openWith(page, SIX, { live: true })
   await page.evaluate(() => window.__brush!.contextFor('sheet-1'))
+  await openSidePanel(page)
   await page.getByTestId('section-snapping').getByRole('button', { name: /Snapping/ }).click()
   await page.getByTestId('context-overlay-toggle').click()
   await page.evaluate(() => window.__brushDev!.focusSheet(1, 1))

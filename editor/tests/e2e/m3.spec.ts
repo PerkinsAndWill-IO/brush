@@ -7,7 +7,7 @@
  */
 import { expect, test, type Page } from '@playwright/test'
 import type { StrokeRecording } from '../../src/core/types'
-import { p95, recordPerf, screenPath } from './helpers'
+import { p95, recordPerf, screenPath, openSidePanel } from './helpers'
 import { openWith, readRecording, settle, strokes } from './m1-helpers'
 
 const SIX = 'office-6-sheets.pdf'
@@ -96,6 +96,7 @@ test('M3: hypotheses stream during the stroke, commit after the pause with the r
       expect(cmds[cmds.length - 1].op).toBe(c.op)
       expect(cmds[cmds.length - 1].strokeId).toBe(strokeId)
       await expect(page.locator(`[data-element="${c.kind}"][data-stroke-id="${strokeId}"]`)).toHaveCount(1)
+      await openSidePanel(page)
       await expect(page.getByTestId('reading-command')).toContainText(c.op)
     } else {
       expect(cmds.length).toBe(cmdsBefore)
@@ -201,6 +202,7 @@ test('M3: Live off is plain M1 ink; Mode forces a reading', async ({ page }) => 
   await page.waitForTimeout(600)
   expect(await page.evaluate(() => window.__brush!.hypotheses())).toHaveLength(0)
   expect(await page.evaluate(() => window.__brush!.commands())).toHaveLength(0)
+  await openSidePanel(page)
   await expect(page.getByTestId('section-reading')).toContainText('Live reading is off')
 
   await page.getByTestId('live-toggle').click()
