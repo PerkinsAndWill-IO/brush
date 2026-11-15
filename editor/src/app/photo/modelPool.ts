@@ -12,10 +12,19 @@ import type { ModelReply, ModelRequest } from './model-worker'
 
 type Request = ModelRequest extends infer R ? (R extends unknown ? Omit<R, 'id'> : never) : never
 
-export function createModelPool(size: number): ModelWorkers {
+/** What the pool needs of a helper (a Worker; tests hand in fakes). */
+export type HelperWorker = Pick<Worker, 'postMessage' | 'addEventListener' | 'removeEventListener' | 'terminate'>
+
+const newHelper = (): HelperWorker => new Worker(new URL('./model-worker.ts', import.meta.url), { type: 'module' })
+
+export function createModelPool(size: number, makeHelper: () => HelperWorker = newHelper): ModelWorkers {
+  type Worker = HelperWorker
   let helpers: Worker[] | null = null
   let broken = false
   let nextId = 1
+  // every call still waiting for its helper, so that taking the helpers down settles them all: several steps can be
+  // in flight at once (the grey and colour shrinks), and a call to a terminated helper would otherwise never return
+  const waiting = new Set<(e: Error) => void>()
   // the photo the helpers hold for warps: a key per photo, and which helpers have it
   const photoKeys = new WeakMap<RgbImage, number>()
   let nextPhotoKey = 1
@@ -25,8 +34,13 @@ export function createModelPool(size: number): ModelWorkers {
     new Promise<ModelReply>((resolve, reject) => {
       const id = nextId++
       const done = () => {
-        worker.removeEventListener('message', onMessage)
-        worker.removeEventListener('error', onError)
+        worker.removeEventListener('message', onMessage as EventListener)
+        worker.removeEventListener('error', onError as EventListener)
+        waiting.delete(fail)
+      }
+      const fail = (e: Error) => {
+        done()
+        reject(e)
       }
       const onMessage = (e: MessageEvent<ModelReply>) => {
         if (e.data.id !== id) return
@@ -34,12 +48,10 @@ export function createModelPool(size: number): ModelWorkers {
         if ('error' in e.data) reject(new Error(e.data.error))
         else resolve(e.data)
       }
-      const onError = (e: ErrorEvent) => {
-        done()
-        reject(new Error(e.message || 'model helper failed'))
-      }
-      worker.addEventListener('message', onMessage)
-      worker.addEventListener('error', onError)
+      const onError = (e: ErrorEvent) => fail(new Error(e.message || 'model helper failed'))
+      worker.addEventListener('message', onMessage as EventListener)
+      worker.addEventListener('error', onError as EventListener)
+      waiting.add(fail)
       worker.postMessage({ ...req, id }, transfer)
     })
 
@@ -47,13 +59,15 @@ export function createModelPool(size: number): ModelWorkers {
   const parallel = async <T>(rows: number, work: (helpers: Worker[]) => Promise<T>, local: () => T): Promise<T> => {
     if (broken || size < 2 || rows < 8 * size) return local()
     try {
-      helpers ??= Array.from({ length: size }, () => new Worker(new URL('./model-worker.ts', import.meta.url), { type: 'module' }))
+      helpers ??= Array.from({ length: size }, makeHelper)
       return await work(helpers)
     } catch {
+      // from now on everything runs on this thread; steps still waiting on the helpers fall back to it too
       broken = true
       for (const h of helpers ?? []) h.terminate()
       helpers = null
       hasPhoto.clear()
+      for (const fail of [...waiting]) fail(new Error('model helpers stopped'))
       return local()
     }
   }
