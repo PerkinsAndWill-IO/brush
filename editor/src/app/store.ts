@@ -248,8 +248,36 @@ async function openRevitModel(file: OpenedFile): Promise<void> {
   await openFile({ name: file.name.replace(/\.(rvt|rfa)$/i, '.drawing'), size: bytes.byteLength, bytes })
 }
 
+/**
+ * M6-11: asked before a `.rvt` goes to the conversion server. Resolves true when that model is open in Revit and the
+ * live link took it instead. Set by the Revit controller (kept as a hook so the store does not import it).
+ */
+let revitModelHook: ((fileName: string) => Promise<boolean>) | null = null
+export function setRevitModelHook(hook: typeof revitModelHook) {
+  revitModelHook = hook
+}
+
+/** The model is open in Revit: show the start page, where the link panel lists its sheets. */
+async function takeRevitModel(file: OpenedFile): Promise<boolean> {
+  if (!revitModelHook || !/\.rvt$/i.test(file.name)) return false
+  const loadId = state.loadId + 1
+  set({ status: 'loading', fileName: `${file.name}, looking for it in Revit`, fileSize: file.size, loadId, error: undefined })
+  const taken = await revitModelHook(file.name).catch(() => false)
+  if (loadId !== state.loadId) return true // another file was opened meanwhile
+  if (!taken) return false
+  void state.source?.close()
+  closeSession()
+  closeContexts()
+  resetLive()
+  set({ status: 'empty', fileName: undefined, fileSize: undefined, pages: undefined, source: undefined, destroy: undefined, sheets: [], placements: [] })
+  return true
+}
+
 /** Open a file the user picked or dropped: a PDF, a `.drawing`, or a Revit model (converted first). Swallows the error (it is shown inline). */
 export async function openFile(file: OpenedFile): Promise<void> {
-  if (/\.(rvt|rfa)$/i.test(file.name)) return openRevitModel(file)
+  if (/\.(rvt|rfa)$/i.test(file.name)) {
+    if (await takeRevitModel(file)) return
+    return openRevitModel(file)
+  }
   await openDocument(file.bytes, file.name, { size: file.size, path: file.path }).catch(() => {})
 }
