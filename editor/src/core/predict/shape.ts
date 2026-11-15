@@ -12,7 +12,7 @@ import {
   snapPoint,
   sub,
 } from '../geometry'
-import { nearestDoorFamily, nearestFurnitureFamily, nearestWallType, type TypePalette } from '../context'
+import { furnitureSizeMm, nearestDoorFamily, nearestFurniture, nearestFurnitureFamily, nearestWallType, type TypePalette } from '../context'
 import type { Evidence } from './evidence'
 
 /**
@@ -318,26 +318,16 @@ function shapeFurniture(ev: Evidence, _s: BrushSettings, palette: TypePalette): 
   const sizeFam = nearestFurnitureFamily(palette, wM, hM)
   let fam = sizeFam
   if (prefer || neighbour) {
-    const a = Math.max(wM, hM) * 1000
-    const b = Math.min(wM, hM) * 1000
-    let bd = Infinity
-    for (const f of palette.furniture) {
-      let d = Math.hypot(Math.max(f.widthMm, f.depthMm) - a, Math.min(f.widthMm, f.depthMm) - b)
-      if (prefer?.test(f.name)) d *= 0.6
-      if (f.name === neighbour) d *= 0.4
-      if (d < bd) {
-        bd = d
-        fam = f
-      }
-    }
+    fam = nearestFurniture(palette, wM, hM, (name) => (prefer?.test(name) ? 0.6 : 1) * (name === neighbour ? 0.4 : 1))
     if (fam && fam !== sizeFam) evidence.push(fam.name === neighbour ? `next to ${neighbour}` : `room ${label} favours ${fam.name}`)
   }
   // the placed instance is the family at its own size, so show it that size (on a sheet of known scale)
   let w = r.w
   let h = r.h
   if (fam && ev.scaleKnown) {
-    const fw = (fam.widthMm / 1000) * ev.ptPerM
-    const fd = (fam.depthMm / 1000) * ev.ptPerM
+    const size = furnitureSizeMm(fam)
+    const fw = (size.widthMm / 1000) * ev.ptPerM
+    const fd = (size.depthMm / 1000) * ev.ptPerM
     if (fw > 0 && fd > 0) {
       // keep the family's width along the sketch's longer side
       if (Math.abs(fw - fd) > 1e-6 && fw > fd !== r.w > r.h) th += Math.PI / 2
