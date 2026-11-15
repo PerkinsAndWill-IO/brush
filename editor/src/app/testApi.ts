@@ -52,6 +52,7 @@ export interface BrushDevApi {
   revitConnect(url?: string): void
   revitDisconnect(): void
   revitOpenSheet(sheetId: string): void
+  revitOpenSheets(sheetIds: string[]): void
   /** M6: send pending commands now instead of after the debounce. */
   revitFlush(): void
   /** P1: trace the markup in a photo (URL or blob) onto its sheet. */
@@ -191,6 +192,7 @@ function createDevApi(): BrushDevApi {
     },
     revitDisconnect: () => revit.disconnect(),
     revitOpenSheet: (id) => revit.openSheet(id),
+    revitOpenSheets: (ids) => revit.openSheets(ids),
     revitFlush: () => revit.flush(),
     async importPhoto(photo, opts) {
       const blob = typeof photo === 'string' ? await (await fetch(photo)).blob() : photo
