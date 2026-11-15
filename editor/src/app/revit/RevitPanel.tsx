@@ -44,7 +44,11 @@ function Explainer({ onConnect }: { onConnect: () => void }) {
   )
 }
 
-function PanelBody({ close }: { close: () => void }) {
+/**
+ * The link's panel. `start` is the start page's sheet picker: nothing is open yet, so it is only the list and one
+ * Open button; streaming, status and the per-sheet controls belong to the top-bar panel once sheets are open.
+ */
+function PanelBody({ close, start = false }: { close: () => void; start?: boolean }) {
   const rv = useRevit()
   const { state, detail, document, sheets, welcome } = rv.link
   const [explain, setExplain] = useState(needsExplainer)
@@ -104,10 +108,34 @@ function PanelBody({ close }: { close: () => void }) {
     setPicked(new Set())
     if (first) close()
   }
+  // double-click a sheet: open just that one, whatever else is selected
+  const openOne = (id: string) => {
+    const first = rv.open.length === 0
+    revit.openSheet(id)
+    setPicked((p) => {
+      const n = new Set(p)
+      n.delete(id)
+      return n
+    })
+    if (first) close()
+  }
+  const selectAll = () =>
+    setPicked((p) => {
+      const n = new Set(p)
+      if (chosenShown === closed.length) closed.forEach((s) => n.delete(s.id))
+      else closed.forEach((s) => n.add(s.id))
+      return n
+    })
+  const count = `${chosen.length} ${chosen.length === 1 ? 'sheet' : 'sheets'}`
   return (
     <div className="revit-body">
       <p className="revit-h">
-        {document?.title ?? 'Revit'} <span className="secondary">{welcome?.server.host}</span>
+        <span className="revit-title">{document?.title ?? 'Revit'}</span> <span className="secondary revit-host">{welcome?.server.host}</span>
+        {start && (
+          <button type="button" className="link-btn revit-h-end" data-testid="revit-disconnect" onClick={() => revit.disconnect()}>
+            Disconnect
+          </button>
+        )}
       </p>
       {rv.autoNote && (
         <p className="revit-auto" data-testid="revit-auto-note">
@@ -136,7 +164,7 @@ function PanelBody({ close }: { close: () => void }) {
               <input
                 type="search"
                 className="revit-search"
-                placeholder="A103, floor plan, sections…"
+                placeholder="Search sheets"
                 aria-label="Filter sheets"
                 data-testid="revit-sheet-search"
                 value={query}
@@ -162,20 +190,8 @@ function PanelBody({ close }: { close: () => void }) {
           )}
           {closed.length > 1 && (
             <div className="revit-row revit-pick-bar">
-              <span className="secondary">{chosen.length ? `${chosen.length} selected` : 'Tick sheets to open several at once.'}</span>
-              <button
-                type="button"
-                className="link-btn"
-                data-testid="revit-select-all"
-                onClick={() =>
-                  setPicked((p) => {
-                    const n = new Set(p)
-                    if (chosenShown === closed.length) closed.forEach((s) => n.delete(s.id))
-                    else closed.forEach((s) => n.add(s.id))
-                    return n
-                  })
-                }
-              >
+              <span className="secondary">{chosen.length ? `${chosen.length} selected` : start ? 'Select the sheets to sketch on' : 'Select sheets to add'}</span>
+              <button type="button" className="link-btn" data-testid="revit-select-all" onClick={selectAll}>
                 {chosenShown === closed.length ? 'Select none' : 'Select all'}
               </button>
             </div>
@@ -185,53 +201,39 @@ function PanelBody({ close }: { close: () => void }) {
             {shown.map((s) => {
               const v = open.get(s.id)
               const opening = rv.opening.includes(s.id)
-              return (
-                <li key={s.id} data-sheet-id={s.id} data-open={v !== undefined}>
-                  {v !== undefined ? (
+              if (v === undefined) {
+                // a closed sheet: the whole row selects it; a double-click opens it alone
+                return (
+                  <li key={s.id} data-sheet-id={s.id} data-open={false}>
                     <button
                       type="button"
-                      className="revit-sheet-name"
-                      title="Show this sheet in Revit"
-                      data-testid="revit-show-sheet"
-                      onClick={() => revit.showSheet(s.id)}
-                    >
-                      {sheetLabel(s)}
-                    </button>
-                  ) : (
-                    <label className="revit-sheet-name revit-pick">
-                      <input
-                        type="checkbox"
-                        data-testid="revit-pick-sheet"
-                        disabled={opening}
-                        checked={!opening && picked.has(s.id)}
-                        onChange={() => toggle(s.id)}
-                      />
-                      <span>{sheetLabel(s)}</span>
-                    </label>
-                  )}
-                  {v !== undefined ? (
-                    <>
-                      <span className="mono-num secondary" data-testid="revit-version">
-                        v{v}
-                      </span>
-                      {rv.open.length > 1 && (
-                        <button type="button" className="chip-btn" onClick={() => void revit.closeSheet(s.id)}>
-                          Close
-                        </button>
-                      )}
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      className="chip-btn"
-                      data-testid="revit-open-sheet"
+                      role="checkbox"
+                      aria-checked={!opening && picked.has(s.id)}
+                      className="revit-pick"
+                      data-testid="revit-pick-sheet"
                       disabled={opening}
-                      onClick={() => {
-                        revit.openSheet(s.id)
-                        if (rv.open.length === 0) close()
-                      }}
+                      onClick={() => toggle(s.id)}
+                      onDoubleClick={() => openOne(s.id)}
                     >
-                      {opening ? 'Opening…' : rv.open.length ? 'Add' : 'Open'}
+                      <span className="revit-check" aria-hidden="true" />
+                      {s.number && <span className="revit-num">{s.number}</span>}
+                      <span className="revit-sheet-name">{s.name}</span>
+                      {opening && <span className="secondary revit-opening">Opening…</span>}
+                    </button>
+                  </li>
+                )
+              }
+              return (
+                <li key={s.id} data-sheet-id={s.id} data-open>
+                  <button type="button" className="revit-sheet-name" title="Show this sheet in Revit" data-testid="revit-show-sheet" onClick={() => revit.showSheet(s.id)}>
+                    {sheetLabel(s)}
+                  </button>
+                  <span className="mono-num secondary" data-testid="revit-version">
+                    v{v}
+                  </span>
+                  {rv.open.length > 1 && (
+                    <button type="button" className="chip-btn" onClick={() => void revit.closeSheet(s.id)}>
+                      Close
                     </button>
                   )}
                 </li>
@@ -240,10 +242,18 @@ function PanelBody({ close }: { close: () => void }) {
           </ul>
         </>
       )}
+      {start ? (
+        <div className="revit-foot">
+          {!rv.streaming && rv.queued > 0 && <Queued queued={rv.queued} disabled={state !== 'on'} />}
+          <button type="button" className="btn accent revit-open-chosen" data-testid="revit-open-selected" disabled={!chosen.length} onClick={openChosen}>
+            {chosen.length ? `Open ${count}` : 'Open'}
+          </button>
+        </div>
+      ) : (
       <div className="revit-foot">
       {chosen.length > 0 && (
         <button type="button" className="btn accent revit-open-chosen" data-testid="revit-open-selected" onClick={openChosen}>
-          {`${rv.open.length ? 'Add' : 'Open'} ${chosen.length} ${chosen.length === 1 ? 'sheet' : 'sheets'}`}
+          {`${rv.open.length ? 'Add' : 'Open'} ${count}`}
         </button>
       )}
       <button
@@ -261,14 +271,7 @@ function PanelBody({ close }: { close: () => void }) {
           <span />
         </span>
       </button>
-      {!rv.streaming && rv.queued > 0 && (
-        <div className="revit-row revit-queued">
-          <span data-testid="revit-queued">{`${rv.queued} ${rv.queued === 1 ? 'edit' : 'edits'} waiting`}</span>
-          <button type="button" className="btn accent" data-testid="revit-send-now" disabled={state !== 'on'} onClick={() => revit.flush()}>
-            Send now
-          </button>
-        </div>
-      )}
+      {!rv.streaming && rv.queued > 0 && <Queued queued={rv.queued} disabled={state !== 'on'} />}
       <div className="revit-row">
         <span className="secondary" data-testid="revit-inflight">
           {rv.inFlight
@@ -284,6 +287,18 @@ function PanelBody({ close }: { close: () => void }) {
         </button>
       </div>
       </div>
+      )}
+    </div>
+  )
+}
+
+function Queued({ queued, disabled }: { queued: number; disabled: boolean }) {
+  return (
+    <div className="revit-row revit-queued">
+      <span data-testid="revit-queued">{`${queued} ${queued === 1 ? 'edit' : 'edits'} waiting`}</span>
+      <button type="button" className="btn accent" data-testid="revit-send-now" disabled={disabled} onClick={() => revit.flush()}>
+        Send now
+      </button>
     </div>
   )
 }
@@ -354,7 +369,7 @@ export function RevitStart() {
         </button>
       ) : (
         <div className="revit-inline">
-          <PanelBody close={() => {}} />
+          <PanelBody close={() => {}} start />
         </div>
       )}
     </div>

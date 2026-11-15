@@ -338,9 +338,23 @@ button.pen-chip:hover { border-color: var(--accent); }
 .revit-sheet-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 button.revit-sheet-name { border: 0; background: none; padding: 0; text-align: left; color: inherit; font: inherit; cursor: pointer; }
 button.revit-sheet-name:hover { text-decoration: underline; }
-.revit-pick { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-.revit-pick input { margin: 0; flex: none; accent-color: var(--accent); }
-.revit-pick span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* A closed sheet is one tap target: a check circle, the number, the name. Pressed state shows on pointer-down. */
+.revit-sheets li[data-open='false'] { padding: 0; }
+.revit-pick { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; user-select: none; transition: background-color 120ms ease-out, transform 100ms ease-out; }
+.revit-pick:hover:not(:disabled) { background: rgba(27, 29, 33, 0.045); }
+.revit-pick:active:not(:disabled) { transform: scale(0.985); }
+.revit-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.revit-pick:disabled { cursor: default; opacity: 0.6; }
+.revit-pick[aria-checked='true'] { background: rgba(2, 63, 123, 0.09); }
+.revit-check { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid rgba(27, 29, 33, 0.28); background: #fff center / 10px no-repeat; transition: background-color 120ms ease-out, border-color 120ms ease-out; }
+.revit-pick[aria-checked='true'] .revit-check { border-color: var(--accent); background-color: var(--accent); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 5.2 4.2 7.3 8 2.9' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+.revit-num { flex: none; min-width: 3.4em; font-weight: 600; font-variant-numeric: tabular-nums; }
+.revit-pick .revit-sheet-name { color: var(--ink-brown, inherit); }
+.revit-opening { flex: none; font-size: 11px; }
+.revit-h-end { margin-left: auto; font-size: 12px; font-weight: 500; }
+.revit-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.revit-host { flex: none; white-space: nowrap; font-weight: 400; font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { .revit-pick, .revit-check { transition: none; } .revit-pick:active:not(:disabled) { transform: none; } }
 .revit-pick-bar { font-size: 11.5px; }
 .revit-sheets .chip-btn, .revit-body .link-btn { font-family: inherit; min-height: 28px; justify-content: center; }
 .revit-sheets .chip-btn { background: var(--accent); color: #fff; font-weight: 600; padding: 0 12px; }
@@ -384,16 +398,17 @@ button.revit-sheet-name:hover { text-decoration: underline; }
 .picker-card .revit-start { flex: 1; min-height: 0; margin: 0; align-items: stretch; }
 .picker-card .revit-inline { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; padding: 0; border: 0; background: transparent; }
 .picker-card .revit-body { flex: 1; min-height: 0; }
-.picker-card .revit-h { font-size: 15px; color: var(--ink-brown); }
+.picker-card .revit-h { font-size: 15px; color: var(--ink-brown); max-width: none; }
+.picker-card .revit-pick-bar { min-height: 20px; }
+.picker-card .revit-pick-bar .link-btn { min-height: 0; }
 .picker-card .revit-filter { flex-direction: row; flex-wrap: wrap; align-items: center; }
 .picker-card .revit-search { flex: 1 1 220px; width: auto; }
 .picker-card .revit-sheets { flex: 1; min-height: 0; max-height: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); align-content: start; gap: 2px 8px; padding-right: 2px; }
-.picker-card .revit-sheets li { background: rgba(255, 255, 255, 0.45); }
-.picker-card .revit-sheets li:has(input:checked) { background: #fff; box-shadow: inset 0 0 0 1.5px var(--accent); }
-.picker-card .revit-foot { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 16px; padding-top: 10px; border-top: 1px solid rgba(62, 46, 40, 0.12); }
-.picker-card .revit-foot .toggle-row.revit-stream { grid-column: 1; border-top: 0; padding-top: 0; min-height: 40px; }
-.picker-card .revit-foot .revit-open-chosen { grid-column: 2; grid-row: 1; align-self: center; }
-.picker-card .revit-foot > .revit-row, .picker-card .revit-foot > .revit-queued { grid-column: 1 / -1; }
+.picker-card .revit-sheets { gap: 0 8px; }
+.picker-card .revit-foot { display: flex; flex-direction: row; justify-content: flex-end; align-items: center; gap: 12px; padding-top: 12px; border-top: 1px solid rgba(62, 46, 40, 0.12); }
+.picker-card .revit-foot .revit-queued { flex: 1; }
+.picker-card .revit-foot .revit-open-chosen { align-self: center; min-width: 150px; justify-content: center; transition: opacity 150ms ease-out; }
+.picker-card .revit-foot .revit-open-chosen:disabled { opacity: 0.4; }
 @media (max-width: 600px) {
   .empty.landing.picking { padding: 8px 10px 92px; }
   .landing .dropzone.picker-card { padding: 12px 14px; gap: 10px; }
@@ -401,12 +416,7 @@ button.revit-sheet-name:hover { text-decoration: underline; }
   .picker-hint { display: none; }
   .picker-head { justify-content: space-between; padding-bottom: 10px; }
   .picker-card .revit-sheets { grid-template-columns: minmax(0, 1fr); }
-  /* the footer keeps only what acts: the open button, then the stream switch and Disconnect side by side */
-  .picker-card .revit-stream-sub, .picker-card .revit-foot > .revit-row:last-child > .secondary { display: none; }
-  .picker-card .revit-foot { grid-template-columns: minmax(0, 1fr) auto; }
-  .picker-card .revit-foot .revit-open-chosen { grid-column: 1 / -1; grid-row: 1; width: 100%; justify-content: center; }
-  .picker-card .revit-foot .toggle-row.revit-stream { grid-column: 1; }
-  .picker-card .revit-foot > .revit-row:last-child { grid-column: 2; grid-row: auto; }
+  .picker-card .revit-foot .revit-open-chosen { flex: 1; }
 }
 @media (max-height: 560px) {
   .empty.landing.picking { padding-top: 6px; padding-bottom: 84px; }
