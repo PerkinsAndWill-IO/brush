@@ -333,6 +333,14 @@ button.revit-sheet-name:hover { text-decoration: underline; }
 .revit-sheets .chip-btn { background: var(--accent); color: #fff; font-weight: 600; padding: 0 12px; }
 .revit-sheets li[data-open='true'] .chip-btn { background: rgba(27, 29, 33, 0.07); color: var(--text); font-weight: 500; }
 .revit-warn { color: #8a5300; background: #fff4e0; border-radius: 9px; padding: 8px 10px; }
+.revit-auto { color: var(--accent); background: rgba(2, 63, 123, 0.07); border-radius: 9px; padding: 8px 10px; line-height: 1.4; }
+.menu.revit-panel .toggle-row.revit-stream, .revit-inline .toggle-row.revit-stream { justify-content: space-between; font-size: 12.5px; min-height: 44px; border-top: 1px solid var(--line-soft); padding-top: 8px; }
+.revit-stream > span:first-child { display: flex; flex-direction: column; gap: 2px; }
+.revit-stream-sub { font-size: 11.5px; }
+.revit-queued { background: #fff4e0; color: #6b4300; border-radius: 9px; padding: 4px 4px 4px 10px; font-weight: 600; }
+.revit-queued .btn.accent { min-height: 32px; align-self: auto; }
+.revit-paused-tag { margin-left: 6px; padding: 1px 6px; border-radius: 6px; background: #fff4e0; color: #6b4300; font-size: 11px; font-weight: 600; }
+.revit-btn.state-on.paused .revit-dot { background: #c27803; }
 .revit-panel .error { margin: 0; color: var(--error); }
 .link-btn { border: 0; background: none; padding: 0; text-decoration: underline; cursor: pointer; color: inherit; }
 .menu .link-btn { min-height: 0; display: inline; }
@@ -363,6 +371,20 @@ button.revit-sheet-name:hover { text-decoration: underline; }
 .modal .field-pair { display: flex; gap: 6px; min-width: 0; max-width: 62%; }
 .modal .field-pair .btn { max-width: none; min-width: 0; }
 .modal .field-pair .btn.clear { flex: none; width: 40px; padding: 0; }
+/* P1-11: a photo from the phone */
+.modal .field-pair .btn.phone-toggle { flex: none; }
+.modal .field-pair .btn.phone-toggle.on { background: var(--tool-selected); }
+.modal .phone-qr { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--line-soft); border-radius: 14px; background: #fff; text-align: center; }
+.modal .phone-qr .qr { width: 200px; height: 200px; display: block; }
+.modal .phone-qr .error-text { margin: 0; color: var(--error); font-size: 12.5px; }
+.phone-upload { position: fixed; inset: 0; overflow: auto; display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 40px 20px; background: var(--bg); text-align: center; }
+.phone-upload .phone-logo { width: 140px; height: auto; }
+.phone-upload h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+.phone-upload p { margin: 0; max-width: 420px; color: var(--muted); font-size: 15px; line-height: 1.5; }
+.phone-upload .phone-pick { min-height: 56px; padding: 0 28px; border-radius: 16px; font-size: 17px; }
+.phone-upload .phone-status { color: var(--text); font-weight: 500; }
+.phone-upload .phone-status.ok { color: var(--accent); }
+.phone-upload .phone-status.error { color: var(--error); }
 .modal .error p { margin: 0; color: inherit; font-size: inherit; }
 .modal .error .btn { margin-top: 10px; min-height: 36px; padding: 0 14px; border-radius: 10px; }
 .modal .error { color: var(--error); background: #fdf0ee; border-radius: 10px; padding: 10px 14px; font-size: 12px; }
@@ -413,3 +435,22 @@ button.revit-sheet-name:hover { text-decoration: underline; }
 .prop-row.link { cursor: pointer; }
 .prop-row.link .k { color: var(--accent); }
 .prop-row.link:hover { background: var(--tool-selected); }
+
+/* S1 selection and the type menu */
+[data-layer='selection'] { pointer-events: none; }
+.select-drawn { fill: none; stroke: var(--accent-soft); stroke-opacity: 0.45; stroke-linecap: round; stroke-linejoin: round; }
+.select-hl .line { fill: none; stroke: var(--accent-soft); stroke-opacity: 0.55; stroke-linecap: round; stroke-linejoin: round; }
+.select-hl .fill { fill: var(--accent-soft); fill-opacity: 0.3; stroke: none; }
+.select-hl .box { fill: rgba(98, 161, 192, 0.18); stroke: var(--accent-soft); }
+.type-mark rect { fill: none; stroke: var(--accent); }
+.type-mark text { fill: var(--accent); font-family: var(--mono); font-weight: 600; paint-order: stroke; stroke: var(--paper); stroke-width: 3px; }
+.menu.type-menu { position: fixed; right: auto; min-width: 230px; max-width: min(320px, calc(100vw - 16px)); z-index: 60; }
+.type-menu-title { padding: 8px 10px 6px; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-bottom: 1px solid var(--line-soft); margin-bottom: 4px; }
+.type-menu-head { padding: 6px 10px 2px; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); }
+.type-menu-list { max-height: min(46vh, 360px); overflow-y: auto; display: flex; flex-direction: column; }
+.menu.type-menu button { min-height: 34px; }
+.menu.type-menu button .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu.type-menu button:focus-visible { outline: 2px solid var(--accent-soft); outline-offset: -2px; background: #fff; }
+.menu.type-menu button[aria-checked='true'] { font-weight: 600; }
+.menu.type-menu .check { color: var(--accent); }
+.type-menu-note { padding: 6px 10px 8px; font-size: 12px; color: var(--muted); }

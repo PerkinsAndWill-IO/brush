@@ -34,7 +34,7 @@ function useResolved(): Resolved | null {
 
 const fmt = (n: number) => (Math.round(n * 100) / 100).toString()
 
-function shapes(items: readonly DrawItem[]) {
+export function shapes(items: readonly DrawItem[]) {
   let lines = ''
   let maxW = 0
   let fills = ''

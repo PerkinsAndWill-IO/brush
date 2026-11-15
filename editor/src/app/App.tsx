@@ -9,10 +9,11 @@ import { installBrain } from './brain'
 import { registerSheetOverlay } from './board/SheetView'
 import { MeasureOverlay } from './board/viewAidLayers'
 import { InspectOverlay } from './drawing/InspectLayers'
+import { SelectionOverlay, TypeMenu } from './select/SelectLayers'
 import { useView } from './view'
 import { getPlatform } from './platform'
 import { fileToOpened } from './platform/browser'
-import { getDocState, openFile, useDocState } from './store'
+import { getDocState, openDocument, openFile, useDocState } from './store'
 import brushLogoRed from './ui/assets/brush-logo-red.png'
 import { chooseFile, LeftSidebar, RightSidebar, ToolCapsule, TopBar } from './ui/Chrome'
 import { HandLoader } from './ui/HandLoader'
@@ -24,6 +25,7 @@ import { isPhotoFile, photoImport, PhotoImportDialog } from './photo/PhotoImport
 
 installBrain()
 registerSheetOverlay(MeasureOverlay) // above the brain overlays
+registerSheetOverlay(SelectionOverlay) // selection and type changes (S1)
 registerSheetOverlay(InspectOverlay) // element highlight (V3), on top
 
 const TldrawSmoke = lazy(() => import('./dev/TldrawSmoke'))
@@ -48,33 +50,17 @@ const SAMPLE_TIERS = [
 const sampleTier = (size: number) => SAMPLE_TIERS.find((t) => size < t.below)!
 
 /**
- * Sample `.drawing` files from `schema/public/examples` (served by the `sampleDrawings` plugin in vite.config.ts).
- * Picking one fetches it and opens it like a chosen file. Hidden when there are no samples.
+ * Sample `.drawing` files: those in `schema/public/examples` (served by the `sampleDrawings` plugin in vite.config.ts)
+ * and remote ones. Picking one opens it by URL (a zstd file on a server with range requests opens from its first
+ * sheet). Hidden when there are no samples.
  */
-function SamplePicker({ disabled }: { disabled: boolean }) {
-  const [fetching, setFetching] = useState<string>()
-  const [fetchError, setFetchError] = useState<string>()
+function SamplePicker({ disabled, loading, bytes }: { disabled: boolean; loading?: string; bytes?: number }) {
   if (!samples.length) return null
 
-  async function open(name: string) {
+  function open(name: string) {
     const sample = samples.find((s) => s.name === name)
-    if (!sample) return
-    setFetching(sample.name)
-    setFetchError(undefined)
-    // a file opened while the sample downloads (picker, Ctrl O, drop) bumps loadId; it wins over the late sample
-    const loadIdAtStart = getDocState().loadId
-    try {
-      const res = await fetch(sample.url)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const bytes = await res.arrayBuffer()
-      setFetching(undefined)
-      if (getDocState().loadId !== loadIdAtStart) return
-      await openFile({ name: sample.name, size: bytes.byteLength, bytes })
-    } catch (e) {
-      setFetching(undefined)
-      if (getDocState().loadId !== loadIdAtStart) return
-      setFetchError(`Could not download the sample “${sample.name}”. (${(e as Error).message})`)
-    }
+    // a failure is shown inline by the start page (load-error)
+    if (sample) void openDocument(sample.url, sample.name, { size: sample.size }).catch(() => {})
   }
 
   return (
@@ -86,6 +72,7 @@ function SamplePicker({ disabled }: { disabled: boolean }) {
         <div className="sample-cards">
           {samples.map((s) => {
             const tier = sampleTier(s.size)
+            const busy = loading === s.name
             return (
               <button
                 key={s.name}
@@ -94,35 +81,27 @@ function SamplePicker({ disabled }: { disabled: boolean }) {
                 data-sample={s.name}
                 title={`${s.label} (${s.name})`}
                 aria-label={`${tier.name} sample: ${s.label}, ${formatSize(s.size)}`}
-                aria-busy={fetching === s.name}
-                disabled={disabled || !!fetching}
-                onClick={() => void open(s.name)}
+                aria-busy={busy}
+                disabled={disabled}
+                onClick={() => open(s.name)}
               >
                 <span className="sample-art" aria-hidden="true">
-                  {fetching === s.name ? <HandLoader size={30} /> : <img className="sample-icon" src={tier.icon} alt="" />}
+                  {busy ? <HandLoader size={30} /> : <img className="sample-icon" src={tier.icon} alt="" />}
                 </span>
                 <span className="sample-text">
                   <span className="sample-name">{tier.name}</span>
-                  <span className="sample-meta">{fetching === s.name ? 'Downloading…' : formatSize(s.size)}</span>
+                  <span className="sample-meta">{busy ? (bytes ? formatSize(bytes) : 'Opening…') : formatSize(s.size)}</span>
                 </span>
               </button>
             )
           })}
         </div>
-        <span className="sr-only" role="status">
-          {fetching ? `Downloading the sample ${fetching}…` : ''}
-        </span>
       </div>
-      {fetchError && (
-        <p className="error" role="alert" data-testid="sample-error">
-          {fetchError}
-        </p>
-      )}
     </>
   )
 }
 
-function EmptyState({ error, loading }: { error?: string; loading?: string }) {
+function EmptyState({ error, loading, bytes }: { error?: string; loading?: string; bytes?: number }) {
   return (
     <div className="empty landing" data-testid="empty-state">
       <div className="landing-paper" aria-hidden="true" />
@@ -143,7 +122,9 @@ function EmptyState({ error, loading }: { error?: string; loading?: string }) {
             {loading ? (
               <div className="landing-loading" role="status" data-testid="landing-loading">
                 <HandLoader />
-                <span>Opening {loading}…</span>
+                <span>
+                  Opening {loading}…{bytes ? ` ${formatSize(bytes)}` : ''}
+                </span>
               </div>
             ) : (
               <button type="button" className="btn landing-cta" title="Choose file (Ctrl+O)" onClick={() => void chooseFile()}>
@@ -152,7 +133,7 @@ function EmptyState({ error, loading }: { error?: string; loading?: string }) {
             )}
           </div>
           <div className="landing-more">
-            <SamplePicker disabled={!!loading} />
+            <SamplePicker disabled={!!loading} loading={loading} bytes={bytes} />
             <RevitStart />
           </div>
           {error && (
@@ -219,7 +200,7 @@ export function App() {
           {ready ? (
             <Board pages={st.pages} loadId={st.loadId} sheets={st.sheets} placements={st.placements} fileName={st.fileName ?? ''} />
           ) : (
-            <EmptyState error={st.status === 'error' ? st.error : undefined} loading={st.status === 'loading' ? st.fileName : undefined} />
+            <EmptyState error={st.status === 'error' ? st.error : undefined} loading={st.status === 'loading' ? st.fileName : undefined} bytes={st.openedBytes} />
           )}
           {ready && <RevitHud />}
           <ToolCapsule disabled={!ready} />
@@ -227,6 +208,7 @@ export function App() {
         {ready && <RightSidebar />}
       </div>
       <PhotoImportDialog />
+      <TypeMenu />
     </div>
   )
 }
