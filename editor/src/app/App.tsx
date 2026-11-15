@@ -91,7 +91,7 @@ function SamplePicker({ disabled }: { disabled: boolean }) {
 
 function EmptyState({ error, loading }: { error?: string; loading?: string }) {
   return (
-    <div className="empty" data-testid="empty-state">
+    <div className="empty landing" data-testid="empty-state">
       <div className="dropzone">
         <EmptyIllustration />
         <div className="copy">

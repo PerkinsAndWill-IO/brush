@@ -157,6 +157,8 @@ input[type='range'] { width: 100%; margin: 0; accent-color: var(--accent); heigh
 
 /* ── empty state ── */
 .empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 32px 24px 96px; }
+/* Landing page: blue paper texture from the design canvas, over the light-blue tone while it loads. */
+.landing { background: var(--accent-soft) url('./ui/assets/landing-paper.jpg') center / cover no-repeat; }
 .dropzone { width: min(100%, 560px); display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 56px 40px; border: 2px dashed rgba(2, 63, 123, 0.45); border-radius: 20px; background: var(--surface); text-align: center; }
 .dropzone .copy { display: flex; flex-direction: column; gap: 6px; align-items: center; }
 .dropzone h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
