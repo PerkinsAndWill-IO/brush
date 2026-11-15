@@ -145,4 +145,32 @@ describe('P1-11 the photo relay (dialog side)', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('Phone upload is not set up on this deployment', { status: 503 })))
     await expect(client.waitForPhoto(SLOT, new AbortController().signal)).rejects.toThrow(/not set up/)
   })
+
+  it('P1-11: a dropped connection does not end the wait; the dialog hears it is reconnecting, then the photo arrives', async () => {
+    const replies: Array<() => Response> = [
+      () => new Response(null, { status: 204 }),
+      ...Array.from({ length: 8 }, () => () => { throw new TypeError('Failed to fetch') }),
+      () => new Response(null, { status: 204 }),
+      () => new Response(JPEG, { headers: { 'content-type': 'image/jpeg' } }),
+    ]
+    vi.stubGlobal('fetch', vi.fn(async () => replies.shift()!()))
+    const heard: boolean[] = []
+    vi.useFakeTimers()
+    const p = client.waitForPhoto(SLOT, new AbortController().signal, undefined, (ok) => heard.push(ok))
+    await vi.advanceTimersByTimeAsync(client.MAX_RETRY_MS * 10)
+    const file = await p
+    vi.useRealTimers()
+    expect(heard).toEqual([false, true])
+    expect(new Uint8Array(await file.arrayBuffer())).toEqual(JPEG)
+  })
+
+  it('P1-11: repeated error answers from the relay end the wait with their message', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('Storage error: store suspended', { status: 502, headers: { 'content-type': 'text/plain; charset=utf-8' } })))
+    vi.useFakeTimers()
+    const p = client.waitForPhoto(SLOT, new AbortController().signal)
+    const done = expect(p).rejects.toThrow(/store suspended.*new code/)
+    await vi.advanceTimersByTimeAsync(client.POLL_MS * client.MAX_SERVER_ERRORS)
+    await done
+    vi.useRealTimers()
+  })
 })

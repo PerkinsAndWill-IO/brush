@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { encode } from 'uqr'
 import { dropSlot, isLocalOrigin, newSlotId, phoneLink, relayAvailable, waitForPhoto } from './phoneRelay'
 
-type State = { kind: 'checking' } | { kind: 'local' } | { kind: 'unavailable' } | { kind: 'waiting'; link: string } | { kind: 'error'; message: string }
+type State = { kind: 'checking' } | { kind: 'local' } | { kind: 'unavailable' } | { kind: 'waiting'; link: string; reconnecting?: boolean } | { kind: 'error'; message: string }
 
 /** The QR code as SVG squares (no markup injected). */
 function QrCode({ text }: { text: string }) {
@@ -35,7 +35,8 @@ export function PhoneQr({ onPhoto }: { onPhoto: (file: File) => void }) {
       if (ac.signal.aborted) return
       setState({ kind: 'waiting', link: phoneLink(location.origin, slot) })
       try {
-        const file = await waitForPhoto(slot, ac.signal)
+        const link = phoneLink(location.origin, slot)
+        const file = await waitForPhoto(slot, ac.signal, undefined, (connected) => !ac.signal.aborted && setState({ kind: 'waiting', link, reconnecting: !connected }))
         received = true
         onPhoto(file)
       } catch (e) {
@@ -64,6 +65,11 @@ export function PhoneQr({ onPhoto }: { onPhoto: (file: File) => void }) {
           <p className="secondary">
             Scan with your phone's camera, then take or choose the photo there. It appears here by itself. The code works once, for 15 minutes.
           </p>
+          {state.reconnecting && (
+            <p className="secondary" role="status" data-testid="photo-phone-reconnecting">
+              Connection lost. Reconnecting… The code still works, and a photo sent meanwhile will arrive.
+            </p>
+          )}
         </>
       )}
       {state.kind === 'error' && (
