@@ -16,6 +16,7 @@ import { categoryOf, ptPerMetre, withSessionElements } from '@core/context'
 import { commandFromDecision } from '@core/commands'
 import { StrokeSession } from '@core/predict'
 import { nextCommandId, type Replacement } from '../board/history'
+import { revitTypesOf } from './revitTypes'
 import { getSession, session } from '../session'
 import { getDocState } from '../store'
 import { itemsOf } from '../drawing/inspect'
@@ -24,6 +25,7 @@ import {
   CATEGORY_OF_KIND,
   READ_AS,
   documentTypes,
+  revitOptions,
   mergeOptions,
   originalType,
   paletteOptions,
@@ -180,7 +182,14 @@ export function menuModel(rs: readonly Resolved[] = resolveSelection()): MenuMod
     const kind = (Object.keys(CATEGORY_OF_KIND) as DecisionKind[]).find((k) => CATEGORY_OF_KIND[k] === category)
     const lists: TypeOption[][] = []
     if (rs.some((r) => r.t === 'drawn') && kind && palette) lists.push(paletteOptions(palette, kind))
-    if (rs.some((r) => r.t === 'sheet')) lists.push(documentTypes(elementMaps(), category))
+    if (rs.some((r) => r.t === 'sheet')) {
+      const doc = documentTypes(elementMaps(), category)
+      // S1-07: one host element of a linked sheet: every type Revit allows for it first, then the document's
+      const one = rs.length === 1 && rs[0].t === 'sheet' ? rs[0] : null
+      const fromRevit = one ? revitTypesOf(one.sheetId, one.id) : undefined
+      if (fromRevit?.types.length) lists.push(revitOptions(doc, fromRevit.types))
+      lists.push(doc)
+    }
     const options = mergeOptions(...lists)
     const labels = new Set(rs.map((r) => currentLabel(r, commands)))
     const current = labels.size === 1 ? [...labels][0] : null

@@ -4,7 +4,7 @@
  *    element whose type was changed this session ("→ Exterior - 300mm")
  *  - TypeMenu: the popover the right click opens: read as (drawn elements), then the types of their category
  */
-import { useLayoutEffect, useMemo, useRef, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, type KeyboardEvent } from 'react'
 import type { Path, Point, Sheet } from '@core/types'
 import type { Placement } from '../board/layout'
 import { useSession } from '../session'
@@ -14,6 +14,7 @@ import { shapes } from '../drawing/InspectLayers'
 import { KIND_LABEL } from '../brain/overlays'
 import { elementBox, menuModel, resolveSelection, selection, setKind, setType, useSelection } from './selection'
 import { typeLabel } from './types'
+import { askRevitTypes, useRevitTypesVersion } from './revitTypes'
 
 const px = (n: number) => `calc(${n}px / var(--z))`
 const d = (pts: readonly Point[], closed = false) => (pts.length ? `M${pts.map((p) => `${p.x} ${p.y}`).join('L')}${closed ? 'Z' : ''}` : '')
@@ -96,7 +97,15 @@ export function TypeMenu() {
   const { menu, items } = useSelection()
   const session = useSession()
   const ref = useRef<HTMLDivElement>(null)
-  const model = useMemo(() => (menu ? menuModel(resolveSelection(items)) : null), [menu, items, session.accepted, session.commands, session.strokes])
+  const typesVersion = useRevitTypesVersion()
+  const model = useMemo(() => (menu ? menuModel(resolveSelection(items)) : null), [menu, items, session.accepted, session.commands, session.strokes, typesVersion])
+
+  // S1-07: one host element of a linked sheet: ask Revit for every type it allows (the menu updates when it answers)
+  useEffect(() => {
+    if (!menu) return
+    const rs = resolveSelection(items)
+    if (rs.length === 1 && rs[0].t === 'sheet') askRevitTypes(rs[0].sheetId, rs[0].id)
+  }, [menu, items])
 
   // keep the menu on screen, focus its first row; any press outside closes it
   useLayoutEffect(() => {
