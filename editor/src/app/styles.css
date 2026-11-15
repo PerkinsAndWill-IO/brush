@@ -176,8 +176,7 @@ input[type='range'] { width: 100%; margin: 0; accent-color: var(--accent); heigh
 .landing .dropzone h1 { font-size: 19px; font-weight: 400; line-height: 1.45; letter-spacing: 0; color: var(--ink-brown); }
 .btn.landing-cta { min-height: 48px; padding: 0 28px; border-radius: 999px; background: var(--terracotta); color: #fffdf8; font-size: 17px; font-weight: 600; }
 .btn.landing-cta:hover:not(:disabled) { background: var(--terracotta-hover); }
-.landing-more { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.landing .dropzone .samples select { min-height: 40px; background: rgba(255, 255, 255, 0.7); }
+.landing-more { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .app.landing-app.drag-over .dropzone { background: rgba(255, 253, 248, 0.92); }
 .dropzone { width: min(100%, 560px); display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 56px 40px; border: 2px dashed rgba(2, 63, 123, 0.45); border-radius: 20px; background: var(--surface); text-align: center; }
 .dropzone .copy { display: flex; flex-direction: column; gap: 6px; align-items: center; }
@@ -186,10 +185,19 @@ input[type='range'] { width: 100%; margin: 0; accent-color: var(--accent); heigh
 .dropzone p { margin: 0; max-width: 380px; color: var(--muted); font-size: 12.5px; line-height: 1.5; text-wrap: pretty; }
 .dropzone .cta { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px; }
 .dropzone .cta .secondary { font-size: 11.5px; }
-.dropzone .samples { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; }
+/* Samples as cards: one button per sample drawing, wrapping to the box's width. */
+.dropzone .samples { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .dropzone .samples .secondary { font-size: 11.5px; }
-.dropzone .samples select { min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: inherit; font: inherit; cursor: pointer; max-width: 100%; }
-.dropzone .samples select:disabled { opacity: 0.6; cursor: default; }
+.sample-cards { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.sample-card { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 44px; padding: 12px 14px; border: 1.5px solid rgba(2, 63, 123, 0.22); border-radius: 16px; background: rgba(255, 255, 255, 0.78); color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: transform 120ms, box-shadow 120ms, border-color 120ms; }
+.sample-card:hover:not(:disabled) { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 6px 16px rgba(2, 63, 123, 0.16); }
+.sample-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sample-card:disabled { opacity: 0.55; cursor: default; }
+.sample-card[aria-busy='true'] { opacity: 1; border-color: var(--accent); }
+.sample-card .sample-icon { color: var(--accent); }
+.sample-card .sample-name { font-size: 13px; font-weight: 600; line-height: 1.3; text-wrap: pretty; }
+.sample-card .sample-meta { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .sample-card { transition: none; } .sample-card:hover:not(:disabled) { transform: none; } }
 .dropzone .error { color: var(--error); background: #fdf0ee; border-radius: 10px; padding: 10px 14px; font-size: 12px; max-width: 440px; }
 /* While the camera moves, drop the blurred shadows: re-rastering big blurs at a new zoom stalls frames. */
 .world.moving .paper, .world.moving .sheet.active .paper { box-shadow: 0 0 0 calc(1px / var(--z)) rgba(24, 30, 46, 0.16); }

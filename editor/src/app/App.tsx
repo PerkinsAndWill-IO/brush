@@ -67,19 +67,33 @@ function SamplePicker({ disabled }: { disabled: boolean }) {
 
   return (
     <>
-      <label className="samples">
-        <span className="secondary">{fetching ? `Downloading ${fetching}…` : 'or open a sample'}</span>
-        <select data-testid="sample-picker" aria-label="Open a sample drawing" value="" disabled={disabled || !!fetching} onChange={(e) => void open(e.target.value)}>
-          <option value="" disabled>
-            Choose a sample…
-          </option>
+      <div className="samples" role="group" aria-labelledby="samples-heading" data-testid="sample-picker">
+        <span className="secondary" id="samples-heading">
+          or open a sample
+        </span>
+        <div className="sample-cards">
           {samples.map((s) => (
-            <option key={s.name} value={s.name}>
-              {s.label} ({s.name}, {formatSize(s.size)})
-            </option>
+            <button
+              key={s.name}
+              type="button"
+              className="sample-card"
+              data-sample={s.name}
+              title={s.name}
+              aria-busy={fetching === s.name}
+              disabled={disabled || !!fetching}
+              onClick={() => void open(s.name)}
+            >
+              <svg className="sample-icon" aria-hidden="true" width="26" height="22" viewBox="0 0 26 22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="1.5" y="3.5" width="19" height="16" rx="1.5" opacity="0.45" />
+                <rect x="5.5" y="1" width="19" height="16" rx="1.5" fill="#fff" />
+                <path d="M9 4.5h8v8H9zM13 4.5v4.5M9 9h6M19.5 4.5v10" />
+              </svg>
+              <span className="sample-name">{s.label}</span>
+              <span className="sample-meta">{fetching === s.name ? 'Downloading…' : formatSize(s.size)}</span>
+            </button>
           ))}
-        </select>
-      </label>
+        </div>
+      </div>
       {fetchError && (
         <p className="error" role="alert" data-testid="sample-error">
           {fetchError}
