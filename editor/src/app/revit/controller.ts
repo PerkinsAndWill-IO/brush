@@ -24,6 +24,7 @@ import { matchFile, type FileFacts } from './match'
 import { sheetLabel, type LinkSheetSummary, type ServerMessage, type SheetMessage } from './protocol'
 import { RevitSource } from './source'
 import { CommandSync, type SyncEntry } from './sync'
+import { roundTrips } from './roundtrip'
 import { elementAnchor } from '../select/selection'
 
 export const APPLY_DEBOUNCE_MS = 300
@@ -197,6 +198,33 @@ export const revit = {
     flushTimer = null
     flushSync(true)
   },
+  /**
+   * Delete Revit elements by id on a linked sheet, outside the stroke log (the demo rehearsal's reset: what it drew in
+   * an earlier page load has no strokes left to undo). Resolves with the plugin's answer.
+   */
+  deleteElements(sheetId: string, elementIds: readonly string[]): Promise<boolean> {
+    const l = link
+    const src = current
+    if (!l || l.state !== 'on' || !src?.has(sheetId) || !elementIds.length) return Promise.resolve(false)
+    const id = `cmd-reset-${Date.now().toString(36)}`
+    const cmd: Command = { op: 'delete', id, sheetId, targets: [...elementIds], strokeId: id }
+    return new Promise((resolve) => {
+      const off = l.onMessage((m) => {
+        if (m.type === 'applied' && m.results.some((r) => r.id === id)) {
+          off()
+          resolve(m.results.find((r) => r.id === id)?.status === 'applied')
+        } else if (m.type === 'error' && m.requestId === requestId) {
+          off()
+          resolve(false)
+        }
+      })
+      const requestId = l.send({ type: 'apply', sheetId, baseVersion: src.versionOf(sheetId), commands: [cmd] })
+      if (!requestId) {
+        off()
+        resolve(false)
+      }
+    })
+  },
   /** M6-12: stream edits to Revit as you draw, or hold them. Turning it back on sends what waited. Remembered. */
   setStreaming(on: boolean) {
     try {
@@ -311,6 +339,7 @@ function publishOpen() {
 }
 
 function afterResults(extra: Partial<RevitState>) {
+  roundTrips.observe(sync.all())
   updateHidden()
   set({ ...extra, inFlight: countInFlight(), queued: queuedCount(), resultsRev: state.resultsRev + 1 })
 }
@@ -368,13 +397,31 @@ function installWatchers() {
   watching = true
   let lastCommands = getSession().commands
   let lastStrokes = getSession().strokes
+  // round-trip timer: when each stroke's pen lifted (it joins the session then), and the commands already timed
+  const penUp = new Map<string, number>()
+  let timed = new Set(lastCommands.map((c) => c.id))
   subscribeSession(() => {
     const st = getSession()
     if (st.commands === lastCommands && st.strokes === lastStrokes) return
     const commandsChanged = st.commands !== lastCommands
+    if (st.strokes !== lastStrokes) {
+      const now = performance.now()
+      for (const s of st.strokes) if (!penUp.has(s.id)) penUp.set(s.id, now)
+    }
     lastCommands = st.commands
     lastStrokes = st.strokes
     if (!current || getDocState().source !== current) return
+    if (commandsChanged) {
+      const linked = new Set(current.sheetIds())
+      const ids = new Set(st.commands.map((c) => c.id))
+      for (const c of st.commands) {
+        if (timed.has(c.id) || !linked.has(c.sheetId)) continue
+        roundTrips.begin(c.id, c.sheetId, c.op, penUp.get(c.strokeId) ?? performance.now())
+      }
+      // undone before it reached Revit: not a trip
+      for (const id of timed) if (!ids.has(id) && !sync.entry(id)) roundTrips.forget(id)
+      timed = ids
+    }
     updateHidden()
     if (!state.streaming) updateQueued()
     else if (commandsChanged && sync.hasWork(st.commands, new Set(current.sheetIds()))) scheduleSync()
@@ -391,6 +438,7 @@ function installWatchers() {
       current = null
       epoch = null
       sync.clear()
+      roundTrips.clear()
       set({ open: [], opening: [], stale: false, queued: 0, autoNote: undefined, resultsRev: state.resultsRev + 1 })
     }
   })

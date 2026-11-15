@@ -431,7 +431,35 @@ button.revit-sheet-name:hover { text-decoration: underline; }
 .revit-result.failed .dot { background: var(--error); }
 .revit-result.note { background: #fff8eb; border-color: rgba(194, 120, 3, 0.35); color: #6b4300; pointer-events: auto; }
 .revit-result.note .dot { background: #c27803; }
-.revit-result button { border: 0; background: none; padding: 0 2px; cursor: pointer; font-size: 13px; line-height: 1; color: inherit; }
+.revit-result.done { color: #0f5132; border-color: rgba(25, 135, 84, 0.35); font-weight: 600; font-variant-numeric: tabular-nums; animation: revit-done 5s ease-out forwards; }
+.revit-result.done .dot { background: #198754; }
+@keyframes revit-done { 0% { opacity: 0; transform: translateY(4px) scale(0.96); } 6% { opacity: 1; transform: none; } 80% { opacity: 1; } 100% { opacity: 0; } }
+
+/* Round-trip timer: a floating stopwatch, top centre over the board. Translucent so the sheet stays in view. */
+.roundtrip { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 15; display: flex; align-items: center; gap: 14px; padding: 8px 16px 8px 12px; border-radius: 999px; background: rgba(251, 247, 245, 0.82); backdrop-filter: blur(16px) saturate(160%); -webkit-backdrop-filter: blur(16px) saturate(160%); border: 1px solid rgba(255, 255, 255, 0.6); box-shadow: 0 10px 30px rgba(24, 30, 46, 0.16); pointer-events: none; white-space: nowrap; max-width: calc(100% - 24px); }
+.roundtrip-icon { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--muted); position: relative; flex: none; }
+.roundtrip-icon::after { content: ''; position: absolute; left: 50%; top: 1px; width: 2px; height: 5px; margin-left: -1px; background: var(--muted); border-radius: 1px; transform-origin: 50% 100%; }
+.roundtrip.running .roundtrip-icon { border-color: var(--accent); }
+.roundtrip.running .roundtrip-icon::after { background: var(--accent); animation: roundtrip-hand 1s linear infinite; }
+.roundtrip.done .roundtrip-icon { border-color: #198754; }
+.roundtrip.done .roundtrip-icon::after { background: #198754; }
+.roundtrip-time { font-family: var(--mono); font-size: 22px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; min-width: 4.2ch; text-align: right; color: var(--text); }
+.roundtrip.done .roundtrip-time { color: #0f5132; }
+.roundtrip.failed .roundtrip-time { color: var(--error); }
+.roundtrip-steps { list-style: none; margin: 0; padding: 0; display: flex; gap: 12px; font-size: 12px; color: var(--muted); }
+.roundtrip-steps li { display: flex; align-items: center; gap: 5px; opacity: 0.55; transition: opacity 150ms ease-out; }
+.roundtrip-steps li[data-done='true'] { opacity: 1; color: var(--text); }
+.roundtrip-steps .mono-num { font-size: 11px; color: var(--muted); }
+.roundtrip-dot { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid currentColor; }
+.roundtrip-steps li[data-done='true'] .roundtrip-dot { background: #198754; border-color: #198754; }
+.roundtrip-hint, .roundtrip-more { font-size: 12px; color: var(--muted); }
+.roundtrip-best { font-size: 12px; color: var(--muted); padding-left: 12px; border-left: 1px solid var(--line-soft); }
+.roundtrip-best .mono-num { color: var(--text); font-weight: 600; }
+@keyframes roundtrip-hand { to { transform: rotate(360deg); } }
+@media (max-width: 600px) { .roundtrip-steps { display: none; } }
+@media (prefers-reduced-motion: reduce) { .roundtrip.running .roundtrip-icon::after { animation: none; } .revit-result.done { animation: none; } }
+@media (prefers-reduced-transparency: reduce) { .roundtrip { background: var(--capsule); backdrop-filter: none; } }
+.revit-result button {border: 0; background: none; padding: 0 2px; cursor: pointer; font-size: 13px; line-height: 1; color: inherit; }
 
 /* ───────────── photo import (P1) ───────────── */
 .modal-backdrop { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(24, 30, 46, 0.32); }

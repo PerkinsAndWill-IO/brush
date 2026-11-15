@@ -10,6 +10,7 @@ import { useDocState } from '../store'
 import { anchorOf, entryFor, revit, useRevit } from './controller'
 import { ackExplainer, needsExplainer } from './lna'
 import { sheetLabel } from './protocol'
+import { formatSeconds, roundTrips, tripMs, tripStats, useRoundTrips, type Trip } from './roundtrip'
 
 
 const STATE_LABEL = { off: 'Revit', connecting: 'Connecting…', on: 'Revit', refused: 'Revit refused' } as const
@@ -272,6 +273,7 @@ function PanelBody({ close, start = false }: { close: () => void; start?: boolea
         </span>
       </button>
       {!rv.streaming && rv.queued > 0 && <Queued queued={rv.queued} disabled={state !== 'on'} />}
+      <TimerToggle />
       <div className="revit-row">
         <span className="secondary" data-testid="revit-inflight">
           {rv.inFlight
@@ -288,6 +290,95 @@ function PanelBody({ close, start = false }: { close: () => void; start?: boolea
       </div>
       </div>
       )}
+    </div>
+  )
+}
+
+function TimerToggle() {
+  const { enabled } = useRoundTrips()
+  return (
+    <button
+      type="button"
+      className="toggle-row revit-stream revit-timer-toggle"
+      aria-pressed={enabled}
+      data-testid="revit-timer-toggle"
+      onClick={() => roundTrips.setEnabled(!enabled)}
+    >
+      <span>
+        Round-trip timer
+        <span className="secondary revit-stream-sub">How long a sketch takes to come back modelled.</span>
+      </span>
+      <span className={`switch${enabled ? ' on' : ''}`} aria-hidden="true">
+        <span />
+      </span>
+    </button>
+  )
+}
+
+/** Ticks once a frame while `on`, so a running time counts up smoothly; returns performance.now(). */
+function useNow(on: boolean): number {
+  const [now, setNow] = useState(() => performance.now())
+  useEffect(() => {
+    if (!on) return
+    let raf = 0
+    const tick = () => {
+      setNow(performance.now())
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [on])
+  return on ? now : performance.now()
+}
+
+const STEPS: { key: 'committed' | 'applied' | 'landed'; label: string }[] = [
+  { key: 'committed', label: 'Sketched' },
+  { key: 'applied', label: 'In Revit' },
+  { key: 'landed', label: 'On the sheet' },
+]
+
+/**
+ * The round-trip stopwatch, top centre while linked: the newest trip counting up from pen-up until the sheet comes
+ * back with it, its three steps as they happen, and the best time so far.
+ */
+export function RoundTripTimer() {
+  const rv = useRevit()
+  const { enabled, trips } = useRoundTrips()
+  const live = trips.filter((t) => t.landed === undefined && !t.failed)
+  const now = useNow(enabled && live.length > 0)
+  if (!enabled || !rv.open.length) return null
+  // the trip on show: the oldest still on its way, else the newest
+  const t: Trip | undefined = live[0] ?? trips[trips.length - 1]
+  const stats = tripStats(trips)
+  const running = !!t && t.landed === undefined && !t.failed
+  return (
+    <div className={`roundtrip${running ? ' running' : ''}${t?.landed !== undefined ? ' done' : ''}${t?.failed ? ' failed' : ''}`} data-testid="roundtrip" aria-live="polite">
+      <span className="roundtrip-icon" aria-hidden="true" />
+      <span className="roundtrip-time" data-testid="roundtrip-time">
+        {t ? formatSeconds(tripMs(t, now)) : '0.0 s'}
+      </span>
+      {t ? (
+        <ol className="roundtrip-steps">
+          {STEPS.map((s) => {
+            const at = t[s.key]
+            return (
+              <li key={s.key} data-done={at !== undefined}>
+                <span className="roundtrip-dot" aria-hidden="true" />
+                {s.label}
+                {at !== undefined && <span className="mono-num">{formatSeconds(at - t.start)}</span>}
+              </li>
+            )
+          })}
+        </ol>
+      ) : (
+        <span className="roundtrip-hint">Sketch on the sheet</span>
+      )}
+      {stats.best !== undefined && stats.count > 1 && (
+        <span className="roundtrip-best" data-testid="roundtrip-best">
+          best <span className="mono-num">{formatSeconds(stats.best)}</span>
+        </span>
+      )}
+      {live.length > 1 && <span className="roundtrip-more">+{live.length - 1}</span>}
     </div>
   )
 }
@@ -384,23 +475,28 @@ export function RevitHud() {
   const { commands, strokes, hidden } = useSession()
   const doc = useDocState()
   const cam = useCamera()
+  const timer = useRoundTrips()
   if (!rv.open.length) return null
   const linked = new Set(rv.open.map((o) => o.id))
   const pls = new Map(doc.placements.map((p) => [p.sheetId, p]))
+  // round-trip timer on: each element that just came back shows its time by its ink for a few seconds (CSS fades it)
+  const landedIn = new Map<string, number>()
+  if (timer.enabled) for (const t of timer.trips) if (t.landed !== undefined) landedIn.set(t.id, t.landed - t.start)
   const items = []
   for (const c of commands) {
     if (!linked.has(c.sheetId)) continue
     const e = entryFor(c.id)
     if (!e) continue
     const note = e.notes?.length && !rv.dismissed.has(c.id) ? e.notes.join(' · ') : undefined
-    const show = e.status === 'failed' || e.status === 'sending' || (e.status === 'applied' && !e.landed) || note
+    const took = e.status === 'applied' && e.landed ? landedIn.get(c.id) : undefined
+    const show = e.status === 'failed' || e.status === 'sending' || (e.status === 'applied' && !e.landed) || note || took !== undefined
     if (!show) continue
     const pl = pls.get(c.sheetId)
     const at = pl && anchorOf(c, strokes)
     if (!pl || !at) continue
     const s = sheetToScreen(cam, pl, at)
-    const kind = e.status === 'failed' ? 'failed' : note ? 'note' : 'pending'
-    const text = e.status === 'failed' ? (e.message ?? 'Revit could not apply this').replace(/^cmd-[\w-]+:\s*/, '') : note
+    const kind = e.status === 'failed' ? 'failed' : note ? 'note' : took !== undefined ? 'done' : 'pending'
+    const text = e.status === 'failed' ? (e.message ?? 'Revit could not apply this').replace(/^cmd-[\w-]+:\s*/, '') : note ?? (took !== undefined ? `Modelled in ${formatSeconds(took)}` : undefined)
     items.push(
       <div
         key={c.id}

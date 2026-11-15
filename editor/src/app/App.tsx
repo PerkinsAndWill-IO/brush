@@ -22,7 +22,7 @@ import { HandLoader } from './ui/HandLoader'
 import sampleSmallIcon from './ui/assets/sample-small.png'
 import sampleMediumIcon from './ui/assets/sample-medium.png'
 import sampleLargeIcon from './ui/assets/sample-large.png'
-import { RevitHud, RevitStart } from './revit/RevitPanel'
+import { RevitHud, RevitStart, RoundTripTimer } from './revit/RevitPanel'
 import { useRevit } from './revit/controller'
 import { isPhotoFile, photoImport, PhotoImportDialog } from './photo/PhotoImport'
 import { TraceControl } from './photo/TracePaper'
@@ -278,6 +278,7 @@ export function App() {
             />
           )}
           {ready && <RevitHud />}
+          {ready && <RoundTripTimer />}
           {ready && <TraceControl />}
           <ToolCapsule disabled={!ready} />
         </main>
