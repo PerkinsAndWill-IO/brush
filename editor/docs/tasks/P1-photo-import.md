@@ -16,6 +16,7 @@ pen and marker, photographs it, and the markup lands on the same sheet in the ed
 | P1-06 | A photo that matches no sheet (or not the chosen one) adds nothing and says so in the dialog, which stays open for another try. So does an image the browser cannot decode. If another file is opened while an import runs, nothing is imported. | Unit: `probe` returns null and `photoToMarkup` rejects on the wrong sheet. E2E: the message, and no strokes |
 | P1-07 | The strokes of one import are a group: one row under This session (sheet, stroke count, elements made), not one row per stroke. **Remove** on that row deletes every stroke of the import, and any element made from them, as one undo step. The group is the id prefix of its strokes (`p<time><seq>-<n>`), so it survives the sidecar and a reload with no new data. | Unit: `photoGroupOf`, `photoGroups`, erase/undo of a group. E2E: one row, Remove, undo |
 | P1-08 | **Make elements** (on the group row, and in the dialog after an import) reads the import's strokes with the brush's first pass and current settings, as if each had just been drawn: a reading the brush would auto-commit becomes an element and its command; one it would offer two chips for, or markup, stays ink. All of it is one undo step. Each traced stroke is read on its own (an import has no pen timing to group gestures by), and the second pass is not asked. | Unit: `readStrokes` (wall and door strokes from an import become a wall and a door), `StrokeHistory.commitMany`. E2E: elements only from the import, one undo step |
+| P1-09 | When the photo matches none of the open sheets, the dialog says so and offers **Choose the printed PDF…**: the paper may have been printed from another file than the open one (the PDF of a sheet whose `.drawing` is open), drawn so differently that it hardly matches. Choosing it runs the import again, matched to that file's pages; the strokes go on the open sheet that page is (the sheet chosen in the dialog, else the one whose number and name are in the page title, else the one at the same position when both files have as many pages, else the only one), scaled from page to sheet. Pages of other proportions (over 2 %) are refused. The choice is kept for the next photo of the same drawing, shown as Printed from, and can be cleared. | Unit: `matchPrintedSheet`, `printedScale`. E2E: refused first, asked, matched to page 3 of the printed PDF, strokes scaled onto the chosen sheet; kept and cleared |
 
 **Where the work happens.** `src/app/photo/`: `pipeline/` is the image processing (a TypeScript port of the
 trace-markup project: `register.ts`, `isolate.ts`, `strokes.ts`, `outline.ts`), which takes plain rasters and so
@@ -37,10 +38,14 @@ with its summary; `renderSheet(pageIndex, pxPerPt)` returns a sheet as the docum
 - HEIC photos open only where the browser decodes them (Safari). Elsewhere the dialog asks for a JPEG or PNG.
 - The sheets are rendered on the main thread; if the tab is in the background the browser pauses that and the
   import waits.
-- When the app draws the sheet differently from the print in the photo (another export of the same sheet), the
-  sheet is still found, but whatever the print shows and the app's rendering does not (hatching, symbols, other
-  text, coloured lines) is taken for markup. Measured on the KRO plan printed from its PDF and matched against the
-  web viewer's .drawing: about 1,800 strokes for one L-shaped pen mark.
+- When the app draws the sheet differently from the print in the photo (another export of the same sheet), the photo
+  may not match it at all, or match it and take whatever the print shows and the app does not (hatching, symbols,
+  other text, coloured lines) for markup. P1-09 is the way out: match the printed PDF. Measured on a phone photo of
+  trace paper over an A3 print of the KRO plan: no match against the web viewer's .drawing; against the PDF, 130
+  strokes in about 80 s.
+- With one sheet to compare, a photo of a look-alike sheet (another floor of the same building) can be accepted as
+  that sheet: the tile check sees the shared grid, walls and title block. Seen with the office fixtures (a photo of
+  level 3 taken for the open level 2). Choose the right file and sheet.
 
 **Budgets:** none new. An import runs off the main thread and is not on the pen path. Measured on the original
 project's test photo (12 MP photo, 36 x 24 in sheet at 150 dpi): about 20 s in Node.

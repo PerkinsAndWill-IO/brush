@@ -49,6 +49,51 @@ export function pickSheet<P extends { tiles: number }>(results: readonly { sheet
   return best
 }
 
+const norm = (s: string | undefined) => (s ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim()
+
+/**
+ * The open sheet that a page of the printed file is (P1-09): the photo was matched to the printed page, the strokes
+ * go on this sheet. In order: the sheet chosen in the dialog; the sheet whose number and name appear in the printed
+ * page's title (or the other way round; the one with the most such text, if only one sheet has it); the sheet at the same
+ * position when both files have as many pages; the only sheet. Null when none of these settles it.
+ */
+export function matchPrintedSheet(
+  printed: Sheet,
+  printedCount: number,
+  sheets: readonly Sheet[],
+  sheetId?: string,
+): Sheet | null {
+  if (sheetId) return sheets.find((s) => s.id === sheetId) ?? null
+  const title = ` ${norm(`${printed.number ?? ''} ${printed.name}`)} `
+  const theirs = [printed.number, printed.name].map(norm).filter((t) => t.length >= 4)
+  let best: Sheet | null = null
+  let bestLen = 0
+  let tie = false
+  for (const s of sheets) {
+    const mine = [s.number, s.name].map(norm).filter((t) => t.length >= 4)
+    const text = ` ${norm(`${s.number ?? ''} ${s.name}`)} `
+    // whole words only: "0001" is in "N01 0001 007", not in "10001". Every number and name found counts, so two
+    // sheets with one name ("LEVEL 1") are told apart by their numbers
+    const len = [...mine.filter((t) => title.includes(` ${t} `)), ...theirs.filter((t) => text.includes(` ${t} `))].reduce((n, t) => n + t.length, 0)
+    if (len > bestLen) [best, bestLen, tie] = [s, len, false]
+    else if (len && len === bestLen) tie = true
+  }
+  if (best && !tie) return best
+  if (sheets.length === printedCount) return sheets.find((s) => s.pageIndex === printed.pageIndex) ?? null
+  return sheets.length === 1 ? sheets[0] : null
+}
+
+/**
+ * Scale from the printed page's points to the open sheet's (P1-09). The two are one sheet in two files: the same
+ * layout, so only the page size may differ a little (rounding, another export). Null when their proportions differ
+ * by more than 2 %: then they are not the same sheet layout.
+ */
+export function printedScale(from: { w: number; h: number }, to: { w: number; h: number }): { sx: number; sy: number } | null {
+  const sx = to.w / from.w
+  const sy = to.h / from.h
+  return Math.abs(sx / sy - 1) <= 0.02 ? { sx, sy } : null
+}
+
 /** A remembered sheet choice, if that sheet is in the open document; otherwise undefined (find it automatically). */
 export function knownSheetId(sheets: readonly Sheet[], sheetId: string | undefined): string | undefined {
   return sheetId && sheets.some((s) => s.id === sheetId) ? sheetId : undefined
