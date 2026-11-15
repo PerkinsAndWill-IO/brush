@@ -8,6 +8,10 @@ Generated, deterministic test data. Do not hand-edit; regenerate with:
 
 Both generators have zero dependencies and resolve paths relative to their own location.
 
+## photos/
+- `test-card.heic` a 320x240 HEIC (iPhone photo format) test card: black bar along the top, left half red, right half
+  blue. Made on Windows with its HEIF encoder: `powershell -File scripts/fixtures/make-heic.ps1 -Out fixtures/photos/test-card.heic`.
+
 ## pdfs/
 - `office-6-sheets.pdf` 6 vector floor plans (A-101..A-601), 1191x842 pt, scale 1:100 (28.3465 pt/m), page labels set.
 - `office-1-sheet.pdf` one vector floor plan (A-201).

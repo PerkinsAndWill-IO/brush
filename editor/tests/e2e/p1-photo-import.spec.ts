@@ -336,4 +336,16 @@ test.describe('P1 photo import', () => {
     await page.getByTestId('photo-printed-clear').click()
     await expect(page.getByTestId('photo-printed-choose')).toHaveCount(0)
   })
+
+  test('P1-10: a HEIC photo (iPhone) is read in this browser too', async ({ page }) => {
+    await openWith(page, 'office-1-sheet.pdf')
+    await page.getByTestId('import-photo').click()
+    await page.getByTestId('photo-file').setInputFiles(join(FIXTURES, '..', 'photos', 'test-card.heic'))
+    await expect(page.getByTestId('photo-choose')).toHaveText('test-card.heic')
+    await page.getByTestId('photo-run').click()
+    // the card shows no sheet: the import is refused for that, after the photo was read
+    await expect(page.getByTestId('photo-progress')).toContainText('Photo 320 × 240 px', { timeout: 60_000 })
+    await expect(page.getByTestId('photo-error')).toContainText('does not match', { timeout: 120_000 })
+    await expect(page.getByTestId('photo-error')).not.toContainText('cannot read')
+  })
 })
