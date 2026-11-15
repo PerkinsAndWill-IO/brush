@@ -143,7 +143,8 @@ export const KRO_SKETCH_SPOTS: SketchPhotoSpots = {
     [0.19, 0.43],
     [0.315, 0.665],
   ],
-  view: { center: [0.253, 0.548], width: 0.17 },
+  // the whole sketch, both rows of rooms, with a little of the plan around it
+  view: { center: [0.253, 0.565], width: 0.32 },
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
@@ -278,11 +279,11 @@ function sample(path: Point[], step: number, wobble: number): Point[] {
 }
 
 /** Draw a stroke on a sheet with real pointer events at hand speed, the pen visible. */
-async function stroke(sheetId: string, path: Point[], ms: number) {
+async function stroke(sheetId: string, path: Point[], ms: number, wobble = true) {
   const vp = getViewportEl()
   if (!vp) throw new Error('demo: no board on screen')
   const { sheet } = placement(sheetId)
-  const pts = sample(path, Math.max(sheet.sizePt.w, sheet.sizePt.h) / 600, Math.max(sheet.sizePt.w, sheet.sizePt.h) / 3000)
+  const pts = sample(path, Math.max(sheet.sizePt.w, sheet.sizePt.h) / 600, wobble ? Math.max(sheet.sizePt.w, sheet.sizePt.h) / 3000 : 0)
   const prevTool = getSession().tool
   session.setTool('brush')
   await frame()
@@ -364,7 +365,8 @@ function remember() {
 async function draw(kind: BrushMode, sheetId: string, path: Point[], ms: number): Promise<string> {
   const before = new Set(getSession().commands.map((c) => c.id))
   session.setSetting('mode', kind)
-  await stroke(sheetId, path, ms)
+  // walls and doors dead straight: zoomed in close, a hand's wobble reads as corners and splits a wall in three
+  await stroke(sheetId, path, ms, kind !== 'wall' && kind !== 'door')
   const cmd = await until(() => getSession().commands.find((c) => !before.has(c.id)), 5000, `the ${kind} to commit`)
   drawn.push({ commandId: cmd.id, strokeId: cmd.strokeId, sheetId })
   return cmd.id
