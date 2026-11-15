@@ -119,3 +119,8 @@ them; after a reload `reset()` connects and opens the sheet itself. Don't edit t
 - On A103 most furniture families are hidden in the view: a table lands in Revit but not on the sheet. Use A102.
 - Opening the inspector card widens the left sidebar and moves the board a little.
 - Walls take the type nearest the stroke's thickness: a thick stroke gives an exterior rainscreen wall.
+- Doors take the nearest width, preferring an ordinary door: a ~1 m opening becomes
+  `Door-Passage-Single-Flush: 36" x 80"`. (Before, it picked the double-acting 42" door, whose plan symbol shows
+  the leaf half open both ways and looks like a door at an angle.)
+- Round trips vary run to run with how busy Revit is: 3–9 s typically on A102, one rehearsal had 13 s. Keep
+  talking through it; never redraw while the timer runs.

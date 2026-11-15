@@ -51,9 +51,33 @@ function nearest<T>(list: T[], value: number, get: (t: T) => number): T | undefi
 export function nearestWallType(palette: TypePalette, thicknessM: number) {
   return nearest(palette.walls, thicknessM * 1000, (w) => w.thicknessMm)
 }
-/** Door family whose width is closest to `widthM`. */
+/**
+ * Door types that are not the everyday door a sketched opening means: double-acting (its plan symbol shows the leaf
+ * half open both ways, which reads as a door at an angle), revolving, curtain wall, overhead, storefront, bare
+ * openings, and rated or exterior variants.
+ */
+const SPECIALTY_DOOR = /dbl.?acting|double.?acting|revolving|curtain|overhead|rolling|storefront|opening|exterior|\bmin\)|stair|roof|cores|access/i
+/** How much wider or narrower (mm) an ordinary door may be and still be picked over a specialty one of the exact width. */
+const SPECIALTY_DOOR_PENALTY_MM = 130
+
+/**
+ * Door family whose width is closest to `widthM`, preferring an ordinary door: a hand-drawn opening is only roughly the
+ * right width, so a plain single-flush door 4" off beats a double-acting one that matches exactly. A width only a
+ * specialty door has (a 78" revolving door) still gets it. Among ordinary doors of the same width, the lowest height.
+ */
 export function nearestDoorFamily(palette: TypePalette, widthM: number) {
-  return nearest(palette.doors, widthM * 1000, (d) => d.widthMm)
+  const target = widthM * 1000
+  let best: TypePalette['doors'][number] | undefined
+  let bd = Infinity
+  for (const d of palette.doors) {
+    if (!(d.widthMm > 0)) continue
+    const cost = Math.abs(d.widthMm - target) + (SPECIALTY_DOOR.test(d.name) ? SPECIALTY_DOOR_PENALTY_MM : 0) + (d.heightMm ?? 0) * 1e-4
+    if (cost < bd) {
+      bd = cost
+      best = d
+    }
+  }
+  return best ?? nearest(palette.doors, target, (d) => d.widthMm)
 }
 /**
  * A furniture type's footprint read from its name, mm, for types listed without a size (the Revit link sends 0 x 0):

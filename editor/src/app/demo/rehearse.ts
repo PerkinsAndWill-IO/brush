@@ -581,6 +581,8 @@ export function createRehearsal() {
     sheetId: (n: string) => sheetByNumber(n).id,
     /** The model's furniture families and sizes: a drawn rectangle becomes the one nearest its size. */
     furniture: () => getDocState().source?.palette?.furniture ?? [],
+    /** The model's door types and widths: a drawn opening becomes the one nearest its width. */
+    doors: () => getDocState().source?.palette?.doors ?? [],
   }
 }
 
