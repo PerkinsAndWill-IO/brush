@@ -15,8 +15,10 @@
  * Pages that render fast take the plain path, unchanged. Once a page has completed one full render, later
  * renders (zoom, M1-05) are plain: pdf.js has the decoded images cached and the old raster stays on screen.
  */
-import { GlobalWorkerOptions, getDocument, type PDFDocumentLoadingTask, type PDFDocumentProxy } from 'pdfjs-dist'
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+import { GlobalWorkerOptions, getDocument, type PDFDocumentLoadingTask, type PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs'
+// the legacy build: pdf.js 6.5 relies on very new JavaScript (Map.prototype.getOrInsertComputed, missing before
+// Chrome 145); the legacy build carries polyfills for it, so PDFs open in older browsers too
+import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
 import { parseTitleBlock } from '@core/context'
 import type { Sheet } from '@core/types'
 import { textsFromContent } from '../context/extract'
