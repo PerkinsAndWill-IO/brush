@@ -345,6 +345,20 @@ button.revit-sheet-name:hover { text-decoration: underline; }
 .modal .field-pair { display: flex; gap: 6px; min-width: 0; max-width: 62%; }
 .modal .field-pair .btn { max-width: none; min-width: 0; }
 .modal .field-pair .btn.clear { flex: none; width: 40px; padding: 0; }
+/* P1-11: a photo from the phone */
+.modal .field-pair .btn.phone-toggle { flex: none; }
+.modal .field-pair .btn.phone-toggle.on { background: var(--tool-selected); }
+.modal .phone-qr { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--line-soft); border-radius: 14px; background: #fff; text-align: center; }
+.modal .phone-qr .qr { width: 200px; height: 200px; display: block; }
+.modal .phone-qr .error-text { margin: 0; color: var(--error); font-size: 12.5px; }
+.phone-upload { position: fixed; inset: 0; overflow: auto; display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 40px 20px; background: var(--bg); text-align: center; }
+.phone-upload .phone-logo { width: 140px; height: auto; }
+.phone-upload h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+.phone-upload p { margin: 0; max-width: 420px; color: var(--muted); font-size: 15px; line-height: 1.5; }
+.phone-upload .phone-pick { min-height: 56px; padding: 0 28px; border-radius: 16px; font-size: 17px; }
+.phone-upload .phone-status { color: var(--text); font-weight: 500; }
+.phone-upload .phone-status.ok { color: var(--accent); }
+.phone-upload .phone-status.error { color: var(--error); }
 .modal .error p { margin: 0; color: inherit; font-size: inherit; }
 .modal .error .btn { margin-top: 10px; min-height: 36px; padding: 0 14px; border-radius: 10px; }
 .modal .error { color: var(--error); background: #fdf0ee; border-radius: 10px; padding: 10px 14px; font-size: 12px; }
