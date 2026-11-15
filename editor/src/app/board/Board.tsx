@@ -38,6 +38,10 @@ import { ScaleBarHud, snapMeasurePoint } from './viewAidLayers'
 import { getView, view } from '../view'
 import { elementAtIfReady, getInspect, inspect, onHitIndexReady, warmHitIndexes } from '../drawing/inspect'
 import { getFilters, hiddenPredicate } from '../drawing/filters'
+import { selection } from '../select/selection'
+import { drawnAt, type SelItem } from '../select/types'
+import { contextNow } from '../brain/contextStore'
+import { ptPerMetre } from '@core/context'
 
 // ───────────── board handle (top bar zoom menu, test API) ─────────────
 
@@ -196,7 +200,10 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
   }, [])
 
   // The element card belongs to the document and the Select tool (V3).
-  useEffect(() => inspect.clear(), [loadId, tool])
+  useEffect(() => {
+    inspect.clear()
+    selection.clear() // S1: the selection belongs to the document and the tool too
+  }, [loadId, tool])
   // ...and its hit indexes are built in the background as soon as the Select tool is chosen, never on the first hover.
   useEffect(() => {
     if (tool === 'select') warmHitIndexes(sheets.map((s) => getDocState().source?.vectorPage?.(s.id)?.page))
@@ -376,6 +383,51 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
       const sp = boardToSheet(pl, b)
       return elementAtIfReady(vp.page, sp.x, sp.y, PICK_PX / cam.z, hiddenPredicate({ elements: vp.elements }, getFilters()))
     }
+    // ── selection (S1): drawn elements first (they lie over the sheet), then host elements ──
+    const drawnUnder = (e: { clientX: number; clientY: number }): string | null => {
+      const cam = getCamera()
+      const b = screenToBoard(cam, local(e))
+      const pl = sheetAt(placementsNow(), b)
+      if (!pl) return null
+      const st = getSession()
+      const scale = contextNow(pl.sheetId)?.scale
+      const ptPerM = ptPerMetre(scale && scale > 0 ? scale : 100)
+      const walls = getDocState().source?.palette.walls
+      return drawnAt(boardToSheet(pl, b), PICK_PX / cam.z, {
+        sheetId: pl.sheetId,
+        accepted: st.accepted,
+        strokes: st.strokes,
+        hidden: st.hidden,
+        wallHalf: (d) => (((walls?.find((w) => w.name === d.type)?.thicknessMm ?? 150) / 1000) * ptPerM) / 2,
+      })
+    }
+    const itemUnder = (e: { clientX: number; clientY: number }): SelItem | null => {
+      const strokeId = drawnUnder(e)
+      if (strokeId) return { t: 'drawn', strokeId }
+      const id = elementUnder(e)
+      return id !== null ? { t: 'sheet', id } : null
+    }
+    /** A click with the Select tool: select what is under it (Shift adds / removes); host elements also pin the card. */
+    const clickSelect = (e: { clientX: number; clientY: number; shiftKey: boolean }) => {
+      const it = itemUnder(e)
+      if (e.shiftKey) {
+        if (it) selection.toggle(it)
+      } else selection.select(it)
+      if (it?.t === 'sheet') inspect.pin(it.id)
+      else if (!e.shiftKey) inspect.unpin()
+    }
+    /** Right click / pen barrel button, any tool: open the type menu for what is under the pointer (or the selection). */
+    const onContextMenu = (e: MouseEvent) => {
+      e.preventDefault()
+      if (gesture && gesture.kind !== 'ignore') return
+      const it = itemUnder(e)
+      if (it && !selection.has(it)) {
+        selection.select(it)
+        if (it.t === 'sheet') inspect.pin(it.id)
+      }
+      selection.openMenu({ x: e.clientX, y: e.clientY })
+    }
+
     let hoverRaf = 0
     let hoverEv: { clientX: number; clientY: number } | null = null
     const hoverInspect = (e: PointerEvent) => {
@@ -396,11 +448,7 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
     })
     const endInspect = (g: Extract<Gesture, { kind: 'inspect' }>, e: PointerEvent) => {
       if (g.dragged) vp.classList.remove('panning')
-      else if (e.type === 'pointerup') {
-        const id = elementUnder(e)
-        if (id !== null) inspect.pin(id)
-        else inspect.unpin()
-      }
+      else if (e.type === 'pointerup') clickSelect(e)
     }
     const onLeave = () => {
       hoverEv = null
@@ -570,6 +618,7 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
         else session.undo()
       } else if (e.key === 'Escape') {
         if (getView().draft) view.cancelMeasure()
+        else if (selection.escape()) inspect.unpin()
         else if (!inspect.unpin()) dismissReading()
       } else if ((e.key === 'Backspace' || e.key === 'Delete') && getSession().tool === 'measure') {
         e.preventDefault()
@@ -601,6 +650,7 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
     vp.addEventListener('pointercancel', onUp)
     vp.addEventListener('pointerleave', onLeave)
     vp.addEventListener('wheel', onWheel, { passive: false })
+    vp.addEventListener('contextmenu', onContextMenu)
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
     return () => {
@@ -613,6 +663,7 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
       vp.removeEventListener('pointerleave', onLeave)
       offIndexReady()
       vp.removeEventListener('wheel', onWheel)
+      vp.removeEventListener('contextmenu', onContextMenu)
       if (hoverRaf) cancelAnimationFrame(hoverRaf)
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)

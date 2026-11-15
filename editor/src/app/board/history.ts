@@ -10,6 +10,9 @@
  *  - commit: an accepted decision (and its command, if it emits one) for a stroke.
  *            Undo removes the element and the command; the stroke's ink stays.
  *  - commitMany: several of those at once (elements made from a photo import); one undo step
+ *  - replace: swap elements for others in one step (the type menu: an element read as another kind or given another
+ *            type, a markup stroke made an element, a type set on a sheet element). Undo puts the old ones back
+ *            where they were.
  */
 import type { AcceptedDecision, Command, Stroke } from '@core/types'
 
@@ -26,6 +29,19 @@ export type HistoryOp =
   | { type: 'erase'; removed: Removed[] }
   | { type: 'commit'; decision: AcceptedDecision; command: Command | null }
   | { type: 'commitMany'; items: { decision: AcceptedDecision; command: Command | null }[] }
+  | { type: 'replace'; removed: Replaced; added: { decisions: AcceptedDecision[]; commands: Command[] } }
+
+/** One element's decision and / or command, with what it becomes; either side may be empty. */
+export interface Replacement {
+  before: { decision?: AcceptedDecision | null; command?: Command | null }
+  after: { decision?: AcceptedDecision | null; command?: Command | null }
+}
+
+/** What a replace took out, with the index each item had, to put it back on undo. */
+interface Replaced {
+  decisions: { decision: AcceptedDecision; index: number }[]
+  commands: { command: Command; index: number }[]
+}
 
 export class StrokeHistory {
   private list: Stroke[] = []
@@ -83,6 +99,46 @@ export class StrokeHistory {
     this.push({ type: 'commitMany', items: items.slice() })
   }
 
+  /**
+   * Replace elements in one undo step (S1 type menu). `before` items are matched by identity; ones no longer in the
+   * lists are ignored. `after` items are appended.
+   */
+  replace(changes: readonly Replacement[]): void {
+    if (!changes.length) return
+    const outD = new Set(changes.flatMap((c) => (c.before.decision ? [c.before.decision] : [])))
+    const outC = new Set(changes.flatMap((c) => (c.before.command ? [c.before.command] : [])))
+    const removed: Replaced = { decisions: [], commands: [] }
+    this.acc.forEach((d, i) => outD.has(d) && removed.decisions.push({ decision: d, index: i }))
+    this.cmds.forEach((c, i) => outC.has(c) && removed.commands.push({ command: c, index: i }))
+    const added = {
+      decisions: changes.flatMap((c) => (c.after.decision ? [c.after.decision] : [])),
+      commands: changes.flatMap((c) => (c.after.command ? [c.after.command] : [])),
+    }
+    if (!removed.decisions.length && !removed.commands.length && !added.decisions.length && !added.commands.length) return
+    const op: HistoryOp = { type: 'replace', removed, added }
+    this.applyReplace(op)
+    this.push(op)
+  }
+
+  private applyReplace(op: Extract<HistoryOp, { type: 'replace' }>) {
+    const outD = new Set(op.removed.decisions.map((r) => r.decision))
+    const outC = new Set(op.removed.commands.map((r) => r.command))
+    this.acc = [...this.acc.filter((d) => !outD.has(d)), ...op.added.decisions]
+    this.cmds = [...this.cmds.filter((c) => !outC.has(c)), ...op.added.commands]
+  }
+
+  private undoReplace(op: Extract<HistoryOp, { type: 'replace' }>) {
+    const inD = new Set(op.added.decisions)
+    const inC = new Set(op.added.commands)
+    const acc = this.acc.filter((d) => !inD.has(d))
+    const cmds = this.cmds.filter((c) => !inC.has(c))
+    // ascending original indices: each insert lands where the item was
+    for (const r of op.removed.decisions) acc.splice(Math.min(r.index, acc.length), 0, r.decision)
+    for (const r of op.removed.commands) cmds.splice(Math.min(r.index, cmds.length), 0, r.command)
+    this.acc = acc
+    this.cmds = cmds
+  }
+
   /** Remove strokes by id without recording history (live erasing). Returns what was removed. */
   removeLive(ids: ReadonlySet<string>): Removed[] {
     const removed: Removed[] = []
@@ -122,7 +178,8 @@ export class StrokeHistory {
     } else if (op.type === 'commit') {
       this.acc = this.acc.filter((d) => d !== op.decision)
       if (op.command) this.cmds = this.cmds.filter((c) => c !== op.command)
-    } else if (op.type === 'commitMany') {
+    } else if (op.type === 'replace') this.undoReplace(op)
+    else if (op.type === 'commitMany') {
       const ds = new Set<AcceptedDecision>(op.items.map((i) => i.decision))
       const cs = new Set<Command>(op.items.flatMap((i) => (i.command ? [i.command] : [])))
       this.acc = this.acc.filter((d) => !ds.has(d))
@@ -154,7 +211,8 @@ export class StrokeHistory {
     else if (op.type === 'commit') {
       this.acc = [...this.acc, op.decision]
       if (op.command) this.cmds = [...this.cmds, op.command]
-    } else if (op.type === 'commitMany') {
+    } else if (op.type === 'replace') this.applyReplace(op)
+    else if (op.type === 'commitMany') {
       this.acc = [...this.acc, ...op.items.map((i) => i.decision)]
       this.cmds = [...this.cmds, ...op.items.flatMap((i) => (i.command ? [i.command] : []))]
     } else {

@@ -348,4 +348,32 @@ test.describe('P1 photo import', () => {
     await expect(page.getByTestId('photo-error')).toContainText('does not match', { timeout: 120_000 })
     await expect(page.getByTestId('photo-error')).not.toContainText('cannot read')
   })
+
+  test('P1-11: the phone page sends the photo to the slot in its link; the dialog offers the QR code', async ({ page }) => {
+    // the phone: the page from the QR code, with the relay answered here (the dev server runs no functions)
+    const posts: { url: string; type: string | null; size: number }[] = []
+    await page.route('**/api/photo-relay**', async (route) => {
+      const r = route.request()
+      if (r.method() === 'POST') posts.push({ url: r.url(), type: r.headers()['content-type'] ?? null, size: r.postDataBuffer()?.length ?? 0 })
+      await route.fulfill({ status: 204 })
+    })
+    await page.goto('/?phone=abcdefghijklmnopqrstuv')
+    await expect(page.getByTestId('phone-upload')).toBeVisible()
+    await expect(page.getByTestId('tool-capsule')).toHaveCount(0) // not the editor
+    await page.getByTestId('phone-file').setInputFiles(join(FIXTURES, '..', 'photos', 'test-card.heic'))
+    await expect(page.getByTestId('phone-sent')).toBeVisible()
+    expect(posts).toHaveLength(1)
+    expect(posts[0].url).toContain('/api/photo-relay?id=abcdefghijklmnopqrstuv')
+    expect(posts[0].type).toBe('image/heic')
+    expect(posts[0].size).toBe(795) // small enough: sent as it is
+    await page.screenshot({ path: screenPath('p1-phone-upload.png') })
+
+    // the computer: From phone opens the QR panel; on this test server (localhost) it explains why there is no code
+    await openWith(page, 'office-1-sheet.pdf')
+    await page.getByTestId('import-photo').click()
+    await page.getByTestId('photo-phone').click()
+    await expect(page.getByTestId('photo-phone-panel')).toHaveAttribute('data-state', 'local')
+    await page.getByTestId('photo-phone').click()
+    await expect(page.getByTestId('photo-phone-panel')).toHaveCount(0)
+  })
 })
