@@ -24,11 +24,14 @@ import { resolveAnswer } from '@core/rescore'
 import { closestPointOnPolyline, snapPoint } from '@core/geometry'
 import { commandFromDecision } from '@core/commands'
 import { StrokeSession, buildContextPacket, chipsFor, prepareContext } from '@core/predict'
+import { withSessionElements } from '@core/context'
 import { nextCommandId } from '../board/history'
 import { registerBrushEngine, type BrushEngine } from '../engine'
 import { pushMetric } from '../metrics'
 import { getSession, session as doc } from '../session'
 import { getDocState } from '../store'
+import { getFilters, hiddenPredicate } from '../drawing/filters'
+import { elementsAlong } from '../drawing/inspect'
 import { contextNow, emptyContext } from './contextStore'
 import { GESTURE, commitPauseFor, getLive, setLive } from './live'
 import { considerSecondPass, onSecondPassResult } from './secondPass'
@@ -53,9 +56,32 @@ interface Current {
   timer: ReturnType<typeof setInterval> | null
   /** A second-pass answer applied before commit (M4): commits instead of the rules' leader. */
   applied?: Hypothesis
+  /**
+   * Eraser pass over a `.drawing` / Revit sheet: the context items of the elements its path hit (set at pen-up).
+   * Undefined on other sheets, where the rules' delete reading stands.
+   */
+  eraseTargets?: string[]
 }
 
 let cur: Current | null = null
+
+/**
+ * What an eraser pass erases on a sheet drawn from host vectors: the elements under its path, hit-tested on their
+ * real lines like the Select tool (not only the items the context classed as walls or furniture), mapped to the
+ * sheet's context items. Undefined when the sheet has no vectors (plain PDF).
+ */
+function eraserTargets(c: Current): string[] | undefined {
+  const vp = getDocState().source?.vectorPage?.(c.sheet.id)
+  if (!vp) return undefined
+  const tol = Math.max((c.stroke.size ?? 8) / 2, 1)
+  const els = elementsAlong(vp.page, vp, c.session.stroke.points, tol, hiddenPredicate({ elements: vp.elements }, getFilters()))
+  const out: string[] = []
+  for (const el of els) {
+    const item = c.ctx.items.find((i) => i.hostRef === el)
+    if (item) out.push(item.id)
+  }
+  return out
+}
 
 const liveOn = () => getSession().settings.live
 
@@ -103,6 +129,8 @@ function stopTimer(c: Current) {
 function commitNow(c: Current, d = c.session.commit(Date.now())) {
   stopTimer(c)
   const eraser = c.stroke.tool === 'eraser'
+  // on host vectors the elements under the eraser decide: erase them, or nothing when it crossed none
+  if (eraser && c.eraseTargets) d = c.eraseTargets.length ? { ...d, kind: 'delete', targets: c.eraseTargets.slice(), confidence: Math.max(d.confidence, 0.9) } : { ...d, kind: 'markup' }
   if (d.kind === 'markup' || (eraser && d.kind !== 'delete')) {
     setLive({ phase: 'markup', decision: d, chips: [] })
     return
@@ -139,7 +167,7 @@ function startTimer(c: Current) {
     const nowT = performance.now() - c.downTs
     if (nowT - c.session.lastPointT < commitPauseFor(c.settings, c.members.length + 1)) return
     const h = c.applied ?? c.session.current
-    if (h && chipsFor(h, c.settings).length === 2) {
+    if (!c.eraseTargets && h && chipsFor(h, c.settings).length === 2) {
       stopTimer(c)
       setLive({ phase: 'offer' })
       return
@@ -185,7 +213,29 @@ function joinable(prev: Current | null, stroke: Readonly<Stroke>, sheet: Sheet, 
   const ids = [...prev.members, prev.stroke.id]
   const ink = getSession().strokes.filter((s) => ids.includes(s.id))
   if (ink.length !== ids.length) return false // a member was undone or erased
-  return ink.some((s) => closestPointOnPolyline(start, s.points).distance <= GESTURE.distPt)
+  if (!ink.some((s) => closestPointOnPolyline(start, s.points).distance <= GESTURE.distPt)) return false
+  return !startsOnPendingWall(prev, start)
+}
+
+/**
+ * C1: a confident wall waiting for its commit pause, and a new stroke that starts on its body rather than at one of
+ * its ends: that is the next element (a door on the new wall), not more of the wall. The wall is committed first
+ * (settlePrevious), so the new stroke sees it as context. A stroke that starts at an end still joins (a wall drawn
+ * in two strokes).
+ */
+function startsOnPendingWall(prev: Current, start: StrokePoint): boolean {
+  const h = prev.applied ?? prev.session.current
+  if (!h || h.kind !== 'wall' || chipsFor(h, prev.settings).length || h.confidence < prev.settings.chipHigh) return false
+  const pts = prev.session.stroke.points
+  if (pts.length < 2) return false
+  const end = Math.min(Math.hypot(start.x - pts[0].x, start.y - pts[0].y), Math.hypot(start.x - pts[pts.length - 1].x, start.y - pts[pts.length - 1].y))
+  return end > GESTURE.distPt / 2
+}
+
+/** The sheet's context with this session's own elements laid over it (C1, core/context withSessionElements). */
+export function sessionContext(sheetId: string): SheetContext {
+  const s = getSession()
+  return withSessionElements(contextNow(sheetId) ?? emptyContext(sheetId), s.commands, { palette: getDocState().source?.palette, skipStrokes: s.hidden })
 }
 
 export const predictEngine: BrushEngine = {
@@ -201,9 +251,10 @@ export const predictEngine: BrushEngine = {
       return
     }
     const settings = { ...getSession().settings }
-    const ctx = contextNow(sheet.id) ?? emptyContext(sheet.id)
-    const history = getSession().accepted
     const palette = getDocState().source?.palette
+    // C1: walls sketched earlier in this session are context too, so a door drawn on one is hosted in it
+    const ctx = sessionContext(sheet.id)
+    const history = getSession().accepted
     let c: Current
     if (join) {
       // continue the previous gesture's time line: its points, the pause, then this stroke
@@ -264,6 +315,7 @@ export const predictEngine: BrushEngine = {
     feed(c, stroke)
     c.upTs = performance.now()
     const h = c.session.end()
+    if (c.stroke.tool === 'eraser') c.eraseTargets = eraserTargets(c)
     publish(c, h, { phase: 'pending', ...snapEnds(c, 'both') })
     if (h) askSecondPass(c, h)
     startTimer(c)

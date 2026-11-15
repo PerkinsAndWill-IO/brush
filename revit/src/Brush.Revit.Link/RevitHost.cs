@@ -2,6 +2,7 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Events;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.UI.Events;
+using System.Collections.Concurrent;
 using Brush.Link.Host;
 using Brush.Link.Model;
 using Brush.Link.Server;
@@ -18,16 +19,22 @@ internal sealed class RevitHost : ILinkHost, IDisposable
     private readonly UIControlledApplication ui;
     private readonly ILinkLog log;
     private readonly string settingsPath;
-    // Per document: which elements each command created. Keyed by the document's path or title.
-    private readonly Dictionary<string, CommandLedger> ledgers = new(StringComparer.OrdinalIgnoreCase);
+    // Per document: which elements each command created, keyed by the document's path or title. The backing
+    // dictionaries live in the shim's reload-proof state (BCL types only), so an editor can still revert commands
+    // that an earlier copy of the plugin applied.
+    private readonly Dictionary<string, Dictionary<string, List<string>>> ledgers;
+    // Origins the user allowed "this time": also kept across reloads so a rebuild does not ask again.
+    private readonly HashSet<string> sessionOrigins;
     private bool applying;
 
-    public RevitHost(RevitDispatcher dispatcher, UIControlledApplication ui, ILinkLog log, string settingsPath)
+    public RevitHost(RevitDispatcher dispatcher, UIControlledApplication ui, ILinkLog log, string settingsPath, ConcurrentDictionary<string, object> state)
     {
         this.dispatcher = dispatcher;
         this.ui = ui;
         this.log = log;
         this.settingsPath = settingsPath;
+        ledgers = (Dictionary<string, Dictionary<string, List<string>>>)state.GetOrAdd(StateKeys.Ledgers, _ => new Dictionary<string, Dictionary<string, List<string>>>(StringComparer.OrdinalIgnoreCase));
+        sessionOrigins = (HashSet<string>)state.GetOrAdd(StateKeys.SessionOrigins, _ => new HashSet<string>(StringComparer.Ordinal));
         ui.ControlledApplication.DocumentChanged += OnDocumentChanged;
         ui.ViewActivated += OnViewActivated;
     }
@@ -42,8 +49,11 @@ internal sealed class RevitHost : ILinkHost, IDisposable
     private CommandLedger LedgerOf(Document doc)
     {
         var key = string.IsNullOrEmpty(doc.PathName) ? doc.Title : doc.PathName;
-        if (!ledgers.TryGetValue(key, out var l)) ledgers[key] = l = new CommandLedger();
-        return l;
+        lock (ledgers)
+        {
+            if (!ledgers.TryGetValue(key, out var l)) ledgers[key] = l = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            return new CommandLedger(l);
+        }
     }
 
     public Task<DocumentInfo> GetDocumentAsync(CancellationToken ct) => dispatcher.InvokeAsync(app =>
@@ -95,8 +105,19 @@ internal sealed class RevitHost : ILinkHost, IDisposable
         }
     }, ct);
 
+    public Task ShowSheetAsync(string sheetId, CancellationToken ct) => dispatcher.InvokeAsync(app =>
+    {
+        var uidoc = app.ActiveUIDocument ?? throw new InvalidOperationException("no model is open in Revit");
+        var sheet = SheetReader.FindSheet(uidoc.Document, sheetId);
+        if (uidoc.ActiveView?.Id != sheet.Id) uidoc.ActiveView = sheet;
+        log.Info($"showing {sheet.SheetNumber} in Revit");
+        return true;
+    }, ct);
+
     public Task<bool> ApproveOriginAsync(string origin, CancellationToken ct) => dispatcher.InvokeAsync(_ =>
     {
+        lock (sessionOrigins)
+            if (sessionOrigins.Contains(origin)) return true;
         var dlg = new TaskDialog("Brush Link")
         {
             MainInstruction = "Let a web page edit this model?",
@@ -113,7 +134,9 @@ internal sealed class RevitHost : ILinkHost, IDisposable
             LinkOptions.AddAllowedOrigin(settingsPath, origin);
             return true;
         }
-        return answer == TaskDialogResult.CommandLink1;
+        if (answer != TaskDialogResult.CommandLink1) return false;
+        lock (sessionOrigins) sessionOrigins.Add(origin);
+        return true;
     }, ct);
 
     private static string? ProjectName(Document doc)

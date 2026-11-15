@@ -36,6 +36,8 @@ import type { Removed } from './history'
 import { cachedInk, getSheetLayers, setLiveZoom, SheetView } from './SheetView'
 import { ScaleBarHud, snapMeasurePoint } from './viewAidLayers'
 import { getView, view } from '../view'
+import { elementAtIfReady, getInspect, inspect, onHitIndexReady, warmHitIndexes } from '../drawing/inspect'
+import { getFilters, hiddenPredicate } from '../drawing/filters'
 
 // ───────────── board handle (top bar zoom menu, test API) ─────────────
 
@@ -125,6 +127,7 @@ type Gesture =
   | { kind: 'pan'; pointerId: number; lastX: number; lastY: number }
   | { kind: 'pinch'; d0: number; m0: Point; cam0: Camera }
   | { kind: 'measure'; pointerId: number; placement: Placement; downX: number; downY: number; dragged: boolean }
+  | { kind: 'inspect'; pointerId: number; downX: number; downY: number; lastX: number; lastY: number; dragged: boolean }
   | { kind: 'ignore'; pointerId: number }
 
 interface BoardProps {
@@ -191,6 +194,13 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
       if (raf) cancelAnimationFrame(raf)
     }
   }, [])
+
+  // The element card belongs to the document and the Select tool (V3).
+  useEffect(() => inspect.clear(), [loadId, tool])
+  // ...and its hit indexes are built in the background as soon as the Select tool is chosen, never on the first hover.
+  useEffect(() => {
+    if (tool === 'select') warmHitIndexes(sheets.map((s) => getDocState().source?.vectorPage?.(s.id)?.page))
+  }, [loadId, tool, sheets])
 
   // Fit all sheets when a document opens.
   useLayoutEffect(() => {
@@ -352,6 +362,51 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
       if (pl) view.moveMeasure(measurePoint(pl, e))
     }
 
+    // ── inspect (V3): Select tool hovers and clicks host elements of `.drawing` sheets; a drag pans ──
+    const PICK_PX = 4
+    const elementUnder = (e: { clientX: number; clientY: number }): string | null => {
+      const source = getDocState().source
+      if (!source?.vectorPage) return null
+      const cam = getCamera()
+      const b = screenToBoard(cam, local(e))
+      const pl = sheetAt(placementsNow(), b)
+      if (!pl) return null
+      const vp = source.vectorPage(pl.sheetId)
+      if (!vp) return null
+      const sp = boardToSheet(pl, b)
+      return elementAtIfReady(vp.page, sp.x, sp.y, PICK_PX / cam.z, hiddenPredicate({ elements: vp.elements }, getFilters()))
+    }
+    let hoverRaf = 0
+    let hoverEv: { clientX: number; clientY: number } | null = null
+    const hoverInspect = (e: PointerEvent) => {
+      if (getSession().tool !== 'select' || e.pointerType === 'touch') return
+      hoverEv = { clientX: e.clientX, clientY: e.clientY }
+      if (hoverRaf) return
+      hoverRaf = requestAnimationFrame(() => {
+        hoverRaf = 0
+        const ev = hoverEv
+        if (!ev || gesture) return
+        const id = elementUnder(ev)
+        inspect.hover(id)
+      })
+    }
+    // a page indexed in the background while the pointer rests on it: look again
+    const offIndexReady = onHitIndexReady(() => {
+      if (hoverEv && !gesture && getSession().tool === 'select') inspect.hover(elementUnder(hoverEv))
+    })
+    const endInspect = (g: Extract<Gesture, { kind: 'inspect' }>, e: PointerEvent) => {
+      if (g.dragged) vp.classList.remove('panning')
+      else if (e.type === 'pointerup') {
+        const id = elementUnder(e)
+        if (id !== null) inspect.pin(id)
+        else inspect.unpin()
+      }
+    }
+    const onLeave = () => {
+      hoverEv = null
+      if (!getInspect().pinned) inspect.hover(null)
+    }
+
     // ── pinch (two touches) ──
     const startPinch = () => {
       const [a, b] = [...touches.values()]
@@ -399,6 +454,7 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
       else if (t === 'brush') startDraw(e)
       else if (t === 'eraser') startErase(e)
       else if (t === 'measure') startMeasure(e)
+      else if (t === 'select') gesture = { kind: 'inspect', pointerId: e.pointerId, downX: e.clientX, downY: e.clientY, lastX: e.clientX, lastY: e.clientY, dragged: false }
       else gesture = { kind: 'ignore', pointerId: e.pointerId }
       e.preventDefault()
     }
@@ -406,7 +462,10 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
     const onMove = (e: PointerEvent) => {
       if (e.pointerType === 'touch' && touches.has(e.pointerId)) touches.set(e.pointerId, local(e))
       const g = gesture
-      if (!g) return hoverMeasure(e)
+      if (!g) {
+        hoverInspect(e)
+        return hoverMeasure(e)
+      }
       if (g.kind === 'pinch') {
         if (touches.size >= 2) updatePinch(g)
         return
@@ -424,6 +483,16 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
       } else if (g.kind === 'measure') {
         if (Math.hypot(e.clientX - g.downX, e.clientY - g.downY) > 4) g.dragged = true
         view.moveMeasure(measurePoint(g.placement, e))
+      } else if (g.kind === 'inspect') {
+        if (!g.dragged && Math.hypot(e.clientX - g.downX, e.clientY - g.downY) > 4) {
+          g.dragged = true
+          vp.classList.add('panning')
+        }
+        if (g.dragged) {
+          setCamera(panBy(getCamera(), e.clientX - g.lastX, e.clientY - g.lastY))
+          g.lastX = e.clientX
+          g.lastY = e.clientY
+        }
       } else if (g.kind === 'pan') {
         setCamera(panBy(getCamera(), e.clientX - g.lastX, e.clientY - g.lastY))
         g.lastX = e.clientX
@@ -464,7 +533,8 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
           view.moveMeasure(measurePoint(g.placement, e))
           view.commitMeasure()
         }
-      } else if (g.kind === 'pan') vp.classList.remove('panning')
+      } else if (g.kind === 'inspect') endInspect(g, e)
+      else if (g.kind === 'pan') vp.classList.remove('panning')
       gesture = null
     }
 
@@ -500,7 +570,7 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
         else session.undo()
       } else if (e.key === 'Escape') {
         if (getView().draft) view.cancelMeasure()
-        else dismissReading()
+        else if (!inspect.unpin()) dismissReading()
       } else if ((e.key === 'Backspace' || e.key === 'Delete') && getSession().tool === 'measure') {
         e.preventDefault()
         view.removeLastMeasurement()
@@ -529,6 +599,7 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
     vp.addEventListener('pointermove', onMove)
     vp.addEventListener('pointerup', onUp)
     vp.addEventListener('pointercancel', onUp)
+    vp.addEventListener('pointerleave', onLeave)
     vp.addEventListener('wheel', onWheel, { passive: false })
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
@@ -539,7 +610,10 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
       vp.removeEventListener('pointermove', onMove)
       vp.removeEventListener('pointerup', onUp)
       vp.removeEventListener('pointercancel', onUp)
+      vp.removeEventListener('pointerleave', onLeave)
+      offIndexReady()
       vp.removeEventListener('wheel', onWheel)
+      if (hoverRaf) cancelAnimationFrame(hoverRaf)
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
     }

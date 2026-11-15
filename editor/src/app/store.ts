@@ -8,7 +8,7 @@ import { layoutSheets, type Placement } from './board/layout'
 import type { OpenedFile } from './platform'
 import { closeSession, openEphemeralSession, openSession } from './session'
 import { closeContexts, openContexts, refreshContexts, type ContextProvider } from './brain/contextStore'
-import { openSource, type DrawingSource, type PageRenderer } from './source'
+import { DrawingFileSource, openSource, type DrawingSource, type PageRenderer } from './source'
 import { resetLive } from './brain/live'
 
 export type DocStatus = 'empty' | 'loading' | 'ready' | 'error'
@@ -91,9 +91,17 @@ export interface OpenOptions {
   path?: string
 }
 
+/** Resolves once the main thread is idle (a timer where requestIdleCallback is missing), so background work waits for paint. */
+const idle = () =>
+  new Promise<void>((resolve) => (typeof requestIdleCallback === 'function' ? requestIdleCallback(() => resolve(), { timeout: 1000 }) : setTimeout(resolve, 0)))
+
+// Contexts of a host model are built on the main thread, one sheet per idle period (a `.drawing` page is decoded then).
 const contextsFrom = (src: DrawingSource): ContextProvider => ({
   open: async () => {},
-  getContext: (id) => src.contextFor(id),
+  getContext: async (id) => {
+    await idle()
+    return src.contextFor(id)
+  },
   close: () => {},
 })
 
@@ -114,7 +122,7 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
     // own copy for the context worker: PdfDrawingSource hands the same buffer to pdf.js, which detaches it
     const ctxBytes = bytes?.slice()
     source = await openSource(bytes ? { name: fileName, bytes } : (input as string))
-    const { sheets, pages } = await source.load()
+    const { sheets, pages } = source instanceof DrawingFileSource ? source.loadFirst() : await source.load()
     if (sheets.length === 0) throw new Error(`“${fileName}” has no sheets.`)
     if (loadId !== state.loadId) {
       void source.close()
@@ -134,7 +142,13 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
     })
     const ids = sheets.map((s) => s.id)
     if (source.kind === 'pdf') void openContexts(ctxBytes ?? (input as string), ids) // inferred in the context worker
-    else void openContexts('', ids, contextsFrom(source)) // from the host model (.drawing elements or package manifest)
+    else {
+      // from the host model (.drawing elements or package manifest); a `.drawing` then lists every page's scale
+      const src = source
+      void openContexts('', ids, contextsFrom(src)).then(() => {
+        if (src instanceof DrawingFileSource) void refreshSource(src, [])
+      })
+    }
     return loadId
   } catch (e) {
     void source?.close()

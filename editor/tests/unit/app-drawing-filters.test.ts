@@ -60,3 +60,16 @@ describe('V2-03 annotation shortcut', () => {
     for (const n of ['Walls', 'Doors', 'Furniture', 'Rooms', 'Curtain Panels', 'Floors']) expect(isAnnotationCategory(n), n).toBe(false)
   })
 })
+
+describe('M3-03 erased elements are hidden', () => {
+  it('M3-03: items of erased elements are hidden on top of the filters; Show all keeps them hidden', () => {
+    filters.reset()
+    filters.setErased(new Set(['1']))
+    const hide = hiddenPredicate(doc, getFilters())!
+    expect(doc.pages[0].items.filter((it) => !hide(it)).map((it) => it.el)).toEqual(['2', '2', '3', null])
+    filters.reset()
+    expect(getFilters().erased.has('1')).toBe(true)
+    filters.setErased(new Set())
+    expect(hiddenPredicate(doc, getFilters())).toBeNull()
+  })
+})

@@ -35,12 +35,12 @@ const emit = (next: Partial<State>) => {
   state = { ...state, ...next }
   listeners.forEach((l) => l())
 }
-const subscribe = (l: () => void) => {
+export const subscribeContexts = (l: () => void) => {
   listeners.add(l)
   return () => listeners.delete(l)
 }
 
-export const useContexts = () => useSyncExternalStore(subscribe, () => state)
+export const useContexts = () => useSyncExternalStore(subscribeContexts, () => state)
 
 /** Synchronous read for the brush hot path; undefined until built. */
 export const contextNow = (sheetId: string): SheetContext | undefined => state.contexts.get(sheetId)

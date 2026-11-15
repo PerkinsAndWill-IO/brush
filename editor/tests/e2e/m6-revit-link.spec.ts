@@ -143,11 +143,12 @@ test.describe('M6 with the DevHost', () => {
 const fixturePkg = () => JSON.parse(readFileSync(FIXTURE, 'utf8')) as { sheets: { id: string }[] }
 
 /** A scripted plugin: welcome, the fixture as the sheet, and `answer` for each apply. */
-function mockPlugin(page: Page, answer: (cmds: { id: string; op: string }[]) => unknown[]) {
+function mockPlugin(page: Page, answer: (cmds: { id: string; op: string }[]) => unknown[], seen: { type: string; sheetId?: string }[] = []) {
   const version = 1
   return page.routeWebSocket(/:47821\/link$/, (ws: WebSocketRoute) => {
     ws.onMessage((raw) => {
       const m = JSON.parse(String(raw))
+      seen.push(m)
       const reply = (o: object) => ws.send(JSON.stringify({ requestId: m.requestId, ...o }))
       if (m.type === 'hello')
         reply({
@@ -158,6 +159,7 @@ function mockPlugin(page: Page, answer: (cmds: { id: string; op: string }[]) => 
           sheets: [{ id: SHEET, number: 'A-201', name: 'Level 2 Floor Plan' }],
         })
       else if (m.type === 'open_sheet') reply({ type: 'sheet', sheetId: SHEET, version, reason: 'open', package: fixturePkg() })
+      else if (m.type === 'show_sheet') reply({ type: 'shown', sheetId: m.sheetId })
       else if (m.type === 'apply') reply({ type: 'applied', sheetId: SHEET, baseVersion: m.baseVersion, stale: false, results: answer(m.commands) })
     })
   })
@@ -197,6 +199,24 @@ test('M6-05: a failed command shows its message on the ink; notes show as a dism
   // still applied and waiting for its sheet version (the mock sends none): a quiet dot, no text
   await expect(note).toHaveClass(/pending/)
   await expect(note).not.toContainText('used ')
+})
+
+test('M6-09: opening a sheet in the editor shows it in Revit; clicking an open sheet shows it again', async ({ page }) => {
+  const seen: { type: string; sheetId?: string }[] = []
+  await mockPlugin(page, () => [], seen)
+  await openApp(page)
+  await page.evaluate(() => window.__brushDev!.revitConnect())
+  await page.waitForFunction(() => window.__brushDev!.revit().state === 'on')
+  await page.evaluate((id) => window.__brushDev!.revitOpenSheet(id), SHEET)
+  await expect(page.locator('[data-testid="sheet"][data-rendered="true"]')).toHaveCount(1)
+  const shown = () => seen.filter((m) => m.type === 'show_sheet').map((m) => m.sheetId)
+  await expect.poll(shown).toEqual([SHEET])
+  // already open: asking again does not re-open it, it only brings it up in Revit
+  await page.evaluate((id) => window.__brushDev!.revitOpenSheet(id), SHEET)
+  await expect.poll(shown).toEqual([SHEET, SHEET])
+  expect(seen.filter((m) => m.type === 'open_sheet')).toHaveLength(1)
+  expect((await snap(page)).error).toBeUndefined()
+  await page.screenshot({ path: screenPath('m6-show-sheet-in-revit') })
 })
 
 test('M6-08: a deployed (https) editor explains the local-network prompt before the first connect', async ({ page, baseURL }) => {

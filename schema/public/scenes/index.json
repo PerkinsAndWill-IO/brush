@@ -1,7 +1,7 @@
 [
   {
-    "file": "../examples/house.drawing",
-    "title": "Example house (3 pages)"
+    "file": "house-legacy.drawing",
+    "title": "Example house (3 pages, legacy format)"
   },
   {
     "file": "fixture.json",

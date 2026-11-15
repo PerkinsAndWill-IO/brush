@@ -18,6 +18,7 @@ import { getRecorder, recorder, isStrokeRecording } from './recording'
 import { flushSave, getSession, session, type Tool } from './session'
 import { getDocState, openDocument, waitForFirstPage } from './store'
 import { configureRevitLink, revit, revitSnapshot } from './revit/controller'
+import { importPhotoMarkup, type PhotoImportOptions, type PhotoImportSummary } from './photo/import'
 
 export interface BrushDevApi {
   flushSave(): Promise<void>
@@ -53,6 +54,10 @@ export interface BrushDevApi {
   revitOpenSheet(sheetId: string): void
   /** M6: send pending commands now instead of after the debounce. */
   revitFlush(): void
+  /** P1: trace the markup in a photo (URL or blob) onto its sheet. */
+  importPhoto(photo: string | Blob, opts?: Omit<PhotoImportOptions, 'signal'>): Promise<PhotoImportSummary>
+  /** P1: a sheet as the document renders it, at `pxPerPt` (used to build test photos). */
+  renderSheet(pageIndex: number, pxPerPt: number): Promise<HTMLCanvasElement>
 }
 
 declare global {
@@ -187,6 +192,17 @@ function createDevApi(): BrushDevApi {
     revitDisconnect: () => revit.disconnect(),
     revitOpenSheet: (id) => revit.openSheet(id),
     revitFlush: () => revit.flush(),
+    async importPhoto(photo, opts) {
+      const blob = typeof photo === 'string' ? await (await fetch(photo)).blob() : photo
+      return importPhotoMarkup(blob, opts)
+    },
+    async renderSheet(pageIndex, pxPerPt) {
+      const pages = getDocState().pages
+      if (!pages) throw new Error('renderSheet: no document open')
+      const canvas = document.createElement('canvas')
+      await pages.render(pageIndex, canvas, pxPerPt)
+      return canvas
+    },
   }
 }
 

@@ -17,7 +17,7 @@ npm run build                          # typecheck + vite build into dist/
 
 ## Opening files
 
-- **`.drawing`**: the primary format, several pages in one binary file. See [`schema/drawing-format.md`](schema/drawing-format.md).
+- **`.drawing`**: the primary format, several pages in one binary file. See [`schema/drawing-format.md`](schema/drawing-format.md); this viewer reads the legacy gzip format, [`schema/drawing-format-legacy.md`](schema/drawing-format-legacy.md).
 - **`.json`**: a scene, the simple single-page form (below).
 
 Drag a file onto the page, use the **Open file** button, pass `?file=<url>` (`?scene=` still works), or choose one from the
@@ -33,9 +33,10 @@ Wheel zooms about the cursor, drag pans, **Fit** fits the page, **1:1** is true 
 shows the element card; click pins it, Esc or a click on empty paper releases it. Items without an element (`el: null`)
 show no card.
 
-Example: `public/examples/house.drawing` (three pages; licence and attribution in
-[`public/examples/README.md`](public/examples/README.md)) is the first entry of the switcher and opens with
-`?file=/examples/house.drawing`.
+Example: `public/scenes/house-legacy.drawing` (three pages, legacy gzip format, which this viewer reads; licence and
+attribution as in [`public/examples/README.md`](public/examples/README.md)) is the first entry of the switcher and opens
+with `?file=/scenes/house-legacy.drawing`. The samples in `public/examples/` are in the current format (version 1, zstd),
+which the Editor reads and this viewer does not.
 
 Real drawings: put them in `public/scenes/real/` (git-ignored: large, and derived from sample data under its own licence) and
 list them in `public/scenes/index.json`; a listed file that is missing shows an error in the status bar.

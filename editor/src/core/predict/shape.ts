@@ -39,10 +39,63 @@ function nearbyWall(ev: Evidence, p: Point, radius = 40): ContextItem | undefine
   return ev.pc.lines.itemsNear(p, radius, (i) => i.kind === 'wall')[0]?.item
 }
 
+/**
+ * Type of the nearest placed furniture (centre within 2.5 m of `p`) of roughly the sketch's size (longest side
+ * within a factor 1.8), when that type is in the palette.
+ */
+function nearbyFurnitureType(ev: Evidence, p: Point, sizePt: number, palette: TypePalette): string | undefined {
+  if (!ev.hasContext || !ev.scaleKnown) return undefined
+  const names = new Set(palette.furniture.map((f) => f.name))
+  const radius = 2.5 * ev.ptPerM
+  let best: string | undefined
+  let bd = Infinity
+  for (const { item, box } of ev.pc.fixtures) {
+    const type = item.props?.typeName
+    if (!type || !names.has(type)) continue
+    const size = Math.max(box.w, box.h)
+    if (size > 1.8 * sizePt || sizePt > 1.8 * size) continue
+    const d = Math.hypot(box.x + box.w / 2 - p.x, box.y + box.h / 2 - p.y)
+    if (d <= radius && d < bd) {
+      bd = d
+      best = type
+    }
+  }
+  return best
+}
+
 function snapEnd(ev: Evidence, p: Point, s: BrushSettings): { p: Point; ids: string[] } {
   if (!s.snapping || !ev.hasContext) return { p, ids: [] }
   const r = snapPoint(p, ev.pc.lines, { radius: s.snapRadiusPt })
   return r.kind === 'none' ? { p, ids: [] } : { p: r.point, ids: r.itemIds }
+}
+
+/**
+ * Where the ray from `from` through `to` crosses a wall of the snap target `b`, within `radius` of `to`; undefined
+ * when `b` already lies on the ray (within 0.5 pt) or no target wall crosses it near there.
+ */
+function alongDirection(ev: Evidence, from: Point, to: Point, b: { p: Point; ids: string[] }, radius: number): { p: Point; ids: string[] } | undefined {
+  const u = normalize(sub(to, from))
+  const off = (q: Point) => Math.abs((q.x - from.x) * -u.y + (q.y - from.y) * u.x)
+  if (off(b.p) <= 0.5) return undefined
+  let best: { p: Point; ids: string[]; d: number } | undefined
+  for (const id of b.ids) {
+    const w = ev.pc.lines.getItem(id)
+    if (!w || w.kind !== 'wall') continue
+    const g = w.geometry.points
+    for (let i = 0; i + 1 < g.length; i++) {
+      const e = sub(g[i + 1], g[i])
+      const den = u.x * e.y - u.y * e.x
+      if (Math.abs(den) < 1e-9) continue // parallel
+      const r = sub(g[i], from)
+      const t = (r.x * e.y - r.y * e.x) / den // along the ray
+      const k = (r.x * u.y - r.y * u.x) / den // along the wall segment
+      if (k < -0.02 || k > 1.02 || t <= 0) continue
+      const p = add(from, scale(u, t))
+      const d = dist(p, to)
+      if (d <= radius && (!best || d < best.d)) best = { p, ids: [id], d }
+    }
+  }
+  return best && { p: best.p, ids: best.ids }
 }
 
 function shapeWall(ev: Evidence, s: BrushSettings, palette: TypePalette): Shaped {
@@ -58,24 +111,37 @@ function shapeWall(ev: Evidence, s: BrushSettings, palette: TypePalette): Shaped
     const a = snapEnd(ev, verts[0], s)
     verts[0] = a.p
     snapped.push(...a.ids)
+    let lastSnapped = false
     for (let i = 1; i < verts.length; i++) {
       const ang = snapAngle(verts[i - 1], verts[i], index)
       verts[i] = ang.point
+      lastSnapped = ang.snappedTo !== 'none'
       if (ang.snappedTo !== 'none' && i === 1) evidence.push(`direction snapped to ${ang.snappedTo === 'wall' ? `wall ${ang.itemId ?? ''}`.trim() : 'axis'}`)
     }
     const last = verts.length - 1
     const b = snapEnd(ev, verts[last], s)
     if (b.ids.length) {
-      // keep the snapped direction when the snap target lies on it, else take the target
-      verts[last] = b.p
-      snapped.push(...b.ids)
+      // keep the snapped direction when the snap target lies on it, else land where that direction crosses the
+      // target's wall (a corner a few points to the side would skew the wall); else take the target
+      const along = lastSnapped ? alongDirection(ev, verts[last - 1], verts[last], b, s.snapRadiusPt) : undefined
+      verts[last] = along?.p ?? b.p
+      snapped.push(...(along?.ids ?? b.ids))
     }
   }
   if (snapped.length) evidence.push(`endpoints snapped to ${[...new Set(snapped)].join(', ')}`)
   const host = (ev.alongWallId ? ev.pc.lines.getItem(ev.alongWallId) : undefined) ?? nearbyWall(ev, verts[0]) ?? nearbyWall(ev, verts[verts.length - 1])
+  // a wall drawn off (or between) placed walls is most likely of their type: take it as is when the palette has it,
+  // else the palette type nearest its drawn thickness
+  const hostType = host?.props?.typeName
   const tPt = wallThicknessPt(host)
-  const type = tPt !== undefined ? nearestWallType(palette, tPt / ev.ptPerM)?.name : (palette.walls.find((w) => w.thicknessMm === 200) ?? palette.walls[0])?.name
-  if (tPt !== undefined) evidence.push(`type from nearby wall thickness ${(tPt / ev.ptPerM).toFixed(2)} m`)
+  let type: string | undefined
+  if (hostType && palette.walls.some((w) => w.name === hostType)) {
+    type = hostType
+    evidence.push(`type of connected wall ${host!.id}`)
+  } else if (tPt !== undefined) {
+    type = nearestWallType(palette, tPt / ev.ptPerM)?.name
+    evidence.push(`type from nearby wall thickness ${(tPt / ev.ptPerM).toFixed(2)} m`)
+  } else type = (palette.walls.find((w) => w.thicknessMm === 200) ?? palette.walls[0])?.name
   return { geometry: { points: verts, closed: false }, type, evidence }
 }
 
@@ -85,9 +151,16 @@ function shapeDoor(ev: Evidence, _s: BrushSettings, palette: TypePalette, hostId
   const a: Point = pts[0]
   const b: Point = pts[pts.length - 1]
   const isArc = (ev.fit.arc?.score ?? 0) > (ev.fit.line?.score ?? 0) && ev.straightness < 0.97
-  const host = hostIds?.length && ev.hasContext ? ev.pc.lines.getItem(hostIds[0]) : undefined
   // width: tick length, or the swing radius (chord / sqrt 2 for a quarter arc)
   const widthPt = isArc ? dist(a, b) / Math.SQRT2 : dist(a, b)
+  const mid: Point = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+  // A door always sits in a wall: when the scorer named no host (drawn beside the wall rather than
+  // across it, or the reading was forced), take the wall nearest the hinge / middle of the stroke.
+  let host = hostIds?.length && ev.hasContext ? ev.pc.lines.getItem(hostIds[0]) : undefined
+  if (!host) {
+    host = nearestDoorWall(ev, isArc ? [a, b] : [mid, a, b], DOOR_SNAP_M * ev.ptPerM)
+    if (host) evidence.push(`snapped to nearest wall ${host.id}`)
+  }
   const fam = nearestDoorFamily(palette, widthPt / ev.ptPerM)
   const famPt = fam ? (fam.widthMm / 1000) * ev.ptPerM : widthPt
   if (!host) {
@@ -95,7 +168,7 @@ function shapeDoor(ev: Evidence, _s: BrushSettings, palette: TypePalette, hostId
   }
   // host wall segment nearest to the stroke
   const gp = host.geometry.points
-  const ref = isArc ? (dist(a, closestOn(gp, a)) < dist(b, closestOn(gp, b)) ? a : b) : crossingPoint(ev, host.id) ?? a
+  const ref = isArc ? (dist(a, closestOn(gp, a)) < dist(b, closestOn(gp, b)) ? a : b) : crossingPoint(ev, host.id) ?? mid
   let bestSeg = 0
   let bestD = Infinity
   for (let i = 0; i + 1 < gp.length; i++) {
@@ -125,6 +198,24 @@ function shapeDoor(ev: Evidence, _s: BrushSettings, palette: TypePalette, hostId
   return { geometry: { points: [start, end], closed: false }, type: fam?.name, targets: [host.id], evidence }
 }
 
+/** How far (m) a door's hinge / middle may sit from a wall and still be put into it. */
+const DOOR_SNAP_M = 0.4
+
+/** Nearest wall to any of the probe points, within `radius` (pt). */
+function nearestDoorWall(ev: Evidence, probes: Point[], radius: number): ContextItem | undefined {
+  if (!ev.hasContext) return undefined
+  let best: ContextItem | undefined
+  let bd = Infinity
+  for (const p of probes) {
+    const hit = ev.pc.lines.itemsNear(p, radius, (i) => i.kind === 'wall')[0]
+    if (hit && hit.distance < bd) {
+      bd = hit.distance
+      best = hit.item
+    }
+  }
+  return best
+}
+
 function closestOn(gp: Point[], p: Point): Point {
   let best = gp[0]
   let bd = Infinity
@@ -147,47 +238,66 @@ function shapeFurniture(ev: Evidence, _s: BrushSettings, palette: TypePalette): 
   const pts = ev.stroke.points.map((p) => ({ x: p.x, y: p.y }))
   const r = minAreaRect(pts)
   if (!r) return { geometry: { points: pts, closed: true }, evidence }
-  // snap orientation to the axes (or the nearest wall direction) within 8 degrees
+  // orientation: the axes or the nearest wall direction, within 8 degrees (always, for a near-square piece)
   let th = r.angle
   const c = { x: (r.corners[0].x + r.corners[2].x) / 2, y: (r.corners[0].y + r.corners[2].y) / 2 }
   const wall = nearbyWall(ev, c, 120)
   const candidates = [0, Math.PI / 2]
   if (wall && wall.geometry.points.length >= 2) candidates.push(angle(sub(wall.geometry.points[1], wall.geometry.points[0])))
+  // a near-square sketch (a stool, a chair, a round table) has no meaningful axis of its own: the box of a hand-drawn
+  // blob tilts at random, so square it up to the nearest axis or wall. Elongated pieces keep a deliberate angle.
+  const squarish = Math.max(r.w, r.h) <= 1.3 * Math.min(r.w, r.h)
+  let bestD = Infinity
+  let bestTh = th
   for (const cand of candidates) {
     const d = angleDiffMod(th, cand, Math.PI / 2)
-    if (d <= 8 * DEG) {
-      const k = Math.round((th - cand) / (Math.PI / 2))
-      th = cand + k * (Math.PI / 2)
-      break
+    if (d < bestD) {
+      bestD = d
+      bestTh = cand + Math.round((th - cand) / (Math.PI / 2)) * (Math.PI / 2)
+    }
+  }
+  if (squarish || bestD <= 8 * DEG) th = bestTh
+  const wM = r.w / ev.ptPerM
+  const hM = r.h / ev.ptPerM
+  // room label shifts the family prior (MEETING -> tables, OFFICE -> desks)
+  const label = ev.room.label ?? ''
+  const prefer = /MEETING|CONFERENCE/i.test(label) ? /table/i : /OFFICE|STUDIO/i.test(label) ? /desk/i : /BED/i.test(label) ? /bed/i : /LIVING|LOUNGE/i.test(label) ? /sofa/i : null
+  // a piece sketched next to placed ones of about its size is most likely another of them (one more stool in a row)
+  const neighbour = nearbyFurnitureType(ev, c, Math.max(r.w, r.h), palette)
+  const sizeFam = nearestFurnitureFamily(palette, wM, hM)
+  let fam = sizeFam
+  if (prefer || neighbour) {
+    const a = Math.max(wM, hM) * 1000
+    const b = Math.min(wM, hM) * 1000
+    let bd = Infinity
+    for (const f of palette.furniture) {
+      let d = Math.hypot(Math.max(f.widthMm, f.depthMm) - a, Math.min(f.widthMm, f.depthMm) - b)
+      if (prefer?.test(f.name)) d *= 0.6
+      if (f.name === neighbour) d *= 0.4
+      if (d < bd) {
+        bd = d
+        fam = f
+      }
+    }
+    if (fam && fam !== sizeFam) evidence.push(fam.name === neighbour ? `next to ${neighbour}` : `room ${label} favours ${fam.name}`)
+  }
+  // the placed instance is the family at its own size, so show it that size (on a sheet of known scale)
+  let w = r.w
+  let h = r.h
+  if (fam && ev.scaleKnown) {
+    const fw = (fam.widthMm / 1000) * ev.ptPerM
+    const fd = (fam.depthMm / 1000) * ev.ptPerM
+    if (fw > 0 && fd > 0) {
+      // keep the family's width along the sketch's longer side
+      if (Math.abs(fw - fd) > 1e-6 && fw > fd !== r.w > r.h) th += Math.PI / 2
+      w = fw
+      h = fd
     }
   }
   const ux = { x: Math.cos(th), y: Math.sin(th) }
   const uy = { x: -Math.sin(th), y: Math.cos(th) }
-  const hw = r.w / 2
-  const hh = r.h / 2
-  const corner = (sx: number, sy: number): Point => add(c, add(scale(ux, sx * hw), scale(uy, sy * hh)))
+  const corner = (sx: number, sy: number): Point => add(c, add(scale(ux, (sx * w) / 2), scale(uy, (sy * h) / 2)))
   const geometry: Path = { points: [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)], closed: true }
-  const wM = r.w / ev.ptPerM
-  const hM = r.h / ev.ptPerM
-  let fam = nearestFurnitureFamily(palette, wM, hM)
-  // room label shifts the family prior (MEETING -> tables, OFFICE -> desks)
-  const label = ev.room.label ?? ''
-  const prefer = /MEETING|CONFERENCE/i.test(label) ? /table/i : /OFFICE|STUDIO/i.test(label) ? /desk/i : /BED/i.test(label) ? /bed/i : /LIVING|LOUNGE/i.test(label) ? /sofa/i : null
-  if (prefer) {
-    const a = Math.max(wM, hM) * 1000
-    const b = Math.min(wM, hM) * 1000
-    let best = fam
-    let bd = Infinity
-    for (const f of palette.furniture) {
-      const d = Math.hypot(Math.max(f.widthMm, f.depthMm) - a, Math.min(f.widthMm, f.depthMm) - b) * (prefer.test(f.name) ? 0.6 : 1)
-      if (d < bd) {
-        bd = d
-        best = f
-      }
-    }
-    if (best && best !== fam) evidence.push(`room ${label} favours ${best.name}`)
-    fam = best
-  }
   return { geometry, type: fam?.name, evidence }
 }
 

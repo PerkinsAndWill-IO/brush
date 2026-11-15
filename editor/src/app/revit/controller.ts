@@ -39,7 +39,10 @@ export interface RevitState {
   dismissed: ReadonlySet<string>
 }
 
-type Pending = { kind: 'apply' | 'revert'; sheetId: string; ids: string[] } | { kind: 'open'; sheetId: string }
+type Pending =
+  | { kind: 'apply' | 'revert'; sheetId: string; ids: string[] }
+  | { kind: 'open'; sheetId: string }
+  | { kind: 'show'; sheetId: string }
 
 let link: RevitLink | null = null
 let linkOpts: RevitLinkOptions = {}
@@ -116,11 +119,17 @@ export const revit = {
   /** M6-02: open a Revit sheet next to the ones already open from the same model (or as a new document). */
   openSheet(sheetId: string) {
     const l = ensureLink()
-    if (state.opening.includes(sheetId) || current?.has(sheetId)) return
+    if (state.opening.includes(sheetId) || current?.has(sheetId)) return revit.showSheet(sheetId)
     const requestId = l.send({ type: 'open_sheet', sheetId })
     if (!requestId) return set({ error: 'Not connected to Revit.' })
     pending.set(requestId, { kind: 'open', sheetId })
     set({ opening: [...state.opening, sheetId], error: undefined })
+    revit.showSheet(sheetId)
+  },
+  /** Make the sheet the active view in Revit, so Revit follows what the user opened in the editor. */
+  showSheet(sheetId: string) {
+    const requestId = link?.send({ type: 'show_sheet', sheetId })
+    if (requestId) pending.set(requestId, { kind: 'show', sheetId })
   },
   /** Stop showing one Revit sheet. Closing the last one leaves the document empty of sheets, so it is kept. */
   async closeSheet(sheetId: string) {
@@ -197,11 +206,16 @@ function onMessage(m: ServerMessage) {
       scheduleSync() // a redo during the revert is planned now
       break
     }
+    case 'shown':
+      if (m.requestId) pending.delete(m.requestId)
+      break
     case 'error': {
       const p = m.requestId ? pending.get(m.requestId) : undefined
       if (m.requestId) pending.delete(m.requestId)
+      // a plugin older than show_sheet does not know it; the sheet still opens in the editor
+      if (p?.kind === 'show' && m.code === 'unknown_type') break
       if (p?.kind === 'open') set({ opening: state.opening.filter((id) => id !== p.sheetId) })
-      else if (p) sync.onRequestFailed(p.ids, m.message)
+      else if (p && p.kind !== 'show') sync.onRequestFailed(p.ids, m.message)
       afterResults({ error: `Revit: ${m.message}` })
       break
     }

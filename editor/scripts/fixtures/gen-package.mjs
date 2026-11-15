@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Builds the `.drawing` fixtures the way an exporter would (format: schema/schema/drawing-format.md; decision 0008):
+// Builds the `.drawing` fixtures the way an exporter would (format: schema/schema/drawing-format-legacy.md; decision 0008):
 //
 //   node scripts/fixtures/gen-package.mjs        (run gen-pdfs.mjs first)
 //

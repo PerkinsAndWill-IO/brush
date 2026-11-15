@@ -8,6 +8,7 @@ import { Board } from './board/Board'
 import { installBrain } from './brain'
 import { registerSheetOverlay } from './board/SheetView'
 import { MeasureOverlay } from './board/viewAidLayers'
+import { InspectOverlay } from './drawing/InspectLayers'
 import { useView } from './view'
 import { getPlatform } from './platform'
 import { fileToOpened } from './platform/browser'
@@ -15,16 +16,21 @@ import { getDocState, openFile, useDocState } from './store'
 import { EmptyIllustration } from './ui/icons'
 import { chooseFile, LeftSidebar, RightSidebar, ToolCapsule, TopBar } from './ui/Chrome'
 import { RevitHud, RevitStart } from './revit/RevitPanel'
+import { isPhotoFile, photoImport, PhotoImportDialog } from './photo/PhotoImport'
 
 installBrain()
 registerSheetOverlay(MeasureOverlay) // above the brain overlays
+registerSheetOverlay(InspectOverlay) // element highlight (V3), on top
 
 const TldrawSmoke = lazy(() => import('./dev/TldrawSmoke'))
 
 async function openDropped(e: DragEvent) {
   e.preventDefault()
   const f = e.dataTransfer.files?.[0]
-  if (f) await openFile(await fileToOpened(f))
+  if (!f) return
+  // a photo dropped on an open drawing is markup to import (P1-01), not a file to open
+  if (isPhotoFile(f) && getDocState().status === 'ready') photoImport.open(f)
+  else await openFile(await fileToOpened(f))
 }
 
 const formatSize = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} kB`)
@@ -176,6 +182,7 @@ export function App() {
         </main>
         {ready && <RightSidebar />}
       </div>
+      <PhotoImportDialog />
     </div>
   )
 }

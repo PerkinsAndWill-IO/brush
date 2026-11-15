@@ -173,6 +173,19 @@ public sealed class LinkServerTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Show_sheet_activates_the_sheet_in_the_host_and_is_answered()
+    {
+        await using var c = await ConnectAsync();
+        await c.SendAsync(new JsonObject { ["type"] = "show_sheet", ["requestId"] = "s", ["sheetId"] = "A-201" });
+        var shown = await c.ExpectAsync("shown");
+        Assert.Equal("s", shown["requestId"]!.GetValue<string>());
+        Assert.Equal("A-201", shown["sheetId"]!.GetValue<string>());
+        Assert.Equal("A-201", host.ShownSheet);
+        await c.SendAsync(new JsonObject { ["type"] = "show_sheet", ["requestId"] = "x", ["sheetId"] = "nope" });
+        Assert.Equal("unknown_sheet", (await c.ExpectAsync("error"))["code"]!.GetValue<string>());
+    }
+
+    [Fact]
     public async Task Protocol_mismatch_is_refused()
     {
         await using var c = await ConnectAsync(hello: false);

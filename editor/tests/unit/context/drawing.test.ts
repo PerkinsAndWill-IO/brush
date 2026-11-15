@@ -1,10 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { gunzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
-import { contextFromDrawing, paletteFromDrawing, roomAt, sheetInfo, sheetsFromDrawing } from '../../../src/core/context'
-import { parseDrawingPayload } from '../../../src/core/drawing'
-import { BlobBuffer, buildPayload } from '../drawing/builder'
+import { contextFromDrawing, drawingPageType, furnitureSymbolsFromDrawing, paletteFromDrawing, roomAt, sheetInfo, sheetsFromDrawing, wallStylesFromDrawing } from '../../../src/core/context'
+import { parseDrawingFile } from '../../../src/app/source/drawing-file'
+import { type DrawingPage, parseLegacyDrawingPayload } from '../../../src/core/drawing'
+import { BlobBuffer, buildPayload } from '../drawing/builder-legacy'
 
 /** Rectangle outline as a closed path blob (feet). */
 const rect = (b: BlobBuffer, x0: number, y0: number, x1: number, y1: number) => b.xy(x0, y0, x1, y0, x1, y1, x0, y1)
@@ -43,7 +43,7 @@ function fixture() {
       '70': { class: 'FamilyInstance', category: 'Title Blocks' },
     },
   }
-  return parseDrawingPayload(buildPayload(header, b.bytes()))
+  return parseLegacyDrawingPayload(buildPayload(header, b.bytes()))
 }
 
 describe('M5-09 context from a .drawing (decision 0008)', () => {
@@ -55,6 +55,21 @@ describe('M5-09 context from a .drawing (decision 0008)', () => {
     ])
     expect(sheets[0].sizePt).toEqual({ w: 1728, h: 864 })
     expect(sheets[0].scale).toBe(100)
+  })
+
+  it('PERF-02: sheets can list every page while reading the items of only the first ones', () => {
+    const doc = fixture()
+    doc.pages[1].scale = '1 : 50'
+    Object.defineProperty(doc.pages[1], 'items', {
+      get: () => {
+        throw new Error('page 901 was decoded')
+      },
+    })
+    const sheets = sheetsFromDrawing(doc, 1)
+    expect(sheets.map((s) => [s.id, s.scale])).toEqual([
+      ['900', 100],
+      ['901', 50],
+    ])
   })
 
   it('plan context: wall centerline + thickness, door on its host wall, room, fixture, grid, labels; all host refs', () => {
@@ -109,16 +124,108 @@ describe('M5-09 context from a .drawing (decision 0008)', () => {
   })
 
   const house = resolve(__dirname, '../../../../schema/public/examples/house.drawing')
-  it.skipIf(!existsSync(house))('reads the schema example (house.drawing): three pages, plan context with walls, doors, rooms', () => {
-    const doc = parseDrawingPayload(new Uint8Array(gunzipSync(readFileSync(house))))
+  it.skipIf(!existsSync(house))('reads the schema example (house.drawing): three pages, plan context with walls, doors, rooms', async () => {
+    const doc = await parseDrawingFile(new Uint8Array(readFileSync(house)))
     const sheets = sheetsFromDrawing(doc)
     expect(sheets.map((s) => s.number ?? s.name)).toEqual(['A102', 'A103', '{3D}'])
     const ctx = contextFromDrawing(doc, sheets[0].id)
     expect(ctx.scale).toBe(100)
     const count = (k: string) => ctx.items.filter((i) => i.kind === k).length
     expect(count('wall')).toBeGreaterThan(30)
+    // a wall drawn as one stub line (CL_W1 627064 in this export) has no thickness: it is no wall line
+    expect(ctx.items.filter((i) => i.kind === 'wall' && !(Number(i.props?.thicknessPt) > 0))).toEqual([])
     expect(count('opening')).toBeGreaterThan(20)
     expect(ctx.items.filter((i) => i.props?.role === 'room').length).toBeGreaterThan(10)
     expect(ctx.items.filter((i) => i.kind === 'opening' && i.props?.hostWall).length).toBeGreaterThan(20)
+  })
+})
+
+describe('M5 furniture symbols from a .drawing', () => {
+  const house = resolve(__dirname, '../../../../schema/public/examples/house.drawing')
+  it.skipIf(!existsSync(house))('M3-03: every furniture type on the plan has its own symbol, normalised to its box', async () => {
+    const doc = await parseDrawingFile(new Uint8Array(readFileSync(house)))
+    const syms = furnitureSymbolsFromDrawing(doc)
+    for (const f of paletteFromDrawing(doc).furniture) expect(syms.has(f.name)).toBe(true)
+    const bar = syms.get('Bar Chair')!
+    expect(bar.lines.length).toBeGreaterThan(10)
+    expect(bar.widthPt).toBeCloseTo(bar.depthPt, 0)
+    for (const l of bar.lines) for (const p of l.pts) expect(Math.max(Math.abs(p.x), Math.abs(p.y))).toBeLessThanOrEqual(0.5 + 1e-3)
+  })
+
+  it('M3-03: the desk of the built fixture becomes a symbol with its outline', () => {
+    const syms = furnitureSymbolsFromDrawing(fixture())
+    const desk = syms.get('Desk 1400x500')!
+    expect(desk.lines).toHaveLength(1)
+    expect(desk.lines[0].closed).toBe(true)
+    expect(desk.widthPt / desk.depthPt).toBeCloseTo(2.5, 1)
+  })
+})
+
+describe('M5 wall styles from a .drawing', () => {
+  const house = resolve(__dirname, '../../../../schema/public/examples/house.drawing')
+  it.skipIf(!existsSync(house))('M3-03: every wall type on the plan has its linework: heavy faces at ±0.5, layer lines between', async () => {
+    const doc = await parseDrawingFile(new Uint8Array(readFileSync(house)))
+    const styles = wallStylesFromDrawing(doc)
+    for (const w of paletteFromDrawing(doc).walls) expect(styles.has(w.name)).toBe(true)
+    for (const [, s] of styles) {
+      const offs = s.lines.map((l) => l.offset)
+      expect(offs[0]).toBe(-0.5)
+      expect(offs[offs.length - 1]).toBe(0.5)
+      expect(offs).toEqual([...offs].sort((a, b) => a - b))
+      for (const l of s.lines) expect(Math.abs(l.offset)).toBeLessThanOrEqual(0.5)
+    }
+    // Wall - Timber Clad on A102 (1:100): faces 5.72 pt apart (about 202 mm), drawn heavier than its five layer lines
+    // and its location line; white fills behind the layers
+    const timber = styles.get('Wall - Timber Clad')!
+    expect(timber.thicknessPt).toBeCloseTo(5.72, 0)
+    expect(timber.thicknessMm!).toBeGreaterThan(195)
+    expect(timber.thicknessMm!).toBeLessThan(210)
+    const faces = timber.lines.filter((l) => Math.abs(l.offset) === 0.5)
+    const inner = timber.lines.filter((l) => Math.abs(l.offset) < 0.5)
+    expect(faces).toHaveLength(2)
+    expect(inner.length).toBeGreaterThanOrEqual(5)
+    for (const l of inner) expect(l.weightPt).toBeLessThan(faces[0].weightPt)
+    expect(inner.some((l) => Math.abs(l.offset) < 0.02)).toBe(true) // the location line
+    expect(timber.fills.length).toBeGreaterThan(0)
+    expect(timber.fills.every((f) => f.color.every((c) => c === 255))).toBe(true)
+    // the 165 partition reads thinner than the timber wall
+    expect(styles.get('Interior - 165 Partition (1-hr)')!.thicknessMm!).toBeLessThan(timber.thicknessMm!)
+  })
+
+  it('M3-03: the wall of the built fixture: two faces and its solid poché across the whole thickness', () => {
+    const s = wallStylesFromDrawing(fixture()).get('Generic - 300mm')!
+    expect(s.lines.map((l) => l.offset)).toEqual([-0.5, 0.5])
+    expect(s.thicknessPt).toBeCloseTo(8.64, 1)
+    expect(s.thicknessMm).toBeCloseTo(304.8, 0)
+    expect(s.fills).toEqual([{ from: -0.5, to: 0.5, color: [0, 0, 0] }])
+  })
+})
+
+describe('M2 scale from wall lengths written in metres', () => {
+  const kro = resolve(__dirname, '../../../../schema/public/examples/kro/kro-sample.drawing')
+  it.skipIf(!existsSync(kro))('M2-05: kro-sample (CURVE_ELEM_LENGTH in m) gets a scale, so the palette and wall styles are its own types', async () => {
+    const doc = await parseDrawingFile(new Uint8Array(readFileSync(kro)))
+    const plan = sheetsFromDrawing(doc)[0]
+    expect(contextFromDrawing(doc, plan.id).scale).toBeGreaterThan(0)
+    const walls = paletteFromDrawing(doc).walls
+    expect(walls.every((w) => /^MUR[ _]/.test(w.name))).toBe(true)
+    // the type a sketched wall gets is one whose linework the editor can draw
+    const styles = wallStylesFromDrawing(doc)
+    expect(walls.filter((w) => styles.has(w.name)).length).toBeGreaterThan(10)
+    expect(styles.get('MUR_BA 30cm')!.thicknessMm).toBeCloseTo(300, -1)
+  })
+})
+
+describe('drawing page view type', () => {
+  const page = (name: string, viewType?: 'plan' | 'section' | 'ceiling'): DrawingPage => ({
+    id: '1', kind: 'view', number: null, name, scale: null, sizePt: { w: 10, h: 10 }, items: [], ...(viewType ? { viewType } : {}),
+  })
+  it('the file view type decides the sheet type over the title words', () => {
+    expect(drawingPageType(page('Level 1', 'section'))).toBe('section')
+    expect(drawingPageType(page('Section A', 'plan'))).toBe('plan')
+  })
+  it('a type the table does not cover, or none, falls back to the title words', () => {
+    expect(drawingPageType(page('Level 1 Elevation', 'ceiling'))).toBe('elevation')
+    expect(drawingPageType(page('Level 1 Elevation'))).toBe('elevation')
   })
 })

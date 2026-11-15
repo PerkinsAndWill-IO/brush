@@ -46,7 +46,7 @@ function serveFixtures(): Plugin {
 }
 
 export interface SampleEntry {
-  /** File name, e.g. `house.drawing`. */
+  /** Path relative to the samples folder, e.g. `house.drawing` or `kro/kro-sample.drawing`. */
   name: string
   /** Label for the picker, from the file name. */
   label: string
@@ -55,14 +55,30 @@ export interface SampleEntry {
   size: number
 }
 
+/** A Git LFS pointer (the clone ran without `git lfs pull`): ~130 bytes of text, not a drawing. */
+function isLfsPointer(file: string): boolean {
+  if (statSync(file).size > 1024) return false
+  return readFileSync(file, 'utf8').startsWith('version https://git-lfs.github.com/spec/')
+}
+
+/** `.drawing` files in the samples folder and its subfolders (e.g. `kro/`), as `/`-separated paths relative to it. */
+function findSampleFiles(dir: string, prefix = ''): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const rel = prefix + e.name
+    if (e.isDirectory()) return findSampleFiles(resolve(dir, e.name), rel + '/')
+    if (!e.isFile() || !/\.drawing$/i.test(e.name) || isLfsPointer(resolve(dir, e.name))) return []
+    return [rel]
+  })
+}
+
 function listSamples(): SampleEntry[] {
   if (!existsSync(samplesDir)) return []
-  return readdirSync(samplesDir)
-    .filter((f) => /\.drawing$/i.test(f) && statSync(resolve(samplesDir, f)).isFile())
+  return findSampleFiles(samplesDir)
     .sort()
     .map((name) => {
       const stem = basename(name, extname(name)).replace(/[-_]+/g, ' ')
-      return { name, label: stem.charAt(0).toUpperCase() + stem.slice(1), url: `/samples/${encodeURIComponent(name)}`, size: statSync(resolve(samplesDir, name)).size }
+      const url = `/samples/${name.split('/').map(encodeURIComponent).join('/')}`
+      return { name, label: stem.charAt(0).toUpperCase() + stem.slice(1), url, size: statSync(resolve(samplesDir, name)).size }
     })
 }
 
@@ -103,6 +119,7 @@ function sampleDrawings(): Plugin {
       }
       server.watcher.on('add', refresh)
       server.watcher.on('unlink', refresh)
+      server.watcher.on('change', refresh) // e.g. `git lfs pull` replacing a pointer with the drawing
     },
     configurePreviewServer(server) {
       server.middlewares.use(handler)
@@ -137,6 +154,8 @@ export default defineConfig(({ mode }) => {
       '@app': resolve(root, 'src/app'),
     },
   },
+  // the photo worker's OpenCV build (11 MB, CommonJS): pre-bundle it up front so its first use does not reload the page
+  optimizeDeps: { include: ['@techstark/opencv-js'] },
   clearScreen: false,
   server: {
     port: 5173,

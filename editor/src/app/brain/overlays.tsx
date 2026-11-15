@@ -13,9 +13,11 @@ import { getCamera, subscribeCamera } from '../camera'
 import { sheetToScreen, type Placement } from '../board/layout'
 import { useSession } from '../session'
 import { getDocState } from '../store'
+import { getFilters, useFilters } from '../drawing/filters'
 import { contextNow, useContexts } from './contextStore'
 import { getLive, useLive } from './live'
 import { acceptReading } from './predictEngine'
+import { WallBody } from './wallBody'
 
 export const KIND_LABEL: Record<DecisionKind, string> = { wall: 'Wall', door: 'Door', furniture: 'Furniture', delete: 'Delete', markup: 'Markup' }
 const ACCENT = 'var(--accent)'
@@ -62,16 +64,15 @@ function Strike({ items, opacity, dash }: { items: ContextItem[]; opacity: numbe
 }
 
 /** Geometry of a reading: committed (solid) or ghost (lighter; dashed while unstable). */
-export function ReadingShape({ kind, geometry, targets, sheetId, ghost, stable }: { kind: DecisionKind; geometry: Path; targets?: string[]; sheetId: string; ghost: boolean; stable: boolean }) {
+export function ReadingShape({ kind, geometry, type, targets, sheetId, ghost, stable }: { kind: DecisionKind; geometry: Path; type?: string; targets?: string[]; sheetId: string; ghost: boolean; stable: boolean }) {
   const dash = ghost && !stable ? '6 4' : undefined
   const op = ghost ? 0.85 : 1
   const pts = geometry.points
   switch (kind) {
     case 'wall':
       return (
-        <g data-kind="wall" opacity={op}>
-          <path d={d(pts, geometry.closed)} fill="none" stroke={ACCENT} strokeOpacity={0.38} strokeWidth={6} strokeLinejoin="miter" strokeDasharray={dash} />
-          <path d={d(pts, geometry.closed)} fill="none" stroke={ACCENT} style={{ strokeWidth: px(1.2) }} strokeDasharray={dash} />
+        <g data-kind="wall">
+          <WallBody pts={pts} closed={geometry.closed} type={type} sheetId={sheetId} opacity={op} dash={dash} />
         </g>
       )
     case 'door':
@@ -80,15 +81,36 @@ export function ReadingShape({ kind, geometry, targets, sheetId, ghost, stable }
           <DoorSymbol path={geometry} dash={dash} opacity={op} />
         </g>
       ) : null
-    case 'furniture':
+    case 'furniture': {
+      const sym = type !== undefined && pts.length === 4 ? getDocState().source?.furnitureSymbols?.().get(type) : undefined
+      if (sym) {
+        // the type's own plan symbol (as drawn on the sheet), fitted to the placed box: pts[0]->pts[1] is its width
+        const [o, a, , b] = pts
+        const c = { x: (pts[0].x + pts[2].x) / 2, y: (pts[0].y + pts[2].y) / 2 }
+        const U = { x: a.x - o.x, y: a.y - o.y }
+        const V = { x: b.x - o.x, y: b.y - o.y }
+        const at = (q: Point): Point => ({ x: c.x + U.x * q.x + V.x * q.y, y: c.y + U.y * q.x + V.y * q.y })
+        return (
+          <g data-kind="furniture" data-symbol={type} opacity={op}>
+            <path d={sym.lines.map((l) => d(l.pts.map(at), l.closed)).join('')} fill="none" stroke={ACCENT} style={{ strokeWidth: px(1.4) }} strokeDasharray={dash} />
+          </g>
+        )
+      }
       return (
         <g data-kind="furniture" opacity={op}>
           <path d={d(pts, true)} fill={ACCENT} fillOpacity={0.16} stroke={ACCENT} style={{ strokeWidth: px(1.4) }} strokeDasharray={dash} />
         </g>
       )
+    }
     case 'delete': {
       const ctx = contextNow(sheetId)
-      const items = (targets ?? []).map((id) => ctx?.items.find((i) => i.id === id)).filter((x): x is ContextItem => !!x)
+      // committed: an erased drawing element is hidden from the sheet itself, so only host-less targets
+      // (inferred from a plain PDF, which cannot be hidden) keep the strike
+      const erased = ghost ? undefined : getFilters().erased
+      const items = (targets ?? [])
+        .map((id) => ctx?.items.find((i) => i.id === id))
+        .filter((x): x is ContextItem => !!x && !(x.hostRef && erased?.has(x.hostRef)))
+      if (!items.length) return null
       return (
         <g data-kind="delete">
           <Strike items={items} opacity={op} dash={dash} />
@@ -105,13 +127,14 @@ export function ReadingShape({ kind, geometry, targets, sheetId, ghost, stable }
 export function ElementsOverlay({ sheet }: { sheet: Sheet; placement: Placement }) {
   const { accepted, hidden } = useSession()
   useContexts() // delete targets resolve once the context is in
+  useFilters() // erased elements drop their strike
   // hidden: landed in the linked model (M6-04), the sheet draws the real element now
   const mine = accepted.filter((a) => a.sheetId === sheet.id && !hidden.has(a.strokeId))
   return (
     <g data-layer="elements">
       {mine.map((a: AcceptedDecision) => (
         <g key={a.strokeId} data-element={a.kind} data-stroke-id={a.strokeId}>
-          <ReadingShape kind={a.kind} geometry={a.geometry} targets={a.targets} sheetId={sheet.id} ghost={false} stable />
+          <ReadingShape kind={a.kind} geometry={a.geometry} type={a.type} targets={a.targets} sheetId={sheet.id} ghost={false} stable />
         </g>
       ))}
     </g>
@@ -137,7 +160,7 @@ export function LiveOverlay({ sheet }: { sheet: Sheet; placement: Placement }) {
       <GestureBox ids={live.gesture} />
       {h && h.kind !== 'markup' && h.geometry.points.length > 0 && (
         <g data-ghost={h.kind} data-stable={h.stable}>
-          <ReadingShape kind={h.kind} geometry={h.geometry} targets={h.targets} sheetId={sheet.id} ghost stable={h.stable} />
+          <ReadingShape kind={h.kind} geometry={h.geometry} type={h.type} targets={h.targets} sheetId={sheet.id} ghost stable={h.stable} />
         </g>
       )}
       {live.snapStart && <SnapMarker snap={live.snapStart} which="start" />}

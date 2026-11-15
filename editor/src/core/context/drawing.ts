@@ -14,7 +14,7 @@
  * `unknown` items so they can still be targeted by id. Pure: no DOM.
  */
 import type { ContextItem, ContextItemKind, Point, Sheet, SheetContext } from '../types'
-import type { DrawItem, DrawingDocument, DrawingElement, DrawingPage } from '../drawing'
+import type { DrawItem, DrawingDocument, DrawingElement, DrawingPage, ViewType } from '../drawing'
 import { DEFAULT_PALETTE } from './palette'
 import type { DoorFamilyDef, FurnitureFamilyDef, TypePalette, WallTypeDef } from './package-format'
 import { parseScaleText, ptPerMetre } from './scale'
@@ -69,17 +69,15 @@ function isAnnotation(e: DrawingElement | undefined): boolean {
 
 const r2 = (n: number) => Math.round(n * 100) / 100
 
-function pointsOf(items: DrawItem[]): Point[] {
-  const out: Point[] = []
-  const push = (xy: Float32Array) => {
-    for (let k = 0; k + 1 < xy.length; k += 2) out.push({ x: xy[k], y: xy[k + 1] })
-  }
+/** Flat x,y arrays of the items' drawn points (stroke and ring arrays as they are; an image as its two corners). */
+function xyArraysOf(items: DrawItem[]): ArrayLike<number>[] {
+  const out: ArrayLike<number>[] = []
   for (const it of items) {
-    if (it.t === 'path' || it.t === 'segs') push(it.xy)
-    else if (it.t === 'fill') it.rings.forEach(push)
+    if (it.t === 'path' || it.t === 'segs') out.push(it.xy)
+    else if (it.t === 'fill') for (const r of it.rings) out.push(r)
     else if (it.t === 'image') {
       const { x, y, w, h } = it.rect
-      out.push({ x, y }, { x: x + w, y: y + h })
+      out.push([x, y, x + w, y + h])
     }
   }
   return out
@@ -96,25 +94,32 @@ export interface OrientedBox {
   maxV: number
 }
 
-export function orientedBox(pts: Point[]): OrientedBox | null {
-  if (pts.length === 0) return null
+/** The box of x,y pairs held in flat arrays (no per-point objects; large groups hold millions of points). */
+function boxOfArrays(arrays: ArrayLike<number>[]): OrientedBox | null {
+  let count = 0
   let cx = 0
   let cy = 0
-  for (const p of pts) {
-    cx += p.x
-    cy += p.y
+  for (const xy of arrays) {
+    for (let k = 0; k + 1 < xy.length; k += 2) {
+      cx += xy[k]
+      cy += xy[k + 1]
+      count++
+    }
   }
-  cx /= pts.length
-  cy /= pts.length
+  if (count === 0) return null
+  cx /= count
+  cy /= count
   let sxx = 0
   let syy = 0
   let sxy = 0
-  for (const p of pts) {
-    const dx = p.x - cx
-    const dy = p.y - cy
-    sxx += dx * dx
-    syy += dy * dy
-    sxy += dx * dy
+  for (const xy of arrays) {
+    for (let k = 0; k + 1 < xy.length; k += 2) {
+      const dx = xy[k] - cx
+      const dy = xy[k + 1] - cy
+      sxx += dx * dx
+      syy += dy * dy
+      sxy += dx * dy
+    }
   }
   const a = 0.5 * Math.atan2(2 * sxy, sxx - syy)
   const u = { x: Math.cos(a), y: Math.sin(a) }
@@ -123,15 +128,28 @@ export function orientedBox(pts: Point[]): OrientedBox | null {
   let maxU = -Infinity
   let minV = Infinity
   let maxV = -Infinity
-  for (const p of pts) {
-    const du = (p.x - cx) * u.x + (p.y - cy) * u.y
-    const dv = (p.x - cx) * v.x + (p.y - cy) * v.y
-    minU = Math.min(minU, du)
-    maxU = Math.max(maxU, du)
-    minV = Math.min(minV, dv)
-    maxV = Math.max(maxV, dv)
+  for (const xy of arrays) {
+    for (let k = 0; k + 1 < xy.length; k += 2) {
+      const dx = xy[k] - cx
+      const dy = xy[k + 1] - cy
+      const du = dx * u.x + dy * u.y
+      const dv = dx * v.x + dy * v.y
+      if (du < minU) minU = du
+      if (du > maxU) maxU = du
+      if (dv < minV) minV = dv
+      if (dv > maxV) maxV = dv
+    }
   }
   return { c: { x: cx, y: cy }, u, v, minU, maxU, minV, maxV }
+}
+
+export function orientedBox(pts: Point[]): OrientedBox | null {
+  const xy = new Float64Array(pts.length * 2)
+  pts.forEach((p, i) => {
+    xy[2 * i] = p.x
+    xy[2 * i + 1] = p.y
+  })
+  return boxOfArrays([xy])
 }
 
 const at = (b: OrientedBox, du: number, dv: number): Point => ({ x: r2(b.c.x + b.u.x * du + b.v.x * dv), y: r2(b.c.y + b.u.y * du + b.v.y * dv) })
@@ -181,7 +199,7 @@ function estimateViewScales(groups: Group[], elements: Record<string, DrawingEle
     const e = elements[g.el]
     if (categoryOf(e) !== 'Walls') continue
     const mm = parseFloat(param(e, 'CURVE_ELEM_LENGTH') ?? '')
-    const b = orientedBox(pointsOf(g.items))
+    const b = boxOf(g)
     if (!b || !(mm > 0)) continue
     const lenPt = b.maxU - b.minU
     const thick = b.maxV - b.minV
@@ -195,10 +213,61 @@ function estimateViewScales(groups: Group[], elements: Record<string, DrawingEle
   for (const [view, list] of ratios) {
     list.sort((a, b) => a - b)
     const med = list[Math.floor(list.length / 2)]
-    const snap = STANDARD_SCALES.find((s) => Math.abs(s - med) / s <= 0.05)
+    // exports write the length in millimetres or in metres (no unit on the value): take the reading that is a
+    // standard scale, millimetres first
+    const snapOf = (m: number) => STANDARD_SCALES.find((s) => Math.abs(s - m) / s <= 0.05)
+    const snap = snapOf(med) ?? snapOf(med * 1000)
     if (snap) out.set(view, snap)
   }
   return out
+}
+
+/** Axis-aligned extent. */
+interface Zone {
+  minX: number
+  maxX: number
+  minY: number
+  maxY: number
+}
+
+function extentOf(arrays: ArrayLike<number>[]): Zone {
+  const z: Zone = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }
+  for (const xy of arrays) {
+    for (let k = 0; k + 1 < xy.length; k += 2) {
+      const x = xy[k]
+      const y = xy[k + 1]
+      if (x < z.minX) z.minX = x
+      if (x > z.maxX) z.maxX = x
+      if (y < z.minY) z.minY = y
+      if (y > z.maxY) z.maxY = y
+    }
+  }
+  return z
+}
+
+/**
+ * Extent of the band an opening's points are matched against on a wall (along -thick..L+thick, across +-band),
+ * padded far above rounding error so it only ever rules out walls that cannot match. Null for a degenerate wall,
+ * which the match skips anyway.
+ */
+function wallZone(a: Point, b: Point, thick: number): Zone | null {
+  const L = Math.hypot(b.x - a.x, b.y - a.y)
+  if (L < 1e-6) return null
+  const ux = (b.x - a.x) / L
+  const uy = (b.y - a.y) / L
+  const band = thick / 2 + Math.max(1, 0.25 * thick)
+  const pad = 1e-3
+  const z: Zone = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }
+  for (const along of [-thick, L + thick])
+    for (const off of [-band, band]) {
+      const x = a.x + ux * along - uy * off
+      const y = a.y + uy * along + ux * off
+      z.minX = Math.min(z.minX, x - pad)
+      z.maxX = Math.max(z.maxX, x + pad)
+      z.minY = Math.min(z.minY, y - pad)
+      z.maxY = Math.max(z.maxY, y + pad)
+    }
+  return z
 }
 
 // ───────────────────────────── per page ─────────────────────────────
@@ -208,6 +277,14 @@ interface Group {
   /** View id, '' when the items carry none. */
   view: string
   items: DrawItem[]
+  /** Oriented box of the drawn points, computed on first use (see `boxOf`). */
+  box?: OrientedBox | null
+}
+
+/** The group's oriented box, computed once however many passes ask for it. */
+function boxOf(g: Group): OrientedBox | null {
+  if (g.box === undefined) g.box = boxOfArrays(xyArraysOf(g.items))
+  return g.box
 }
 
 function groupsOf(page: DrawingPage): Group[] {
@@ -223,8 +300,25 @@ function groupsOf(page: DrawingPage): Group[] {
   return [...map.values()]
 }
 
+/** What a file's own view type says about a page; types not listed (ceiling, rendering, other) fall back to the title words. */
+const VIEW_SHEET_TYPE: Partial<Record<ViewType, SheetType>> = {
+  plan: 'plan',
+  'structural-plan': 'plan',
+  'area-plan': 'plan',
+  elevation: 'elevation',
+  section: 'section',
+  detail: 'detail',
+  axon: 'axonometric',
+  perspective: 'axonometric',
+  drafting: 'other',
+  legend: 'other',
+  schedule: 'other',
+}
+
 /** Sheet type of a page from its number and name (the title-block words the PDF path reads). */
 export function drawingPageType(page: DrawingPage): SheetType {
+  const byView = page.viewType && VIEW_SHEET_TYPE[page.viewType]
+  if (byView) return byView
   if (page.kind === 'view' && /\{?3D\}?|axonom|isometr|perspect/i.test(page.name)) return 'axonometric'
   return classifySheet({ number: page.number ?? undefined, name: page.name }).sheetType
 }
@@ -265,7 +359,7 @@ function analyse(doc: DrawingDocument, page: DrawingPage): PageAnalysis {
   const itemId = (kind: string, g: Group) => (views.get(g.el)! > 1 ? `${kind}-${g.el}@${g.view}` : `${kind}-${g.el}`)
 
   const items: ContextItem[] = []
-  const walls: Array<{ item: ContextItem; view: string; a: Point; b: Point; thick: number }> = []
+  const walls: Array<{ item: ContextItem; view: string; a: Point; b: Point; thick: number; zone: Zone | null }> = []
   const openings: Group[] = []
 
   for (const g of groups) {
@@ -279,22 +373,21 @@ function analyse(doc: DrawingDocument, page: DrawingPage): PageAnalysis {
     if (e?.family) props.family = e.family
     if (e?.level) props.level = e.level
     if (g.view) props.view = g.view
-    const pts = pointsOf(g.items)
-    const box = orientedBox(pts)
+    const box = boxOf(g)
     if (!box) continue
     const base = { confidence: 1, hostRef: g.el, props }
 
     if (kind === 'wall') {
       const len = box.maxU - box.minU
       const thick = box.maxV - box.minV
-      if (len >= 1.5 * thick) {
+      if (r2(thick) > 0 && len >= 1.5 * thick) {
         const mid = (box.minV + box.maxV) / 2
         const a = at(box, box.minU, mid)
         const b = at(box, box.maxU, mid)
         props.thicknessPt = String(r2(thick))
         const item: ContextItem = { id: itemId('wall', g), kind: 'wall', geometry: { points: [a, b], closed: false }, ...base }
         items.push(item)
-        walls.push({ item, view: g.view, a, b, thick })
+        walls.push({ item, view: g.view, a, b, thick, zone: wallZone(a, b, thick) })
         continue
       }
       kind = 'unknown' // a stub or junction piece: keep it targetable, but it is no wall line
@@ -313,7 +406,16 @@ function analyse(doc: DrawingDocument, page: DrawingPage): PageAnalysis {
     }
     if (category === 'Rooms' && planOk) {
       let best: Float32Array | undefined
-      for (const it of g.items) if (it.t === 'fill') for (const r of it.rings) if (!best || ringArea(r) > ringArea(best)) best = r
+      let bestArea = -Infinity
+      for (const it of g.items)
+        if (it.t === 'fill')
+          for (const r of it.rings) {
+            const area = ringArea(r)
+            if (!best || area > bestArea) {
+              best = r
+              bestArea = area
+            }
+          }
       const poly: Point[] = []
       if (best) for (let k = 0; k + 1 < best.length; k += 2) poly.push({ x: r2(best[k]), y: r2(best[k + 1]) })
       const polygon = poly.length >= 3 ? poly : boxPolygon(box)
@@ -335,8 +437,9 @@ function analyse(doc: DrawingDocument, page: DrawingPage): PageAnalysis {
   // doors and windows: the opening segment on the host wall's centerline (else the long side of their box)
   for (const g of openings) {
     const e = elements[g.el]
-    const pts = pointsOf(g.items)
-    const box = orientedBox(pts)!
+    const box = boxOf(g)!
+    const arrays = xyArraysOf(g.items)
+    const span = extentOf(arrays)
     const props: Record<string, string> = { category: categoryOf(e) }
     if (e?.type) props.typeName = e.type
     if (e?.family) props.family = e.family
@@ -345,6 +448,8 @@ function analyse(doc: DrawingDocument, page: DrawingPage): PageAnalysis {
     let best: { w: (typeof walls)[number]; lo: number; hi: number; n: number } | undefined
     for (const w of walls) {
       if (w.view !== g.view) continue
+      // no point of this opening can lie in the wall's band when their extents do not meet (n would stay 0)
+      if (!w.zone || w.zone.maxX < span.minX || w.zone.minX > span.maxX || w.zone.maxY < span.minY || w.zone.minY > span.maxY) continue
       const L = Math.hypot(w.b.x - w.a.x, w.b.y - w.a.y)
       if (L < 1e-6) continue
       const ux = (w.b.x - w.a.x) / L
@@ -353,13 +458,17 @@ function analyse(doc: DrawingDocument, page: DrawingPage): PageAnalysis {
       let lo = Infinity
       let hi = -Infinity
       let n = 0
-      for (const p of pts) {
-        const along = (p.x - w.a.x) * ux + (p.y - w.a.y) * uy
-        const off = Math.abs((p.x - w.a.x) * -uy + (p.y - w.a.y) * ux)
-        if (off <= band && along >= -w.thick && along <= L + w.thick) {
-          n++
-          lo = Math.min(lo, along)
-          hi = Math.max(hi, along)
+      for (const xy of arrays) {
+        for (let k = 0; k + 1 < xy.length; k += 2) {
+          const px = xy[k] - w.a.x
+          const py = xy[k + 1] - w.a.y
+          const along = px * ux + py * uy
+          const off = Math.abs(px * -uy + py * ux)
+          if (off <= band && along >= -w.thick && along <= L + w.thick) {
+            n++
+            lo = Math.min(lo, along)
+            hi = Math.max(hi, along)
+          }
         }
       }
       if (n >= 2 && hi - lo > 1 && (!best || n > best.n)) best = { w, lo, hi, n }
@@ -424,12 +533,16 @@ function labelRole(e: DrawingElement | undefined, category: string): string {
 
 // ───────────────────────────── public API ─────────────────────────────
 
-/** Sheets of a `.drawing`, in the viewer's order (sheets, then views). Ids are the host page ids. */
-export function sheetsFromDrawing(doc: DrawingDocument): Sheet[] {
+/**
+ * Sheets of a `.drawing`, in the viewer's order (sheets, then views). Ids are the host page ids. Pages from index
+ * `analysed` on are listed without reading their items, so they carry only a scale their page states.
+ */
+export function sheetsFromDrawing(doc: DrawingDocument, analysed = Infinity): Sheet[] {
   return doc.pages.map((p, i) => {
     const sheet: Sheet = { id: p.id, name: p.name || (p.kind === 'view' ? `View ${p.id}` : `Sheet ${p.id}`), sizePt: { ...p.sizePt }, pageIndex: i }
     if (p.number) sheet.number = p.number
-    const scale = analyse(doc, p).scale
+    // pages past `analysed` are not read (lazy loading): only their stated scale, the estimate comes with their context
+    const scale = i < analysed ? analyse(doc, p).scale : p.scale ? parseScaleText(p.scale) : undefined
     if (scale) sheet.scale = scale
     return sheet
   })
@@ -492,4 +605,262 @@ export function paletteFromDrawing(doc: DrawingDocument): TypePalette {
     doors: doorDefs.length ? doorDefs : DEFAULT_PALETTE.doors,
     furniture: furnDefs.length ? furnDefs : DEFAULT_PALETTE.furniture,
   }
+}
+
+// ───────────────────────────── furniture symbols ─────────────────────────────
+
+/** One line of a symbol, in the symbol's unit frame: u across its width, v across its depth, both -0.5..0.5. */
+export interface SymbolLine {
+  pts: Point[]
+  closed: boolean
+}
+
+/** How a furniture type is drawn on plan, taken from one placed instance, normalised to its box. */
+export interface FurnitureSymbol {
+  /** Box of the instance it was taken from, sheet points (width along u). */
+  widthPt: number
+  depthPt: number
+  lines: SymbolLine[]
+}
+
+/**
+ * Plan symbol of each furniture type in the document, from the first plan instance of it that draws any lines.
+ * The frame is the one the context item's box uses (principal axis), except for near-square pieces, whose principal
+ * axis is noise: those use the sheet axes, which is how they are almost always placed.
+ */
+export function furnitureSymbolsFromDrawing(doc: DrawingDocument): Map<string, FurnitureSymbol> {
+  const out = new Map<string, FurnitureSymbol>()
+  for (const page of doc.pages) {
+    const { ctx } = analyse(doc, page)
+    const wanted = new Map<string, string>() // `${el}|${view}` -> typeName
+    for (const it of ctx.items) {
+      const p = it.props
+      if (it.kind !== 'fixture' || p?.category !== 'Furniture' || !p.typeName || out.has(p.typeName) || !it.hostRef) continue
+      wanted.set(`${it.hostRef}|${p.view ?? ''}`, p.typeName)
+    }
+    if (!wanted.size) continue
+    for (const g of groupsOf(page)) {
+      const type = wanted.get(`${g.el}|${g.view}`)
+      if (!type || out.has(type)) continue
+      const sym = symbolOf(g.items)
+      if (sym) out.set(type, sym)
+    }
+  }
+  return out
+}
+
+/** Every drawn point of some items as objects (fine for one element's symbol; the hot paths read the arrays). */
+function pointsOf(items: DrawItem[]): Point[] {
+  const out: Point[] = []
+  const push = (xy: Float32Array) => {
+    for (let k = 0; k + 1 < xy.length; k += 2) out.push({ x: xy[k], y: xy[k + 1] })
+  }
+  for (const it of items) {
+    if (it.t === 'path' || it.t === 'segs') push(it.xy)
+    else if (it.t === 'fill') it.rings.forEach(push)
+    else if (it.t === 'image') {
+      const { x, y, w, h } = it.rect
+      out.push({ x, y }, { x: x + w, y: y + h })
+    }
+  }
+  return out
+}
+
+function symbolOf(items: DrawItem[]): FurnitureSymbol | null {
+  const pb = orientedBox(pointsOf(items))
+  if (!pb) return null
+  let b = pb
+  if (Math.max(pb.maxU - pb.minU, pb.maxV - pb.minV) <= 1.15 * Math.min(pb.maxU - pb.minU, pb.maxV - pb.minV)) {
+    // axis-aligned box around the same points
+    const pts = pointsOf(items)
+    const xs = pts.map((p) => p.x)
+    const ys = pts.map((p) => p.y)
+    const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
+    const c = { x: (x0 + x1) / 2, y: (y0 + y1) / 2 }
+    b = { c, u: { x: 1, y: 0 }, v: { x: 0, y: 1 }, minU: x0 - c.x, maxU: x1 - c.x, minV: y0 - c.y, maxV: y1 - c.y }
+  }
+  const w = b.maxU - b.minU
+  const d = b.maxV - b.minV
+  if (!(w > 0) || !(d > 0)) return null
+  const mu = (b.minU + b.maxU) / 2
+  const mv = (b.minV + b.maxV) / 2
+  const local = (x: number, y: number): Point => {
+    const dx = x - b.c.x
+    const dy = y - b.c.y
+    return { x: r4(((dx * b.u.x + dy * b.u.y) - mu) / w), y: r4(((dx * b.v.x + dy * b.v.y) - mv) / d) }
+  }
+  const lines: SymbolLine[] = []
+  for (const it of items) {
+    if (it.t === 'path') {
+      const pts: Point[] = []
+      for (let k = 0; k + 1 < it.xy.length; k += 2) pts.push(local(it.xy[k], it.xy[k + 1]))
+      if (pts.length >= 2) lines.push({ pts, closed: it.closed })
+    } else if (it.t === 'segs') {
+      for (let k = 0; k + 3 < it.xy.length; k += 4) lines.push({ pts: [local(it.xy[k], it.xy[k + 1]), local(it.xy[k + 2], it.xy[k + 3])], closed: false })
+    } else if (it.t === 'fill') {
+      for (const ring of it.rings) {
+        const pts: Point[] = []
+        for (let k = 0; k + 1 < ring.length; k += 2) pts.push(local(ring[k], ring[k + 1]))
+        if (pts.length >= 3) lines.push({ pts, closed: true })
+      }
+    }
+  }
+  return lines.length ? { widthPt: r2(w), depthPt: r2(d), lines } : null
+}
+
+const r4 = (n: number) => Math.round(n * 1e4) / 1e4
+
+// ───────────────────────────── wall styles ─────────────────────────────
+
+/** One line that runs along a wall: its offset across the wall (faces at -0.5 and 0.5) and its stroke weight (pt). */
+export interface WallStyleLine {
+  offset: number
+  weightPt: number
+}
+
+/** A band of solid fill along a wall (a layer's background or poché), across offsets `from..to` (-0.5..0.5). */
+export interface WallStyleFill {
+  from: number
+  to: number
+  /** RGB 0..255, as drawn. */
+  color: [number, number, number]
+}
+
+/** How a wall type is drawn on plan, taken from one placed instance, normalised to its face-to-face thickness. */
+export interface WallStyle {
+  /** Face-to-face thickness of the instance it was taken from, sheet points. */
+  thicknessPt: number
+  /** The same in model millimetres, when the view's scale is known. */
+  thicknessMm?: number
+  /** Lines parallel to the wall: the two faces (heaviest), layer boundaries, the location line. Sorted by offset. */
+  lines: WallStyleLine[]
+  /** Fills between the faces, sorted by `from`. */
+  fills: WallStyleFill[]
+}
+
+/**
+ * Plan linework of each wall type in the document, from its longest straight instance on a plan page: the lines
+ * that run the instance's length parallel to it (faces, layer boundaries, location line) as offsets across it, and
+ * its fill bands. Short pieces (hatch strokes, join clean-ups, end caps) are left out. Pure.
+ */
+export function wallStylesFromDrawing(doc: DrawingDocument): Map<string, WallStyle> {
+  // every instance of each type is a candidate; the one whose linework reads best wins
+  const best = new Map<string, { style: WallStyle; score: number }>()
+  for (const page of doc.pages) {
+    const { ctx, viewScales, scale } = analyse(doc, page)
+    let groups: Map<string, Group> | undefined
+    for (const it of ctx.items) {
+      const p = it.props
+      if (it.kind !== 'wall' || !p?.typeName || !it.hostRef || it.geometry.points.length < 2) continue
+      groups ??= new Map(groupsOf(page).map((g) => [`${g.el}|${g.view}`, g]))
+      const g = groups.get(`${it.hostRef}|${p.view ?? ''}`)
+      const style = g && wallStyleOf(g.items, it.geometry.points[0], it.geometry.points[1])
+      if (!style) continue
+      const s = viewScales.get(p.view ?? '') ?? scale
+      if (s) style.thicknessMm = r2((style.thicknessPt / ptPerMetre(s)) * 1000)
+      // faces that agree with the drawn outline, then the most layers, then the longest run
+      const boxT = Number(p.thicknessPt)
+      const fit = boxT > 0 ? Math.abs(style.thicknessPt - boxT) / boxT : 0
+      const [a, b] = it.geometry.points
+      const score = (fit <= 0.15 ? 1000 : -1000 * fit) + 10 * (style.lines.length + style.fills.length) + Math.min(9, Math.hypot(b.x - a.x, b.y - a.y) / 100)
+      const cur = best.get(p.typeName)
+      if (!cur || score > cur.score) best.set(p.typeName, { style, score })
+    }
+  }
+  return new Map([...best].map(([k, v]) => [k, v.style]))
+}
+
+function wallStyleOf(items: DrawItem[], a: Point, b: Point): WallStyle | null {
+  const L = Math.hypot(b.x - a.x, b.y - a.y)
+  if (!(L > 0)) return null
+  const u = { x: (b.x - a.x) / L, y: (b.y - a.y) / L }
+  const v = { x: -u.y, y: u.x }
+  const along = (p: Point) => (p.x - a.x) * u.x + (p.y - a.y) * u.y
+  const across = (p: Point) => (p.x - a.x) * v.x + (p.y - a.y) * v.y
+  const TOL = 0.04 // pt: offsets closer than this are the same line
+  const key = (o: number) => Math.round(o / TOL)
+
+  // parallel pieces: total length per (offset, weight)
+  const runs = new Map<string, { off: number; w: number; len: number }>()
+  const piece = (p: Point, q: Point, w: number) => {
+    const dl = Math.abs(along(q) - along(p))
+    const dv = Math.abs(across(q) - across(p))
+    if (dl < 1e-6 || dv > 0.02 * dl + 0.02) return // not parallel to the wall
+    const off = (across(p) + across(q)) / 2
+    const k = `${key(off)}|${w}`
+    const r = runs.get(k) ?? { off, w, len: 0 }
+    r.len += dl
+    runs.set(k, r)
+  }
+  for (const it of items) {
+    if (it.t === 'segs') for (let k = 0; k + 3 < it.xy.length; k += 4) piece({ x: it.xy[k], y: it.xy[k + 1] }, { x: it.xy[k + 2], y: it.xy[k + 3] }, it.w)
+    else if (it.t === 'path') {
+      const n = it.xy.length / 2
+      for (let k = 0; k + 1 < n; k++) piece({ x: it.xy[2 * k], y: it.xy[2 * k + 1] }, { x: it.xy[2 * k + 2], y: it.xy[2 * k + 3] }, it.w)
+    }
+  }
+  // a line of the type runs (most of) the wall's length; short ones are joins, caps or hatching
+  const kept = [...runs.values()].filter((r) => r.len >= 0.3 * L)
+  if (!kept.length) return null
+  // faces: the outermost of the heaviest lines (else the outermost lines)
+  const heavy = Math.max(...kept.map((r) => r.w))
+  const faces = kept.filter((r) => r.w >= 0.99 * heavy)
+  const src = faces.length >= 2 ? faces : kept
+  const lo = Math.min(...src.map((r) => r.off))
+  const hi = Math.max(...src.map((r) => r.off))
+  const T = hi - lo
+  if (!(T > 0.2)) return null
+  const mid = (lo + hi) / 2
+  const norm = (o: number) => r4((o - mid) / T)
+
+  // one line per offset (the heaviest weight drawn there), inside the faces
+  const byOff = new Map<number, WallStyleLine>()
+  for (const r of kept) {
+    const o = norm(r.off)
+    if (Math.abs(o) > 0.5 + TOL / T) continue
+    const k = key(r.off)
+    const cur = byOff.get(k)
+    if (!cur || r.w > cur.weightPt) byOff.set(k, { offset: Math.max(-0.5, Math.min(0.5, o)), weightPt: r4(r.w) })
+  }
+  // lines a hair apart (a layer edge drawn twice, a face and its fill edge) read as one: keep the heavier
+  const lines: WallStyleLine[] = []
+  for (const l of [...byOff.values()].sort((p, q) => p.offset - q.offset)) {
+    const prev = lines[lines.length - 1]
+    if (prev && (l.offset - prev.offset) * T < 0.12) {
+      if (l.weightPt > prev.weightPt || (l.weightPt === prev.weightPt && Math.abs(l.offset) > Math.abs(prev.offset))) lines[lines.length - 1] = l
+    } else lines.push(l)
+  }
+
+  // fills: each ring's extent across the wall, kept when it runs a good part of the length
+  const fills: WallStyleFill[] = []
+  for (const it of items) {
+    if (it.t !== 'fill') continue
+    let fLo = Infinity
+    let fHi = -Infinity
+    let len = 0
+    for (const ring of it.rings) {
+      let rLo = Infinity
+      let rHi = -Infinity
+      let aLo = Infinity
+      let aHi = -Infinity
+      for (let k = 0; k + 1 < ring.length; k += 2) {
+        const p = { x: ring[k], y: ring[k + 1] }
+        rLo = Math.min(rLo, across(p))
+        rHi = Math.max(rHi, across(p))
+        aLo = Math.min(aLo, along(p))
+        aHi = Math.max(aHi, along(p))
+      }
+      if (rHi - rLo > T * 1.2) continue // not a band of this wall
+      fLo = Math.min(fLo, rLo)
+      fHi = Math.max(fHi, rHi)
+      len += aHi - aLo
+    }
+    if (len < 0.3 * L || !(fHi > fLo)) continue
+    const from = Math.max(-0.5, norm(fLo))
+    const to = Math.min(0.5, norm(fHi))
+    if (to - from < 1e-3) continue
+    fills.push({ from, to, color: [it.c[0], it.c[1], it.c[2]] })
+  }
+  fills.sort((p, q) => p.from - q.from)
+  return { thicknessPt: r2(T), lines, fills }
 }

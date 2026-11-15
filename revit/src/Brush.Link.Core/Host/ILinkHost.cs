@@ -26,6 +26,9 @@ public interface ILinkHost
     /// <summary>Undo earlier commands of this link: delete the elements they created. Used for the editor's undo.</summary>
     Task<IReadOnlyList<CommandResult>> RevertAsync(IReadOnlyList<string> commandIds, CancellationToken ct);
 
+    /// <summary>Make the sheet the active view in the host. Throws <see cref="KeyNotFoundException"/> for an unknown sheet.</summary>
+    Task ShowSheetAsync(string sheetId, CancellationToken ct);
+
     /// <summary>Ask the user whether a web page from <paramref name="origin"/> may edit the open model.</summary>
     Task<bool> ApproveOriginAsync(string origin, CancellationToken ct);
 
@@ -64,11 +67,16 @@ public sealed record CommandResult(string Id, string Status, IReadOnlyList<strin
     public static CommandResult Failed(string id, string why) => new(id, CommandStatus.Failed, [], why);
 }
 
-/// <summary>Which elements each command of this link created, so delete-by-command and revert can find them.</summary>
-public sealed class CommandLedger
+/// <summary>
+/// Which elements each command of this link created, so delete-by-command and revert can find them.
+/// The backing store can be handed in so it outlives this object (the Revit add-in keeps it across hot reloads);
+/// it only holds BCL types for that reason.
+/// </summary>
+public sealed class CommandLedger(Dictionary<string, List<string>> created)
 {
-    private readonly Dictionary<string, List<string>> created = new(StringComparer.Ordinal);
-    private readonly object gate = new();
+    private readonly object gate = created;
+
+    public CommandLedger() : this(new Dictionary<string, List<string>>(StringComparer.Ordinal)) { }
 
     public void Record(string commandId, IEnumerable<string> elementIds)
     {

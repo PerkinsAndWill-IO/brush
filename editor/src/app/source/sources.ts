@@ -7,14 +7,18 @@ import {
   DEFAULT_PALETTE,
   contextFromDrawing,
   contextFromPackage,
+  furnitureSymbolsFromDrawing,
+  wallStylesFromDrawing,
   paletteFromDrawing,
   paletteFromPackage,
   sheetsFromDrawing,
   sheetsFromPackage,
   type DrawingManifest,
+  type FurnitureSymbol,
   type TypePalette,
+  type WallStyle,
 } from '@core/context'
-import { DrawingFormatError, type DrawingDocument } from '@core/drawing'
+import { DrawingFormatError, type DrawingDocument, type DrawingElement, type DrawingPage } from '@core/drawing'
 import type { Sheet, SheetContext } from '@core/types'
 import type { LoadedPdf, PdfSource as PdfInput } from '../pdf/pdfjs'
 import { parseDrawingFile } from './drawing-file'
@@ -73,7 +77,22 @@ export interface DrawingSource {
   load(): Promise<LoadedSource>
   /** Context of one sheet (cached). Package: origin 'package', confidence 1, hostRef set. PDF: inferred. */
   contextFor(sheetId: string): Promise<SheetContext>
+  /**
+   * The vector page and element metadata behind a sheet, for inspecting elements (V3). Only sources whose sheets are
+   * host vectors (`.drawing`, Revit) have it; undefined or null otherwise.
+   */
+  vectorPage?(sheetId: string): VectorPage | null
+  /** How each furniture type is drawn on plan (by type name), when the source knows. Built lazily, then cached. */
+  furnitureSymbols?(): ReadonlyMap<string, FurnitureSymbol>
+  /** How each wall type is drawn on plan (by type name): faces, layer lines and fills across it. Lazy, then cached. */
+  wallStyles?(): ReadonlyMap<string, WallStyle>
   close(): Promise<void>
+}
+
+/** A sheet's host vectors: the page (sheet points) and the elements its items refer to. */
+export interface VectorPage {
+  page: DrawingPage
+  elements: Record<string, DrawingElement>
 }
 
 export class SourceError extends Error {
@@ -186,22 +205,37 @@ export class PackageDrawingSource implements DrawingSource {
  */
 export class DrawingFileSource implements DrawingSource {
   readonly kind = 'package' as const
-  readonly palette: TypePalette
   readonly project?: string
-  private readonly sheets: Sheet[]
+  private renderer?: PageRenderer
 
   constructor(
     readonly name: string,
     readonly doc: DrawingDocument,
   ) {
-    this.sheets = sheetsFromDrawing(doc)
-    this.palette = paletteFromDrawing(doc)
     if (doc.source.file) this.project = doc.source.file.replace(/\.[^.]+$/, '')
   }
 
+  private palette_?: TypePalette
+  /** Measured on every page, so built when first asked: opening a file reads only its first page. */
+  get palette(): TypePalette {
+    return (this.palette_ ??= paletteFromDrawing(this.doc))
+  }
+
   async load(): Promise<LoadedSource> {
+    return { sheets: sheetsFromDrawing(this.doc), pdf: null, pages: (this.renderer ??= this.pageRenderer()) }
+  }
+
+  /**
+   * Like `load`, but reads only the first page: later sheets carry just a scale their page states. Lets the first sheet
+   * paint before the other pages are decoded; `load` again once their contexts are built has every scale.
+   */
+  loadFirst(): LoadedSource {
+    return { sheets: sheetsFromDrawing(this.doc, 1), pdf: null, pages: (this.renderer ??= this.pageRenderer()) }
+  }
+
+  private pageRenderer(): PageRenderer {
     const pages = this.doc.pages
-    const renderer: PageRenderer = {
+    return {
       render: async (i, canvas, pxPerPt, signal, gate) => {
         const [m, f] = await Promise.all([import('../drawing/render'), import('../drawing/filters')])
         const fs = f.getFilters()
@@ -213,11 +247,27 @@ export class DrawingFileSource implements DrawingSource {
         return m.renderDrawingPage(pages[i], canvas, pxPerPt, signal, gate, { key: fs.version, hide: f.hiddenPredicate(this.doc, fs) }, region)
       },
     }
-    return { sheets: this.sheets, pdf: null, pages: renderer }
   }
 
   async contextFor(sheetId: string): Promise<SheetContext> {
     return contextFromDrawing(this.doc, sheetId)
+  }
+
+  vectorPage(sheetId: string): VectorPage | null {
+    const page = this.doc.pages.find((p) => p.id === sheetId)
+    return page ? { page, elements: this.doc.elements } : null
+  }
+
+  private symbols?: Map<string, FurnitureSymbol>
+  furnitureSymbols(): ReadonlyMap<string, FurnitureSymbol> {
+    this.symbols ??= furnitureSymbolsFromDrawing(this.doc)
+    return this.symbols
+  }
+
+  private walls?: Map<string, WallStyle>
+  wallStyles(): ReadonlyMap<string, WallStyle> {
+    this.walls ??= wallStylesFromDrawing(this.doc)
+    return this.walls
   }
 
   async close(): Promise<void> {}

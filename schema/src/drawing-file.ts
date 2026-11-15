@@ -1,4 +1,4 @@
-// Reader for the binary .drawing format (spec: schema/drawing-format.md). No DOM.
+// Reader for the binary .drawing format (spec: schema/drawing-format-legacy.md). No DOM.
 // The file is a gzip stream of: magic, version, JSON header, padding, buffer of blobs. Geometry blobs become
 // Float32Array views into the one decompressed buffer, so loading a page costs a JSON parse plus view creation.
 import {
