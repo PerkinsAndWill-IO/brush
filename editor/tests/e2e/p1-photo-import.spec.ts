@@ -5,11 +5,14 @@
  * strokes at known sheet coordinates.
  */
 import { expect, test, type Page } from '@playwright/test'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Stroke } from '../../src/core/types'
 import { screenPath } from './helpers'
 import { openWith } from './m1-helpers'
 
 const PDF = 'office-6-sheets.pdf'
+const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures', 'pdfs')
 /** The sheet in the photo (0-based page). */
 const PAGE = 2
 
@@ -191,6 +194,8 @@ test.describe('P1 photo import', () => {
     await page.getByTestId('photo-run').click()
     await expect(page.getByTestId('photo-error')).toContainText('does not match any open sheet', { timeout: 120_000 })
     await expect(page.getByTestId('photo-import')).toHaveAttribute('data-phase', 'pick')
+    // P1-09: only now is the printed file asked for
+    await expect(page.getByTestId('photo-ask-printed')).toBeVisible()
     expect(await page.evaluate(() => window.__brush!.strokes().length)).toBe(0)
     await page.screenshot({ path: screenPath('p1-photo-import-refused.png') })
   })
@@ -281,5 +286,54 @@ test.describe('P1 photo import', () => {
     await expect(page.getByTestId('photo-group')).toHaveCount(1)
     expect(await page.evaluate(() => window.__brush!.strokes().length)).toBe(strokes.length)
     expect(await page.evaluate(() => window.__brushDev!.accepted().length)).toBe(accepted.length)
+  })
+
+  test('P1-09: when the photo matches no open sheet, the printed PDF is asked for, and the strokes land on the open sheet', async ({ page }) => {
+    // the paper was printed from page 3 of office-6-sheets.pdf (A3). The file open in the app draws that sheet very
+    // differently; here it is another project altogether (KRO, A0: same proportions), so the photo cannot match it
+    // and the open sheet must be chosen. All that is checked is the workflow and the mapping between the two.
+    await openWith(page, PDF)
+    const photo = await makePhoto(page, { pageIndex: PAGE, markup: true })
+    const printedSize = (await page.evaluate(() => window.__brush!.sheets()))[PAGE].sizePt
+    await page.evaluate((u) => window.__brush!.loadPdf(u), '/fixtures/pdfs/kro-project-3-sheets.pdf')
+    const target = (await page.evaluate(() => window.__brush!.sheets()))[0]
+
+    await page.getByTestId('import-photo').click()
+    // nothing about a printed file until it is needed
+    await expect(page.getByTestId('photo-printed-choose')).toHaveCount(0)
+    await page.getByTestId('photo-sheet').selectOption(target.id)
+    await page.getByTestId('photo-file').setInputFiles({ name: 'markup.jpg', mimeType: 'image/jpeg', buffer: photo })
+    await page.getByTestId('photo-run').click()
+    await expect(page.getByTestId('photo-error')).toContainText('does not match', { timeout: 120_000 })
+    await expect(page.getByTestId('photo-ask-printed')).toBeVisible()
+    expect(await page.evaluate(() => window.__brush!.strokes().length)).toBe(0)
+
+    // choosing the printed file runs the import again, against it
+    await page.getByTestId('photo-printed-file').setInputFiles(join(FIXTURES, 'office-6-sheets.pdf'))
+    await expect(page.getByTestId('photo-import')).toHaveAttribute('data-phase', 'done', { timeout: 200_000 })
+    await expect(page.getByTestId('photo-summary')).toContainText('office-6-sheets.pdf, page 3')
+    await expect(page.getByTestId('photo-summary')).toContainText(target.number ?? target.name)
+    await page.screenshot({ path: screenPath('p1-photo-import-printed.png') })
+    await page.getByTestId('photo-done').click()
+
+    // the pen strokes sit on the open sheet where the pen went on the printed page, scaled to the open sheet
+    const strokes = (await page.evaluate(() => window.__brush!.strokes())) as Stroke[]
+    expect(strokes.length).toBeGreaterThanOrEqual(2)
+    expect(new Set(strokes.map((s) => s.sheetId))).toEqual(new Set([target.id]))
+    const reds = strokes.filter((s) => {
+      const [r, g, b] = channels(s.color!)
+      return r > 140 && g < 90 && b < 90
+    })
+    expect(reds.length).toBeGreaterThanOrEqual(1)
+    const pts = reds.flatMap((s) => s.points)
+    const k = target.sizePt.w / printedSize.w
+    const back = pts.map((p) => ({ x: p.x / k, y: p.y / k }))
+    expect(back.filter((p) => distToSegments(p, RED) < 4).length / back.length).toBeGreaterThan(0.9)
+
+    // the choice is kept for the next photo of this drawing, and can be cleared
+    await page.getByTestId('import-photo').click()
+    await expect(page.getByTestId('photo-printed-choose')).toHaveText('office-6-sheets.pdf')
+    await page.getByTestId('photo-printed-clear').click()
+    await expect(page.getByTestId('photo-printed-choose')).toHaveCount(0)
   })
 })

@@ -157,8 +157,7 @@ function parsePageFrame(frame: Uint8Array, header: unknown): DrawingPage {
     for (const [el, b] of Object.entries(o.boxes as Record<string, unknown>)) boxes[el] = toSheet(b, `boxes[${JSON.stringify(el)}]`)
     page.boxes = boxes
   }
-  const hdr = header as Record<string, unknown>
-  if (hdr.viewType !== undefined && hdr.viewType !== null) page.viewType = viewTypeOf(hdr.viewType, 'viewType')
+  withViewType(page, header)
   if (o.views !== undefined && o.views !== null) {
     if (!isObject(o.views)) fail('views', 'expected an object of view id to {type, name, scale, box}')
     const views: Record<string, DrawingView> = {}
@@ -179,10 +178,30 @@ function parsePageFrame(frame: Uint8Array, header: unknown): DrawingPage {
   return page
 }
 
+/** The page's view type, from its header entry. */
+function withViewType(page: DrawingPage, header: unknown): DrawingPage {
+  const t = (header as Record<string, unknown>).viewType
+  if (t !== undefined && t !== null) page.viewType = viewTypeOf(t, 'viewType')
+  return page
+}
+
+/** Lazy pages of parsed documents: hands one the page its frame decodes to, decoded elsewhere (a worker). */
+const fillers = new WeakMap<DrawingPage, (decoded: DrawingPage) => void>()
+
+/**
+ * Give a lazy page (from `parseDrawingPayload(bytes, { lazy: true })`) its decoded frame, so reading its `items`,
+ * `boxes` or `views` no longer decompresses it. `decoded` is what that frame decodes to, e.g. the same page read from a
+ * copy of the bytes. No effect on a page that is not lazy or already decoded.
+ */
+export function fillLazyPage(page: DrawingPage, decoded: Pick<DrawingPage, 'items' | 'boxes' | 'views'>): void {
+  fillers.get(page)?.(decoded as DrawingPage)
+}
+
 /**
  * Parse the bytes of a `.drawing` file (raw, not gzipped). Pages are decoded sheets first, the first sheet first.
  * With `lazy`, only the first page is decoded now (so a file that cannot show its first page still fails here); every
- * other page comes from its header entry and decompresses its frame when its `items` or `boxes` are first read. A broken
+ * other page comes from its header entry and decompresses its frame when its `items`, `boxes` or `views` are first read
+(or takes it from `fillLazyPage`). A broken
  * frame then throws from that read, with the same message.
  */
 export function parseDrawingPayload(bytes: Uint8Array, opts: { lazy?: boolean } = {}): DrawingDocument {
@@ -227,13 +246,18 @@ export function parseDrawingPayload(bytes: Uint8Array, opts: { lazy?: boolean } 
       const ref = frameRef((raw as Record<string, unknown>).frame, 'frame', bytes.length)
       const decode = () => parsePageFrame(unzstd(bytes, ref, 'frame'), raw)
       if (!opts.lazy || n === 0) return decode()
-      // header fields now; items and boxes on first read
-      const page = parsePage({ ...(raw as object), items: [] }, () => undefined as never)
+      // header fields now; what the frame holds (items, boxes, views) on first read
+      const page = withViewType(parsePage({ ...(raw as object), items: [] }, () => undefined as never), raw)
       let full: DrawingPage | undefined
       const load = () => (full ??= named(`pages[${i}]`, decode))
       Object.defineProperties(page, {
         items: { get: () => load().items, enumerable: true },
         boxes: { get: () => load().boxes, enumerable: true },
+        views: { get: () => load().views, enumerable: true },
+      })
+      fillers.set(page, (decoded) => {
+        full ??= decoded
+        fillers.delete(page)
       })
       return page
     }),

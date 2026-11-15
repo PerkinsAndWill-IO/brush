@@ -24,8 +24,18 @@ describe('photo pipeline on a synthetic photo', () => {
   it('P1-02: the quick probe recognises the sheet and estimates how sharp the photo is on it', async () => {
     const p = await probe(c.photo, c.ref, c.dpi)
     expect(p).not.toBeNull()
-    expect(p!.inliers).toBeGreaterThanOrEqual(12)
+    expect(p!.tiles).toBeGreaterThanOrEqual(12)
     // the synthetic view shows the sheet at about 0.55 photo px per sheet px
+    expect(p!.seenDpi).toBeGreaterThan(c.dpi * 0.45)
+    expect(p!.seenDpi).toBeLessThan(c.dpi * 0.65)
+  }, TIMEOUT)
+
+  it('P1-02: the probe still recognises the sheet when the app draws it in another style than the print', async () => {
+    // another export of the same sheet: every line heavier, rooms filled in colour, the finest linework gone
+    const restyled = restyle(c.ref.rgb, c.ref.w, c.ref.h)
+    const p = await probe(c.photo, { rgb: restyled, w: c.ref.w, h: c.ref.h }, c.dpi)
+    expect(p).not.toBeNull()
+    expect(p!.tiles).toBeGreaterThanOrEqual(12)
     expect(p!.seenDpi).toBeGreaterThan(c.dpi * 0.45)
     expect(p!.seenDpi).toBeLessThan(c.dpi * 0.65)
   }, TIMEOUT)
@@ -103,4 +113,29 @@ describe('photo pipeline refusals', () => {
     expect(p).toBeNull()
     await expect(photoToMarkup(other.photo, blank.ref, blank.dpi)).rejects.toThrow(/Could not register the photo/)
   }, TIMEOUT)
+
+  it('P1-02, P1-06: a photo of another drawing (same kind of plan, same title block) is not taken for this sheet', async () => {
+    const mine = makeSyntheticCase()
+    const other = makeSyntheticCase({ seed: 99 })
+    expect(await probe(other.photo, mine.ref, mine.dpi)).toBeNull()
+  }, TIMEOUT)
 })
+
+/** The same sheet as another export draws it: lines a pixel heavier, rooms tinted, hairlines dropped. */
+function restyle(rgb: Uint8Array, w: number, h: number): Uint8Array {
+  const out = new Uint8Array(rgb.length)
+  const lum = (i: number) => (rgb[i * 3] + rgb[i * 3 + 1] + rgb[i * 3 + 2]) / 3
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x
+      // heavier: the darkest of the 3x3 neighbourhood
+      let m = 255
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) m = Math.min(m, lum(Math.min(h - 1, Math.max(0, y + dy)) * w + Math.min(w - 1, Math.max(0, x + dx))))
+      // hairlines (light grey after anti-aliasing) are left out
+      const v = m < 150 ? m : 255
+      // rooms tinted in blocks, like coloured room fills
+      const tint = ((x >> 7) + (y >> 7)) % 3 === 0 ? [222, 208, 236] : ((x >> 7) + (y >> 7)) % 3 === 1 ? [214, 232, 206] : [255, 255, 255]
+      for (let k = 0; k < 3; k++) out[i * 3 + k] = v === 255 ? tint[k] : v
+    }
+  return out
+}
