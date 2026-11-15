@@ -2,7 +2,12 @@
  * Revit link UI (M6): the top-bar button and its panel (connect, pick sheets, status), the first-connect
  * explainer for a deployed page (M6-08), and the per-command results pinned on the ink (M6-05).
  */
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useState, useSyncExternalStore } from 'react'
+import { Alert, AlertAction, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { getCamera, subscribeCamera } from '../camera'
 import { sheetToScreen } from '../board/layout'
 import { useSession } from '../session'
@@ -47,9 +52,8 @@ function Explainer({ onConnect }: { onConnect: () => void }) {
         </li>
       </ol>
       <p className="secondary">Revit must be running with a model open and the Brush Link add-in on (Add-Ins → Brush → Brush Link).</p>
-      <button
-        type="button"
-        className="btn accent"
+      <Button
+        className="self-start"
         data-testid="revit-connect"
         onClick={() => {
           ackExplainer()
@@ -57,7 +61,7 @@ function Explainer({ onConnect }: { onConnect: () => void }) {
         }}
       >
         Connect to Revit
-      </button>
+      </Button>
     </div>
   )
 }
@@ -75,9 +79,9 @@ function PanelBody({ close }: { close: () => void }) {
       <div className="revit-body">
         <p className="revit-h">Live link to Revit</p>
         <p className="secondary">Sketch on a Revit sheet: walls, doors and furniture you draw go into the model, and the sheet comes back updated.</p>
-        <button type="button" className="btn accent" data-testid="revit-connect" onClick={() => revit.connect()}>
+        <Button className="self-start" data-testid="revit-connect" onClick={() => revit.connect()}>
           Connect to Revit
-        </button>
+        </Button>
       </div>
     )
   }
@@ -89,12 +93,12 @@ function PanelBody({ close }: { close: () => void }) {
           {detail ?? 'Looking for the Brush Link add-in on this computer.'}
         </p>
         <div className="revit-row">
-          <button type="button" className="btn soft" data-testid="revit-retry" onClick={() => revit.retry()}>
+          <Button variant="outline" data-testid="revit-retry" onClick={() => revit.retry()}>
             Try again
-          </button>
-          <button type="button" className="btn soft" onClick={() => revit.disconnect()}>
+          </Button>
+          <Button variant="ghost" onClick={() => revit.disconnect()}>
             {state === 'refused' ? 'Close' : 'Cancel'}
-          </button>
+          </Button>
         </div>
       </div>
     )
@@ -121,17 +125,19 @@ function PanelBody({ close }: { close: () => void }) {
         {document?.title ?? 'Revit'} <span className="secondary">{welcome?.server.host}</span>
       </p>
       {rv.stale && (
-        <p className="revit-warn" data-testid="revit-stale">
-          The model changed in Revit while you drew. Your edits went in; check the sheet.
-        </p>
+        <Alert className="revit-warn" role="status" data-testid="revit-stale">
+          <AlertDescription className="text-inherit">The model changed in Revit while you drew. Your edits went in; check the sheet.</AlertDescription>
+        </Alert>
       )}
       {rv.error && (
-        <p className="error" role="alert" data-testid="revit-error">
-          {rv.error}{' '}
-          <button type="button" className="link-btn" onClick={() => revit.clearError()}>
-            Dismiss
-          </button>
-        </p>
+        <Alert variant="destructive" data-testid="revit-error">
+          <AlertDescription className="text-destructive">{rv.error}</AlertDescription>
+          <AlertAction>
+            <Button variant="ghost" size="xs" onClick={() => revit.clearError()}>
+              Dismiss
+            </Button>
+          </AlertAction>
+        </Alert>
       )}
       {sheets.length === 0 ? (
         <p className="secondary">This model has no sheets.</p>
@@ -140,14 +146,15 @@ function PanelBody({ close }: { close: () => void }) {
           {closed.length > 1 && (
             <div className="revit-row revit-pick-bar">
               <span className="secondary">{chosen.length ? `${chosen.length} selected` : 'Tick sheets to open several at once.'}</span>
-              <button
-                type="button"
-                className="link-btn"
+              <Button
+                variant="link"
+                size="xs"
+                className="h-7 px-0"
                 data-testid="revit-select-all"
                 onClick={() => setPicked(chosen.length === closed.length ? new Set() : new Set(closed.map((s) => s.id)))}
               >
                 {chosen.length === closed.length ? 'Select none' : 'Select all'}
-              </button>
+              </Button>
             </div>
           )}
           <ul className="revit-sheets" data-testid="revit-sheets">
@@ -167,16 +174,10 @@ function PanelBody({ close }: { close: () => void }) {
                       {sheetLabel(s)}
                     </button>
                   ) : (
-                    <label className="revit-sheet-name revit-pick">
-                      <input
-                        type="checkbox"
-                        data-testid="revit-pick-sheet"
-                        disabled={opening}
-                        checked={!opening && picked.has(s.id)}
-                        onChange={() => toggle(s.id)}
-                      />
+                    <Label className="revit-sheet-name revit-pick">
+                      <Checkbox data-testid="revit-pick-sheet" disabled={opening} checked={!opening && picked.has(s.id)} onCheckedChange={() => toggle(s.id)} />
                       <span>{sheetLabel(s)}</span>
-                    </label>
+                    </Label>
                   )}
                   {v !== undefined ? (
                     <>
@@ -184,15 +185,15 @@ function PanelBody({ close }: { close: () => void }) {
                         v{v}
                       </span>
                       {rv.open.length > 1 && (
-                        <button type="button" className="chip-btn" onClick={() => void revit.closeSheet(s.id)}>
+                        <Button variant="secondary" size="xs" className="rounded-full bg-muted" onClick={() => void revit.closeSheet(s.id)}>
                           Close
-                        </button>
+                        </Button>
                       )}
                     </>
                   ) : (
-                    <button
-                      type="button"
-                      className="chip-btn"
+                    <Button
+                      size="xs"
+                      className="rounded-full px-3"
                       data-testid="revit-open-sheet"
                       disabled={opening}
                       onClick={() => {
@@ -201,16 +202,16 @@ function PanelBody({ close }: { close: () => void }) {
                       }}
                     >
                       {opening ? 'Opening…' : rv.open.length ? 'Add' : 'Open'}
-                    </button>
+                    </Button>
                   )}
                 </li>
               )
             })}
           </ul>
           {chosen.length > 0 && (
-            <button type="button" className="btn accent revit-open-chosen" data-testid="revit-open-selected" onClick={openChosen}>
+            <Button className="self-start" data-testid="revit-open-selected" onClick={openChosen}>
               {`${rv.open.length ? 'Add' : 'Open'} ${chosen.length} ${chosen.length === 1 ? 'sheet' : 'sheets'}`}
-            </button>
+            </Button>
           )}
         </>
       )}
@@ -218,9 +219,9 @@ function PanelBody({ close }: { close: () => void }) {
         <span className="secondary" data-testid="revit-inflight">
           {rv.inFlight ? `Sending ${rv.inFlight} to Revit…` : rv.open.length ? 'Edits go to Revit as you draw.' : 'Pick sheets to sketch on.'}
         </span>
-        <button type="button" className="btn soft" data-testid="revit-disconnect" onClick={() => revit.disconnect()}>
+        <Button variant="outline" size="sm" data-testid="revit-disconnect" onClick={() => revit.disconnect()}>
           Disconnect
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -230,36 +231,28 @@ function PanelBody({ close }: { close: () => void }) {
 export function RevitButton() {
   const rv = useRevit()
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const close = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && setOpen(false)
-    window.addEventListener('pointerdown', close)
-    return () => window.removeEventListener('pointerdown', close)
-  }, [open])
   const st = rv.link.state
   const busy = rv.inFlight > 0 || rv.opening.length > 0
   return (
-    <div className="menu-anchor" ref={ref}>
-      <button
-        type="button"
-        className={`btn soft revit-btn state-${st}${busy ? ' busy' : ''}`}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        data-testid="revit-button"
-        data-state={st}
-        title={rv.link.detail ?? 'Live link to Revit'}
-        onClick={() => setOpen(!open)}
-      >
-        <span className="revit-dot" aria-hidden="true" />
-        {st === 'on' && rv.open.length ? `Revit · ${rv.open.length === 1 ? (rv.link.sheets.find((s) => s.id === rv.open[0].id)?.number ?? '1 sheet') : `${rv.open.length} sheets`}` : STATE_LABEL[st]}
-      </button>
-      {open && (
-        <div className="menu revit-panel" role="dialog" aria-label="Revit link" data-testid="revit-panel">
-          <PanelBody close={() => setOpen(false)} />
-        </div>
-      )}
-    </div>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        {/* the link state; the child's data-state wins over the popover trigger's open/closed (Radix Slot) */}
+        <Button
+          variant="secondary"
+          size="touch"
+          className={`revit-btn state-${st}${busy ? ' busy' : ''}`}
+          data-testid="revit-button"
+          data-state={st}
+          title={rv.link.detail ?? 'Live link to Revit'}
+        >
+          <span className="revit-dot" aria-hidden="true" />
+          {st === 'on' && rv.open.length ? `Revit · ${rv.open.length === 1 ? (rv.link.sheets.find((s) => s.id === rv.open[0].id)?.number ?? '1 sheet') : `${rv.open.length} sheets`}` : STATE_LABEL[st]}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" sideOffset={6} className="revit-panel w-[min(360px,calc(100vw-32px))] rounded-2xl p-3.5 text-xs" aria-label="Revit link" data-testid="revit-panel">
+        <PanelBody close={() => setOpen(false)} />
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -269,9 +262,9 @@ export function RevitStart() {
   return (
     <div className="revit-start" data-testid="revit-start">
       {rv.link.state === 'off' && !needsExplainer() ? (
-        <button type="button" className="btn soft" data-testid="revit-connect-start" onClick={() => revit.connect()}>
+        <Button variant="outline" size="touch" data-testid="revit-connect-start" onClick={() => revit.connect()}>
           Open a sheet from Revit
-        </button>
+        </Button>
       ) : (
         <div className="revit-inline">
           <PanelBody close={() => {}} />

@@ -9,7 +9,7 @@ import { ptPerMetre, type WallStyle } from '@core/context'
 import { getDocState } from '../store'
 import { contextNow } from './contextStore'
 
-const ACCENT = 'var(--accent)'
+const ACCENT = 'var(--brand)'
 const d = (pts: readonly Point[], closed = false) => (pts.length ? `M${pts.map((p) => `${p.x} ${p.y}`).join('L')}${closed ? 'Z' : ''}` : '')
 /** A sheet weight, but never thinner than half a screen pixel. */
 const weight = (pt: number) => `max(${pt}px, calc(0.5px / var(--z)))`

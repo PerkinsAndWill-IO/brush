@@ -20,7 +20,7 @@ import { acceptReading } from './predictEngine'
 import { WallBody } from './wallBody'
 
 export const KIND_LABEL: Record<DecisionKind, string> = { wall: 'Wall', door: 'Door', furniture: 'Furniture', delete: 'Delete', markup: 'Markup' }
-const ACCENT = 'var(--accent)'
+const ACCENT = 'var(--brand)'
 const DELETE = 'var(--error)'
 const px = (n: number) => `calc(${n}px / var(--z))`
 const d = (pts: readonly Point[], closed = false) => (pts.length ? `M${pts.map((p) => `${p.x} ${p.y}`).join('L')}${closed ? 'Z' : ''}` : '')

@@ -4,6 +4,12 @@
  * The work itself is in ./import.ts; this file is the UI state around one import.
  */
 import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { XIcon } from 'lucide-react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogFooter, DialogTitle } from '@/components/ui/dialog'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { cn } from '@/lib/utils'
 import type { Sheet } from '@core/types'
 import { getDocState, useDocState } from '../store'
 import { makeElements } from './groupActions'
@@ -98,20 +104,24 @@ export const photoImport = {
   },
 }
 
+/** The right-hand control of a dialog row: a file button or a select, 40 px high, at most 62% of the row. */
+const PICK = 'block h-10 max-w-[62%] min-w-0 truncate rounded-xl bg-background px-3 text-left font-normal'
+const SELECT = 'max-w-[62%] min-w-0 [&_select]:h-10 [&_select]:rounded-xl [&_select]:bg-background'
+
 function SheetSelect({ sheets, value, printed }: { sheets: Sheet[]; value: string; printed: boolean }) {
   // a sheet that is gone (another file was opened) falls back to automatic
   const known = value === '' || sheets.some((s) => s.id === value)
   return (
     <label className="field">
       <span>{printed ? 'Strokes go on' : 'Sheet in the photo'}</span>
-      <select data-testid="photo-sheet" value={known ? value : ''} onChange={(e) => set({ sheetId: e.target.value })}>
-        <option value="">{sheets.length > MAX_AUTO_SHEETS ? `Find it (first ${MAX_AUTO_SHEETS} sheets)` : 'Find it automatically'}</option>
+      <NativeSelect className={SELECT} data-testid="photo-sheet" value={known ? value : ''} onChange={(e) => set({ sheetId: e.target.value })}>
+        <NativeSelectOption value="">{sheets.length > MAX_AUTO_SHEETS ? `Find it (first ${MAX_AUTO_SHEETS} sheets)` : 'Find it automatically'}</NativeSelectOption>
         {sheets.map((s) => (
-          <option key={s.id} value={s.id}>
+          <NativeSelectOption key={s.id} value={s.id}>
             {sheetLabel(s)}
-          </option>
+          </NativeSelectOption>
         ))}
-      </select>
+      </NativeSelect>
     </label>
   )
 }
@@ -180,9 +190,16 @@ export function PhotoImportDialog() {
   if (!st.open || !ready) return null
   const running = st.phase === 'running'
   return (
-    <div className="modal-backdrop" onPointerDown={(e) => e.target === e.currentTarget && !running && photoImport.close()}>
-      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="photo-import-title" data-testid="photo-import" data-phase={st.phase}>
-        <h2 id="photo-import-title">Import markup from a photo</h2>
+    <Dialog open onOpenChange={(open) => !open && photoImport.close()}>
+      <DialogContent
+        className="modal flex max-h-[calc(100%-48px)] flex-col gap-3.5 overflow-auto rounded-[20px] bg-card p-[22px] pb-[18px] shadow-2xl sm:max-w-[460px]"
+        aria-describedby={undefined}
+        data-testid="photo-import"
+        data-phase={st.phase}
+        // a click outside cancels, but not while the import runs (Cancel or Escape stop it)
+        onInteractOutside={(e) => running && e.preventDefault()}
+      >
+        <DialogTitle className="text-[15px] font-semibold tracking-tight">Import markup from a photo</DialogTitle>
 
         {st.phase === 'pick' && (
           <>
@@ -191,9 +208,9 @@ export function PhotoImportDialog() {
             </p>
             <div className="field">
               <span>Photo</span>
-              <button type="button" className="btn soft" data-testid="photo-choose" onClick={() => input.current?.click()}>
+              <Button variant="outline" className={PICK} data-testid="photo-choose" onClick={() => input.current?.click()}>
                 {st.file ? st.file.name : 'Choose photo…'}
-              </button>
+              </Button>
               <input
                 ref={input}
                 type="file"
@@ -227,42 +244,44 @@ export function PhotoImportDialog() {
               <div className="field" title="The photo is matched to this file; the strokes go on the open sheet with the same layout.">
                 <span>Printed from</span>
                 <span className="field-pair">
-                  <button type="button" className="btn soft" data-testid="photo-printed-choose" onClick={() => printedInput.current?.click()}>
+                  <Button variant="outline" className={cn(PICK, 'max-w-none')} data-testid="photo-printed-choose" onClick={() => printedInput.current?.click()}>
                     {st.printed.name}
-                  </button>
-                  <button type="button" className="btn soft clear" aria-label="Match the open drawing instead" data-testid="photo-printed-clear" onClick={() => set({ printed: null, error: undefined })}>
-                    ×
-                  </button>
+                  </Button>
+                  <Button variant="outline" size="icon-lg" className="size-10 rounded-xl bg-background" aria-label="Match the open drawing instead" data-testid="photo-printed-clear" onClick={() => set({ printed: null, error: undefined })}>
+                    <XIcon />
+                  </Button>
                 </span>
               </div>
             )}
             <SheetSelect sheets={doc.sheets} value={st.sheetId} printed={!!st.printed} />
             <label className="field">
               <span>Pens to pick up</span>
-              <select data-testid="photo-ink" value={st.ink} onChange={(e) => set({ ink: e.target.value as InkChoice })}>
-                <option value="both">All pens and markers</option>
-                <option value="color">Coloured only</option>
-                <option value="dark">Black pen and pencil only</option>
-              </select>
+              <NativeSelect className={SELECT} data-testid="photo-ink" value={st.ink} onChange={(e) => set({ ink: e.target.value as InkChoice })}>
+                <NativeSelectOption value="both">All pens and markers</NativeSelectOption>
+                <NativeSelectOption value="color">Coloured only</NativeSelectOption>
+                <NativeSelectOption value="dark">Black pen and pencil only</NativeSelectOption>
+              </NativeSelect>
             </label>
             {st.error && (
-              <div className="error" role="alert" data-testid="photo-error">
-                <p>{st.error}</p>
-                {st.askPrinted && !st.printed && (
-                  <button type="button" className="btn accent" data-testid="photo-ask-printed" onClick={() => printedInput.current?.click()}>
-                    Choose the printed PDF…
-                  </button>
-                )}
-              </div>
+              <Alert variant="destructive" className="error" data-testid="photo-error">
+                <AlertDescription className="text-destructive">
+                  {st.error}
+                  {st.askPrinted && !st.printed && (
+                    <Button className="mt-2.5 flex" data-testid="photo-ask-printed" onClick={() => printedInput.current?.click()}>
+                      Choose the printed PDF…
+                    </Button>
+                  )}
+                </AlertDescription>
+              </Alert>
             )}
-            <div className="modal-actions">
-              <button type="button" className="btn soft" onClick={() => photoImport.close()}>
+            <DialogFooter className="modal-actions -mx-[22px] -mb-[18px] mt-1 rounded-b-[20px] px-[22px] py-3.5">
+              <Button variant="outline" size="touch" onClick={() => photoImport.close()}>
                 Cancel
-              </button>
-              <button type="button" className="btn accent" data-testid="photo-run" disabled={!st.file} onClick={() => void photoImport.run()}>
+              </Button>
+              <Button size="touch" className="px-5 font-semibold" data-testid="photo-run" disabled={!st.file} onClick={() => void photoImport.run()}>
                 Import
-              </button>
-            </div>
+              </Button>
+            </DialogFooter>
           </>
         )}
 
@@ -276,25 +295,25 @@ export function PhotoImportDialog() {
                 <li key={`${st.lines.length}-${i}`}>{l}</li>
               ))}
             </ol>
-            <div className="modal-actions">
-              <button type="button" className="btn soft" onClick={() => photoImport.close()}>
+            <DialogFooter className="modal-actions -mx-[22px] -mb-[18px] mt-1 rounded-b-[20px] px-[22px] py-3.5">
+              <Button variant="outline" size="touch" onClick={() => photoImport.close()}>
                 Cancel
-              </button>
-            </div>
+              </Button>
+            </DialogFooter>
           </>
         )}
 
         {st.phase === 'done' && st.summary && (
           <>
             <Summary s={st.summary} />
-            <div className="modal-actions">
-              <button type="button" className="btn soft" onClick={() => photoImport.open()}>
+            <DialogFooter className="modal-actions -mx-[22px] -mb-[18px] mt-1 rounded-b-[20px] px-[22px] py-3.5">
+              <Button variant="outline" size="touch" onClick={() => photoImport.open()}>
                 Import another
-              </button>
+              </Button>
               {st.summary.strokes > 0 && (
-                <button
-                  type="button"
-                  className="btn soft"
+                <Button
+                  variant="outline"
+                  size="touch"
                   data-testid="photo-make-elements"
                   title="Read the imported strokes the way the brush reads a stroke, and turn the ones it is sure of into elements"
                   onClick={() => {
@@ -304,15 +323,15 @@ export function PhotoImportDialog() {
                   }}
                 >
                   Make elements
-                </button>
+                </Button>
               )}
-              <button type="button" className="btn accent" data-testid="photo-done" onClick={() => photoImport.close()}>
+              <Button size="touch" className="px-5 font-semibold" data-testid="photo-done" onClick={() => photoImport.close()}>
                 Done
-              </button>
-            </div>
+              </Button>
+            </DialogFooter>
           </>
         )}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }

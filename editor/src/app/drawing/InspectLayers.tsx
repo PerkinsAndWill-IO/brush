@@ -5,6 +5,8 @@
  *  - ElementPanel  (V3-02/03): the element's metadata in the Select tool's sidebar panel; pinned by a click, with the sheets the
  *    element appears on (a click on one fits that sheet)
  */
+import { XIcon } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { useMemo, useState, type ReactNode } from 'react'
 import type { Sheet } from '@core/types'
 import type { DrawItem } from '@core/drawing'
@@ -205,11 +207,9 @@ export function ElementPanel() {
           <span className="sub">{(r.tagLabel ? `via ${r.tagLabel.toLowerCase()} · ` : '') + cardCategory(info)}</span>
         </div>
         {pinned ? (
-          <button type="button" className="icon-btn" aria-label="Unpin element" title="Unpin (Esc)" onClick={() => inspect.unpin()}>
-            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-              <path d="M3 3 L9 9 M9 3 L3 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-            </svg>
-          </button>
+          <Button variant="ghost" size="icon-xs" className="text-muted-foreground hover:bg-accent" aria-label="Unpin element" title="Unpin (Esc)" onClick={() => inspect.unpin()}>
+            <XIcon />
+          </Button>
         ) : (
           <span className="state">hover</span>
         )}

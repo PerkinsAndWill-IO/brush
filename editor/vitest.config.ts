@@ -10,6 +10,7 @@ export default defineConfig({
     alias: {
       '@core': resolve(root, 'src/core'),
       '@app': resolve(root, 'src/app'),
+      '@': resolve(root, 'src/app'),
     },
   },
   test: {

@@ -194,7 +194,7 @@ test('M3: Live off is plain M1 ink; Mode forces a reading', async ({ page }) => 
   await openWith(page, SIX, { live: true })
   await prepare(page, 0)
   await page.getByTestId('live-toggle').click()
-  await expect(page.getByTestId('live-toggle')).toHaveAttribute('aria-pressed', 'false')
+  await expect(page.getByTestId('live-toggle')).toHaveAttribute('aria-checked', 'false')
   const rec = readRecording('wall/wall-000.json')
   await prepare(page, rec.sheet)
   await page.evaluate((r) => window.__brush!.replayStroke(r, { realtime: true }), rec)

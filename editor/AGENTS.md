@@ -74,6 +74,8 @@ First-time setup: `pnpm install` then `pnpm exec playwright install chromium`.
 src/core/      pure TS: types, geometry, stroke, context, predict, commands
 src/app/       React UI, pdf.js wrapper (pdf/), platform adapter (platform/), test API (testApi.ts),
                photo import (photo/: OpenCV pipeline in a worker, task P1, decision 0009)
+               UI controls: shadcn/ui in components/ui/ (decision 0010). Add one with
+               `pnpm dlx shadcn@4.23.0 add <name>`; theme tokens are in styles.css
 src-tauri/     Tauri 2 shell, PARKED (decision 0007). Keep it compiling-in-principle; don't spend time on it.
 api/           Vercel Functions. api/ai-gateway.ts = server-side proxy for the hosted second pass.
 fixtures/      pdfs/, strokes/, contexts/ (optional precomputed SheetContext for eval), cassettes/

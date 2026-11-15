@@ -61,7 +61,7 @@ export const EmptyIllustration = () => (
     <path d="M66 4V58M66 46H82" stroke="#1B1D21" strokeWidth="1" />
     <rect x="21" y="12" width="38" height="38" stroke="#1B1D21" strokeWidth="2.2" />
     <path d="M40 12V31M21 31H50" stroke="#1B1D21" strokeWidth="1.4" />
-    <circle cx="70" cy="58" r="13" fill="var(--accent)" />
+    <circle cx="70" cy="58" r="13" fill="var(--brand)" />
     <path d="M70 52V64M65 59l5 5 5-5" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 )

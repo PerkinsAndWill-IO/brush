@@ -3,7 +3,7 @@
  * Each test cites its requirement ID and saves reports/screens/m1-XX-*.png.
  */
 import { readFileSync } from 'node:fs'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { openApp, screenPath } from './helpers'
 import { boardCenter, camera, fixturePath, inkCount, line, openWith, openAppMenu, readRecording, replay, sampleInk, settle, strokes } from './m1-helpers'
 
@@ -255,6 +255,16 @@ test('M1-05: sheets stay sharp when zoomed — pages re-render at the new resolu
   expect(gray.mid / (gray.ink + gray.mid)).toBeLessThan(0.6)
 })
 
+/** Move a shadcn (Radix) slider to a value with the keyboard: Home, then one arrow press per step. */
+async function setSlider(slider: Locator, value: number) {
+  const thumb = slider.getByRole('slider')
+  await thumb.focus()
+  await thumb.press('Home')
+  const min = Number(await thumb.getAttribute('aria-valuemin'))
+  for (let v = min; v < value; v++) await thumb.press('ArrowRight')
+  await expect(thumb).toHaveAttribute('aria-valuenow', String(value))
+}
+
 test('M1-06: the brush draws ink that follows the pointer, with size and smoothing from the left sidebar, color from the capsule, pressure → width', async ({ page }) => {
   await openWith(page, SIX)
   const rec = readRecording('wall/wall-000.json') // has pressure
@@ -262,8 +272,8 @@ test('M1-06: the brush draws ink that follows the pointer, with size and smoothi
   await settle(page)
 
   // size + smoothing from the left sidebar, color from the capsule
-  await page.locator('#brush-size').fill('6')
-  await page.locator('#brush-smoothing').fill('60')
+  await setSlider(page.locator('#brush-size'), 6)
+  await setSlider(page.locator('#brush-smoothing'), 60)
   await expect(page.getByTestId('left-sidebar')).toContainText('6 px')
   await page.getByTestId('ink-color').click()
   await page.getByRole('radio', { name: 'blue' }).click()
@@ -462,7 +472,7 @@ test('M1-11: left sidebar shows the active tool’s options; sections collapse; 
     const sec = side.getByTestId(id)
     await expect(sec).toBeVisible()
     if ((await sec.getAttribute('data-open')) === 'false') await sec.getByRole('button').first().click()
-    expect(await sec.locator('.section-body button, .section-body input').count()).toBeGreaterThan(0)
+    expect(await sec.locator('.section-body button, .section-body input, .section-body [role=slider]').count()).toBeGreaterThan(0)
   }
   // Live off is the plain M1 surface: Mode is disabled and labeled, the Reading panel says so
   await expect(side.getByTestId('section-mode')).toContainText('Live off')

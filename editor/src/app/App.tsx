@@ -13,6 +13,10 @@ import { useView } from './view'
 import { getPlatform } from './platform'
 import { fileToOpened } from './platform/browser'
 import { getDocState, openFile, useDocState } from './store'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Kbd } from '@/components/ui/kbd'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { EmptyIllustration } from './ui/icons'
 import { chooseFile, LeftSidebar, RightSidebar, ToolCapsule, TopBar } from './ui/Chrome'
 import { RevitHud, RevitStart } from './revit/RevitPanel'
@@ -69,21 +73,21 @@ function SamplePicker({ disabled }: { disabled: boolean }) {
     <>
       <label className="samples">
         <span className="secondary">{fetching ? `Downloading ${fetching}…` : 'or open a sample'}</span>
-        <select data-testid="sample-picker" aria-label="Open a sample drawing" value="" disabled={disabled || !!fetching} onChange={(e) => void open(e.target.value)}>
-          <option value="" disabled>
+        <NativeSelect className="max-w-full" data-testid="sample-picker" aria-label="Open a sample drawing" value="" disabled={disabled || !!fetching} onChange={(e) => void open(e.target.value)}>
+          <NativeSelectOption value="" disabled>
             Choose a sample…
-          </option>
+          </NativeSelectOption>
           {samples.map((s) => (
-            <option key={s.name} value={s.name}>
+            <NativeSelectOption key={s.name} value={s.name}>
               {s.label} ({s.name}, {formatSize(s.size)})
-            </option>
+            </NativeSelectOption>
           ))}
-        </select>
+        </NativeSelect>
       </label>
       {fetchError && (
-        <p className="error" role="alert" data-testid="sample-error">
-          {fetchError}
-        </p>
+        <Alert variant="destructive" className="error" data-testid="sample-error">
+          <AlertDescription className="text-destructive">{fetchError}</AlertDescription>
+        </Alert>
       )}
     </>
   )
@@ -103,19 +107,19 @@ function EmptyState({ error, loading }: { error?: string; loading?: string }) {
           </p>
         </div>
         <div className="cta">
-          <button type="button" className="btn accent" onClick={() => void chooseFile()} disabled={!!loading}>
+          <Button size="touch" className="px-5 font-semibold" onClick={() => void chooseFile()} disabled={!!loading}>
             {loading ? `Opening ${loading}…` : 'Choose file'}
-          </button>
+          </Button>
           <span className="secondary">
-            or press <kbd>Ctrl O</kbd>
+            or press <Kbd>Ctrl O</Kbd>
           </span>
         </div>
         <SamplePicker disabled={!!loading} />
         <RevitStart />
         {error && (
-          <p className="error" role="alert" data-testid="load-error">
-            {error}
-          </p>
+          <Alert variant="destructive" className="error" data-testid="load-error">
+            <AlertDescription className="text-destructive">{error}</AlertDescription>
+          </Alert>
         )}
       </div>
     </div>

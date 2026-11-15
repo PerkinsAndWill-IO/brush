@@ -41,9 +41,9 @@ test('V2-01..03: filters list the categories, hide categories and kinds, and sur
   await openHouse(page)
   const section = page.getByTestId('right-sidebar').getByTestId('section-filters')
   await expect(section).toBeVisible()
-  const walls = section.locator('input[data-category="Walls"]')
+  const walls = section.locator('[data-category="Walls"]')
   await expect(walls).toBeChecked()
-  await expect(section.locator('input[data-category="Grids"]')).toBeVisible()
+  await expect(section.locator('[data-category="Grids"]')).toBeVisible()
   const all = await inked(page)
   expect(all).toBeGreaterThan(1000)
 
@@ -63,22 +63,22 @@ test('V2-01..03: filters list the categories, hide categories and kinds, and sur
 
   // V2-03: hide annotation ticks off Grids and Title Blocks, leaves Doors
   await section.getByTestId('filter-annotation').click()
-  await expect(section.locator('input[data-category="Grids"]')).not.toBeChecked()
-  await expect(section.locator('input[data-category="Title Blocks"]')).not.toBeChecked()
-  await expect(section.locator('input[data-category="Doors"]')).toBeChecked()
+  await expect(section.locator('[data-category="Grids"]')).not.toBeChecked()
+  await expect(section.locator('[data-category="Title Blocks"]')).not.toBeChecked()
+  await expect(section.locator('[data-category="Doors"]')).toBeChecked()
   await section.scrollIntoViewIfNeeded()
   await page.screenshot({ path: screenPath('v2-drawing-filters.png') })
 
   // remembered per browser
   await page.reload()
   await openHouse(page)
-  await expect(page.getByTestId('section-filters').locator('input[data-category="Walls"]')).not.toBeChecked()
+  await expect(page.getByTestId('section-filters').locator('[data-category="Walls"]')).not.toBeChecked()
   await expect(page.getByTestId('section-filters').locator('[data-kind="fills"]')).toHaveAttribute('aria-pressed', 'false')
 
   // Show all brings everything back
   v = (await page.locator(SHEET).getAttribute('data-filter-version'))!
   await page.getByTestId('filter-reset').click()
-  await expect(page.getByTestId('section-filters').locator('input[data-category="Walls"]')).toBeChecked()
+  await expect(page.getByTestId('section-filters').locator('[data-category="Walls"]')).toBeChecked()
   await rerendered(page, v)
   expect(await inked(page)).toBe(all)
 })

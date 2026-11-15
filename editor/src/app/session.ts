@@ -75,6 +75,13 @@ export function subscribeSession(l: () => void): () => void {
 export function useSession(): SessionState {
   return useSyncExternalStore(subscribeSession, getSession)
 }
+/**
+ * One field of the session: the component re-renders only when that field changes, not on every stroke. For panels
+ * that show settings (the sidebars, the capsule), which would otherwise re-render while the pen draws.
+ */
+export function useSessionField<K extends keyof SessionState>(key: K): SessionState[K] {
+  return useSyncExternalStore(subscribeSession, () => state[key])
+}
 
 export const session = {
   setTool(tool: Tool) {

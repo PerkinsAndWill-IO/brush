@@ -1,6 +1,7 @@
 import { createReadStream, existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig, loadEnv, type Plugin } from 'vite'
 
@@ -153,11 +154,12 @@ export default defineConfig(({ mode }) => {
       }
     : undefined
   return {
-  plugins: [react(), serveFixtures(), sampleDrawings()],
+  plugins: [react(), tailwindcss(), serveFixtures(), sampleDrawings()],
   resolve: {
     alias: {
       '@core': resolve(root, 'src/core'),
       '@app': resolve(root, 'src/app'),
+      '@': resolve(root, 'src/app'),
     },
   },
   // the photo worker's OpenCV build (11 MB, CommonJS): pre-bundle it up front so its first use does not reload the page

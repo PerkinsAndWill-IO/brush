@@ -3,7 +3,30 @@
  * sidebar (tool options) and right sidebar (session list). M1 only — the
  * Reading panel, host status, latency readout and Live toggle arrive in M3.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ComponentProps, type ReactNode } from 'react'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Kbd } from '@/components/ui/kbd'
+import { Label } from '@/components/ui/label'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Separator } from '@/components/ui/separator'
+import { Slider } from '@/components/ui/slider'
+import { Switch } from '@/components/ui/switch'
+import { Toggle } from '@/components/ui/toggle'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { cn } from '@/lib/utils'
 import { DECISION_KINDS, type BrushMode, type DecisionKind } from '@core/types'
 import { KIND_LABEL } from '../brain/overlays'
 import { acceptReading } from '../brain/predictEngine'
@@ -14,7 +37,7 @@ import { useCameraZoom } from '../camera'
 import { boardView } from '../board/Board'
 import { getPlatform } from '../platform'
 import { recorder, recorderAvailable, useRecorder } from '../recording'
-import { getSession, session, sessionFileFor, useSession, type Tool } from '../session'
+import { getSession, session, sessionFileFor, useSession, useSessionField, type Tool } from '../session'
 import { getDocState, openFile, useDocState } from '../store'
 import { DrawingFileSource, buildCommandFile, commandFileName, serializeCommandFile, writeCommandFile } from '../source'
 import { ITEM_KINDS, categoriesOf, filters, isAnnotationCategory, useFilters } from '../drawing/filters'
@@ -50,33 +73,29 @@ const ZOOM_STEPS = [0.25, 0.5, 1, 2, 4]
 
 function ZoomMenu() {
   const z = useCameraZoom()
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const close = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && setOpen(false)
-    window.addEventListener('pointerdown', close)
-    return () => window.removeEventListener('pointerdown', close)
-  }, [open])
   return (
-    <div className="menu-anchor" ref={ref}>
-      <button type="button" className="btn soft" aria-haspopup="menu" aria-expanded={open} aria-label={`Zoom, currently ${Math.round(z * 100)}%`} data-testid="zoom-button" onClick={() => setOpen(!open)}>
-        <span className="mono-num">{Math.round(z * 100)}%</span>
-        <ChevronDown />
-      </button>
-      {open && (
-        <div className="menu" role="menu">
-          <button type="button" role="menuitem" onClick={() => (boardView.fit(), setOpen(false))}>
-            Fit all sheets <kbd>0</kbd>
-          </button>
-          {ZOOM_STEPS.map((s) => (
-            <button key={s} type="button" role="menuitem" onClick={() => (boardView.zoomTo(s, undefined, { settleNow: true }), setOpen(false))}>
-              {s * 100}%
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="secondary" size="touch" aria-label={`Zoom, currently ${Math.round(z * 100)}%`} data-testid="zoom-button">
+          <span className="mono-num">{Math.round(z * 100)}%</span>
+          <ChevronDown />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-44">
+        <DropdownMenuItem onSelect={() => boardView.fit()}>
+          Fit all sheets
+          <DropdownMenuShortcut>
+            <Kbd>0</Kbd>
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {ZOOM_STEPS.map((s) => (
+          <DropdownMenuItem key={s} className="font-mono" onSelect={() => boardView.zoomTo(s, undefined, { settleNow: true })}>
+            {s * 100}%
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -87,16 +106,16 @@ function HostStatus() {
   const pkg = source?.kind === 'package'
   if (rv.open.length)
     return (
-      <span className="pill" data-testid="host-status" title="Edits go into the Revit model as you draw (M6)">
+      <Badge variant="secondary" className="pill h-7 gap-1.5 px-2.5 text-[11.5px] font-normal" data-testid="host-status" title="Edits go into the Revit model as you draw (M6)">
         <span className={`pill-dot${rv.link.state === 'on' ? ' live' : ''}`} aria-hidden="true" />
         {rv.link.state === 'on' ? `Live · ${rv.link.document?.title ?? 'Revit'}` : 'Revit offline · edits wait'}
-      </span>
+      </Badge>
     )
   return (
-    <span className="pill" data-testid="host-status" title="Commands go to the session log until an Applier links a host">
+    <Badge variant="secondary" className="pill h-7 gap-1.5 px-2.5 text-[11.5px] font-normal" data-testid="host-status" title="Commands go to the session log until an Applier links a host">
       <span className={`pill-dot${pkg ? ' pkg' : ''}`} aria-hidden="true" />
       {pkg ? `Package · ${source?.project ?? 'no project'}` : 'No host linked'}
-    </span>
+    </Badge>
   )
 }
 
@@ -146,118 +165,105 @@ function AppMenu() {
   const ready = doc.status === 'ready'
   const [open, setOpen] = useState(false)
   const [saveState, setSaveState] = useState<string | null>(null)
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const close = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && setOpen(false)
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    window.addEventListener('pointerdown', close)
-    window.addEventListener('keydown', esc)
-    return () => {
-      window.removeEventListener('pointerdown', close)
-      window.removeEventListener('keydown', esc)
-    }
-  }, [open])
-  const run = (fn: () => unknown) => {
-    setOpen(false)
-    void fn()
-  }
   const clearSession = () => {
     const n = strokes.length
     if (n && !window.confirm(`Clear this session? ${n} ${n === 1 ? 'stroke' : 'strokes'} and ${commands.length} ${commands.length === 1 ? 'command' : 'commands'} will be removed. This can't be undone.`)) return
     session.clear()
     view.clearMeasurements()
-    setOpen(false)
   }
   return (
-    <div className="menu-anchor" ref={ref}>
-      <button type="button" className="icon-btn" aria-label="Menu" aria-haspopup="menu" aria-expanded={open} data-testid="app-menu-button" title="Menu" onClick={() => setOpen(!open)}>
-        <MenuIcon />
-      </button>
-      {open && (
-        <div className="menu app-menu" role="menu" aria-label="Menu" data-testid="app-menu">
-          <button type="button" role="menuitem" data-testid="open-file" onClick={() => run(chooseFile)}>
-            Open file…
-          </button>
-          {ready && (
-            <>
-              <div className="menu-sep" role="separator" />
-              <button
-                type="button"
-                role="menuitem"
-                data-testid="save-to-file"
-                title="Write <name>.brush.json and <name>.commands.json to a folder you choose (downloads if your browser can't)"
-                onClick={() =>
-                  void saveToFiles().then((r) => {
-                    setSaveState(r === 'disk' ? 'Saved to disk' : r === 'download' ? 'Downloaded' : null)
-                    setTimeout(() => setSaveState(null), 2500)
-                  })
-                }
-              >
-                {saveState ?? 'Save to file'}
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                data-testid="export-commands"
-                disabled={commands.length === 0}
-                title="Save the command log as <name>.commands.json"
-                onClick={() => run(exportCommands)}
-              >
-                Export commands
-                <span className="mono-num">{commands.length}</span>
-              </button>
-              {recorderAvailable() && (
-                <>
-                  <div className="menu-sep" role="separator" />
-                  <button
-                    type="button"
-                    role="menuitemcheckbox"
-                    aria-checked={rec.enabled}
-                    aria-pressed={rec.enabled}
-                    data-testid="record-toggle"
-                    title="Dev only: record each stroke as a labeled fixture (M1-12)"
-                    onClick={() => recorder.setEnabled(!rec.enabled)}
-                  >
-                    <span className="menu-rec">
-                      <span className={`rec-dot${rec.enabled ? ' on' : ''}`} aria-hidden="true" />
-                      {rec.enabled ? 'Recording' : 'Record strokes'}
-                    </span>
-                    <span className="dev-tag">dev</span>
-                  </button>
-                  {rec.enabled && (
-                    <label className="menu-field">
-                      <span>Label</span>
-                      <select value={rec.kind} data-testid="record-kind" onChange={(e) => recorder.setKind(e.target.value as DecisionKind)}>
-                        {DECISION_KINDS.map((k) => (
-                          <option key={k} value={k}>
-                            {k}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                </>
-              )}
-              <div className="menu-sep" role="separator" />
-              <button type="button" role="menuitem" className="danger" data-testid="clear-session" disabled={strokes.length === 0} title="Remove every stroke and command for this drawing and start over" onClick={clearSession}>
-                Clear session
-              </button>
-            </>
-          )}
-        </div>
-      )}
-    </div>
+    <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon-touch" aria-label="Menu" data-testid="app-menu-button" title="Menu">
+          <MenuIcon />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-60" aria-label="Menu" data-testid="app-menu">
+        <DropdownMenuItem data-testid="open-file" onSelect={() => void chooseFile()}>
+          Open file…
+          <DropdownMenuShortcut>
+            <Kbd>Ctrl O</Kbd>
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
+        {ready && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              data-testid="save-to-file"
+              title="Write <name>.brush.json and <name>.commands.json to a folder you choose (downloads if your browser can't)"
+              onSelect={(e) => {
+                // stays open to show where the files went
+                e.preventDefault()
+                void saveToFiles().then((r) => {
+                  setSaveState(r === 'disk' ? 'Saved to disk' : r === 'download' ? 'Downloaded' : null)
+                  setTimeout(() => setSaveState(null), 2500)
+                })
+              }}
+            >
+              {saveState ?? 'Save to file'}
+            </DropdownMenuItem>
+            <DropdownMenuItem data-testid="export-commands" disabled={commands.length === 0} title="Save the command log as <name>.commands.json" onSelect={() => void exportCommands()}>
+              Export commands
+              <DropdownMenuShortcut className="font-mono">{commands.length}</DropdownMenuShortcut>
+            </DropdownMenuItem>
+            {recorderAvailable() && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuCheckboxItem
+                  checked={rec.enabled}
+                  aria-pressed={rec.enabled}
+                  data-testid="record-toggle"
+                  title="Dev only: record each stroke as a labeled fixture (M1-12)"
+                  onSelect={(e) => e.preventDefault()}
+                  onCheckedChange={(v) => recorder.setEnabled(v)}
+                >
+                  <span className="menu-rec">
+                    <span className={`rec-dot${rec.enabled ? ' on' : ''}`} aria-hidden="true" />
+                    {rec.enabled ? 'Recording' : 'Record strokes'}
+                  </span>
+                  <DevBadge />
+                </DropdownMenuCheckboxItem>
+                {rec.enabled && (
+                  <div className="flex items-center justify-between gap-3 px-1.5 py-1 text-sm">
+                    <Label htmlFor="record-kind">Label</Label>
+                    <NativeSelect id="record-kind" size="sm" value={rec.kind} data-testid="record-kind" onChange={(e) => recorder.setKind(e.target.value as DecisionKind)}>
+                      {DECISION_KINDS.map((k) => (
+                        <NativeSelectOption key={k} value={k}>
+                          {k}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                  </div>
+                )}
+              </>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant="destructive" data-testid="clear-session" disabled={strokes.length === 0} title="Remove every stroke and command for this drawing and start over" onSelect={clearSession}>
+              Clear session
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/** The "dev" marker on developer-only controls. */
+function DevBadge() {
+  return (
+    <Badge variant="destructive" className="dev-tag ml-auto h-4 px-1.5 font-mono text-[10.5px]">
+      dev
+    </Badge>
   )
 }
 
 function LatencyReadout() {
   const { lastFirstMs } = useLive()
   return (
-    <span className="pill" data-testid="latency" title="Pen down to first guess on screen, last stroke">
+    <Badge variant="secondary" className="pill h-7 gap-1.5 px-2.5 text-[11.5px] font-normal" data-testid="latency" title="Pen down to first guess on screen, last stroke">
       <span className="secondary">First guess</span>
       <span className="mono-num">{lastFirstMs === undefined ? '–' : `${Math.round(lastFirstMs)} ms`}</span>
-    </span>
+    </Badge>
   )
 }
 
@@ -287,12 +293,12 @@ export function TopBar() {
         {ready && <LatencyReadout />}
         {ready && (
           <>
-            <button type="button" className="icon-btn" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!canUndo} onClick={() => session.undo()}>
+            <Button variant="ghost" size="icon-touch" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!canUndo} onClick={() => session.undo()}>
               <UndoIcon />
-            </button>
-            <button type="button" className="icon-btn" aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled={!canRedo} onClick={() => session.redo()}>
+            </Button>
+            <Button variant="ghost" size="icon-touch" aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled={!canRedo} onClick={() => session.redo()}>
               <RedoIcon />
-            </button>
+            </Button>
             <ZoomMenu />
           </>
         )}
@@ -321,95 +327,85 @@ export const INK_COLORS = [
 ]
 
 function ColorButton({ disabled }: { disabled: boolean }) {
-  const { settings } = useSession()
+  const settings = useSessionField('settings')
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const close = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && setOpen(false)
-    window.addEventListener('pointerdown', close)
-    return () => window.removeEventListener('pointerdown', close)
-  }, [open])
   const name = INK_COLORS.find((c) => c.hex.toLowerCase() === settings.color.toLowerCase())?.name ?? settings.color
   return (
-    <div className="menu-anchor" ref={ref}>
-      <button type="button" className="tool ink" aria-label={`Ink colour, ${name}`} aria-haspopup="true" aria-expanded={open} disabled={disabled} data-testid="ink-color" onClick={() => setOpen(!open)}>
-        {/* the paint in the can takes the current ink colour: an outline image under a mask filled with it */}
-        <span className="ink-can" aria-hidden="true">
-          <img className="tool-icon" src={inkOutlineIcon} alt="" />
-          <span className="ink-paint" data-testid="ink-paint" style={{ backgroundColor: settings.color, maskImage: `url(${inkPaintMask})`, WebkitMaskImage: `url(${inkPaintMask})` }} />
-        </span>
-      </button>
-      {open && (
-        <div className="swatches" role="radiogroup" aria-label="Ink colour">
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" className={TOOL_BUTTON} aria-label={`Ink colour, ${name}`} disabled={disabled} data-testid="ink-color">
+          {/* the paint in the can takes the current ink colour: an outline image under a mask filled with it */}
+          <span className="ink-can" aria-hidden="true">
+            <img className="tool-icon" src={inkOutlineIcon} alt="" />
+            <span className="ink-paint" data-testid="ink-paint" style={{ backgroundColor: settings.color, maskImage: `url(${inkPaintMask})`, WebkitMaskImage: `url(${inkPaintMask})` }} />
+          </span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent side="top" sideOffset={12} className="w-auto rounded-2xl p-1.5">
+        <ToggleGroup
+          type="single"
+          spacing={0.5}
+          aria-label="Ink colour"
+          value={settings.color}
+          onValueChange={(hex) => {
+            if (hex) session.setSetting('color', hex)
+            setOpen(false)
+          }}
+        >
           {INK_COLORS.map((c) => (
-            <button
-              key={c.hex}
-              type="button"
-              role="radio"
-              aria-checked={c.hex === settings.color}
-              aria-label={c.name}
-              className="tool"
-              onClick={() => {
-                session.setSetting('color', c.hex)
-                setOpen(false)
-              }}
-            >
+            <ToggleGroupItem key={c.hex} value={c.hex} aria-label={c.name} className="size-11 rounded-xl data-[state=on]:bg-muted">
               <span className="swatch" style={{ background: c.hex }} />
-            </button>
+            </ToggleGroupItem>
           ))}
-        </div>
-      )}
-    </div>
+        </ToggleGroup>
+      </PopoverContent>
+    </Popover>
   )
 }
 
 function LiveToggle({ disabled }: { disabled: boolean }) {
-  const { settings } = useSession()
+  const settings = useSessionField('settings')
   const on = settings.live && !disabled
   return (
-    <button
-      type="button"
-      className="live-toggle"
-      aria-label={`Live reading, ${on ? 'on' : 'off'}`}
-      aria-pressed={on}
-      disabled={disabled}
-      data-testid="live-toggle"
-      title="Read strokes as you draw (off: plain ink)"
-      onClick={() => session.setSetting('live', !settings.live)}
-    >
-      <span className={`switch${on ? ' on' : ''}`} aria-hidden="true">
-        <span />
-      </span>
+    <Label className="live-toggle" title="Read strokes as you draw (off: plain ink)">
+      <Switch
+        checked={on}
+        aria-label={`Live reading, ${on ? 'on' : 'off'}`}
+        disabled={disabled}
+        data-testid="live-toggle"
+        onCheckedChange={(v) => session.setSetting('live', v)}
+      />
       Live
-    </button>
+    </Label>
   )
 }
 
+/** A capsule tool: the hand-drawn icons sit in bigger buttons than the shadcn defaults. */
+const TOOL_BUTTON = 'size-[52px] rounded-2xl p-0 hover:bg-foreground/6 data-[state=on]:bg-accent data-[state=on]:hover:bg-accent'
+
 export function ToolCapsule({ disabled = false }: { disabled?: boolean }) {
-  const { tool } = useSession()
+  const tool = useSessionField('tool')
   return (
     <nav className={`capsule${disabled ? ' disabled' : ''}`} aria-label={disabled ? 'Tools, unavailable until a drawing is open' : 'Tools'} data-testid="tool-capsule">
       {TOOLS.map((t) => (
-        <button
+        <Toggle
           key={t.id}
-          type="button"
-          className={`tool${!disabled && tool === t.id ? ' selected' : ''}`}
+          className={TOOL_BUTTON}
           aria-label={!disabled && tool === t.id ? `${t.label}, selected` : t.label}
-          aria-pressed={!disabled && tool === t.id}
+          pressed={!disabled && tool === t.id}
           title={`${t.label} (${t.key})`}
           disabled={disabled}
           data-tool={t.id}
-          onClick={() => session.setTool(t.id)}
+          onPressedChange={() => session.setTool(t.id)}
         >
           {t.icon}
-        </button>
+        </Toggle>
       ))}
-      <span className="divider" aria-hidden="true" />
+      <Separator orientation="vertical" className="mx-1.5 h-6! bg-foreground/18" />
       <ColorButton disabled={disabled} />
-      <button
-        type="button"
-        className="tool photo"
+      <Button
+        variant="ghost"
+        className={TOOL_BUTTON}
         aria-label="Import photo"
         title="Import markup from a photo: trace pen and marker on a photo of the printed sheet and add it as brush strokes"
         disabled={disabled}
@@ -417,10 +413,10 @@ export function ToolCapsule({ disabled = false }: { disabled?: boolean }) {
         onClick={() => photoImport.open()}
       >
         <img className="tool-icon" src={photoToolIcon} alt="" />
-      </button>
+      </Button>
       {!disabled && (
         <>
-          <span className="divider" aria-hidden="true" />
+          <Separator orientation="vertical" className="mx-1.5 h-6! bg-foreground/18" />
           <LiveToggle disabled={disabled} />
         </>
       )}
@@ -433,27 +429,31 @@ export function ToolCapsule({ disabled = false }: { disabled?: boolean }) {
 function Section({ title, aside, defaultOpen = true, disabled = false, testId, children }: { title: string; aside?: ReactNode; defaultOpen?: boolean; disabled?: boolean; testId?: string; children: ReactNode }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <section className={`section${disabled ? ' coming-later' : ''}`} data-testid={testId} data-open={open}>
-      <h2>
-        <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}>
-          <ChevronRight open={open} />
-          {title}
-          {aside && <span className="aside">{aside}</span>}
-        </button>
-      </h2>
-      {open && <div className="section-body">{children}</div>}
-    </section>
+    <Collapsible asChild open={open} onOpenChange={setOpen}>
+      <section className={`section${disabled ? ' coming-later' : ''}`} data-testid={testId} data-open={open}>
+        <h2>
+          <CollapsibleTrigger asChild>
+            <button type="button" className="hover:bg-foreground/4">
+              <ChevronRight open={open} />
+              {title}
+              {aside && <span className="aside">{aside}</span>}
+            </button>
+          </CollapsibleTrigger>
+        </h2>
+        <CollapsibleContent className="section-body">{children}</CollapsibleContent>
+      </section>
+    </Collapsible>
   )
 }
 
-function Slider({ id, label, value, min, max, step = 1, display, onChange }: { id: string; label: string; value: number; min: number; max: number; step?: number; display: string; onChange: (v: number) => void }) {
+function SliderField({ id, label, value, min, max, step = 1, display, onChange }: { id: string; label: string; value: number; min: number; max: number; step?: number; display: string; onChange: (v: number) => void }) {
   return (
     <div className="field">
       <div className="field-row">
-        <label htmlFor={id}>{label}</label>
+        <Label className="font-normal">{label}</Label>
         <span className="mono-num">{display}</span>
       </div>
-      <input id={id} type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} />
+      <Slider id={id} className="h-6" thumbLabel={label} min={min} max={max} step={step} value={[value]} onValueChange={([v]) => onChange(v)} />
     </div>
   )
 }
@@ -476,26 +476,31 @@ const MODES: { mode: BrushMode; label: string }[] = [
 ]
 
 function ModeSection() {
-  const { settings } = useSession()
+  const settings = useSessionField('settings')
   const off = !settings.live
   return (
-    <Section title="Mode" aside={off ? <span className="later-tag">Live off</span> : undefined} testId="section-mode">
+    <Section title="Mode" aside={off ? <LaterBadge>Live off</LaterBadge> : undefined} testId="section-mode">
       <span className="secondary">What the brush creates</span>
-      <div className="mode-grid">
+      <ToggleGroup
+        type="single"
+        spacing={1.5}
+        className="grid w-full grid-cols-2"
+        aria-label="Brush mode"
+        disabled={off}
+        value={settings.mode}
+        onValueChange={(v) => v && session.setSetting('mode', v as BrushMode)}
+      >
         {MODES.map((m) => (
-          <button
+          <ToggleGroupItem
             key={m.mode}
-            type="button"
-            disabled={off}
-            aria-pressed={settings.mode === m.mode}
+            value={m.mode}
             data-mode={m.mode}
-            className={`mode-btn${m.mode === 'auto' ? ' wide' : ''}${settings.mode === m.mode ? ' on' : ''}`}
-            onClick={() => session.setSetting('mode', m.mode)}
+            className={cn('h-11 bg-secondary hover:bg-background data-[state=on]:bg-primary data-[state=on]:font-semibold data-[state=on]:text-primary-foreground', m.mode === 'auto' && 'col-span-2')}
           >
             {m.label}
-          </button>
+          </ToggleGroupItem>
         ))}
-      </div>
+      </ToggleGroup>
       <SecondPassRow disabled={off} />
     </Section>
   )
@@ -517,34 +522,62 @@ function SecondPassRow({ disabled }: { disabled: boolean }) {
         <span>Second pass</span>
         {sp.name?.startsWith('cassette') && <span className="secondary mono-num">{sp.name}</span>}
       </div>
-      <div className="segmented" role="radiogroup" aria-label="Second pass">
+      <Segmented type="single" aria-label="Second pass" disabled={disabled} value={sp.adapter} onValueChange={(v) => v && setSecondPassAdapter(v as RescoreAdapterSetting)}>
         {SECOND_PASS.map((o) => (
-          <button key={o.id} type="button" role="radio" aria-checked={sp.adapter === o.id} disabled={disabled} className={sp.adapter === o.id ? 'on' : ''} onClick={() => setSecondPassAdapter(o.id)}>
+          <SegmentedItem key={o.id} value={o.id}>
             {o.label}
-          </button>
+          </SegmentedItem>
         ))}
-      </div>
+      </Segmented>
     </div>
   )
 }
 
-function Toggle({ label, on, onChange, testId, disabled }: { label: ReactNode; on: boolean; onChange: (v: boolean) => void; testId?: string; disabled?: boolean }) {
+/** A settings row: its label, and a switch at the right. */
+function SwitchRow({ label, on, onChange, testId, disabled }: { label: ReactNode; on: boolean; onChange: (v: boolean) => void; testId?: string; disabled?: boolean }) {
   return (
-    <button type="button" className="toggle-row" aria-pressed={on} data-testid={testId} disabled={disabled} onClick={() => onChange(!on)}>
+    <Label className="toggle-row font-normal">
       {label}
-      <span className={`switch${on ? ' on' : ''}`} aria-hidden="true">
-        <span />
-      </span>
-    </button>
+      <Switch checked={on} data-testid={testId} disabled={disabled} onCheckedChange={onChange} />
+    </Label>
+  )
+}
+
+/** A text action in a panel ("Remove", "Show all"): shadcn's link button, in the panel's 11 px. */
+function LinkButton({ className, ...props }: ComponentProps<typeof Button>) {
+  return <Button variant="link" size="xs" className={cn('h-8 px-0 text-xs font-medium', className)} {...props} />
+}
+
+/** A small grey tag beside a section title ("Live off"). */
+function LaterBadge({ children }: { children: ReactNode }) {
+  return (
+    <Badge variant="secondary" className="later-tag bg-muted font-medium text-muted-foreground">
+      {children}
+    </Badge>
+  )
+}
+
+/** Segmented control: a toggle group laid out as equal tabs on a grey track. */
+function Segmented(props: ComponentProps<typeof ToggleGroup>) {
+  return <ToggleGroup spacing={0.5} {...props} className={cn('grid w-full auto-cols-fr grid-flow-col rounded-[10px] bg-muted p-0.5', props.className)} />
+}
+
+function SegmentedItem({ className, ...props }: ComponentProps<typeof ToggleGroupItem>) {
+  return (
+    <ToggleGroupItem
+      className={cn('h-10 min-w-0 rounded-lg px-1 text-xs font-medium hover:bg-background/60 data-[state=on]:bg-background data-[state=on]:shadow-xs data-[state=on]:hover:bg-background', className)}
+      {...props}
+    />
   )
 }
 
 function SnappingSection() {
-  const { settings, contextOverlay } = useSession()
+  const settings = useSessionField('settings')
+  const contextOverlay = useSessionField('contextOverlay')
   return (
     <Section title="Snapping" aside={settings.snapping ? `${settings.snapRadiusPt} pt` : 'off'} defaultOpen={false} testId="section-snapping">
-      <Toggle label="Walls and grid lines" on={settings.snapping} onChange={(v) => session.setSetting('snapping', v)} testId="snap-toggle" />
-      <Slider
+      <SwitchRow label="Walls and grid lines" on={settings.snapping} onChange={(v) => session.setSetting('snapping', v)} testId="snap-toggle" />
+      <SliderField
         id="snap-radius"
         label="Snap radius"
         value={settings.snapRadiusPt}
@@ -554,10 +587,10 @@ function SnappingSection() {
         onChange={(v) => session.setSetting('snapRadiusPt', v)}
       />
       {recorderAvailable() && (
-        <Toggle
+        <SwitchRow
           label={
-            <span>
-              Show detected context <span className="dev-tag">dev</span>
+            <span className="flex items-center gap-1.5">
+              Show detected context <DevBadge />
             </span>
           }
           on={contextOverlay}
@@ -570,10 +603,10 @@ function SnappingSection() {
 }
 
 function CommitSection() {
-  const { settings } = useSession()
+  const settings = useSessionField('settings')
   return (
     <Section title="Commit" aside={<span className="mono-num">{settings.commitPauseMs} ms</span>} defaultOpen={false} testId="section-commit">
-      <Slider
+      <SliderField
         id="brush-pause"
         label="Commit after pause"
         value={settings.commitPauseMs}
@@ -588,7 +621,9 @@ function CommitSection() {
 }
 
 export function LeftSidebar() {
-  const { tool, settings, eraserSize } = useSession()
+  const tool = useSessionField('tool')
+  const settings = useSessionField('settings')
+  const eraserSize = useSessionField('eraserSize')
   const canInspect = useCanInspect()
   const meta = TOOL_META[tool]
   return (
@@ -602,8 +637,8 @@ export function LeftSidebar() {
 
       {tool === 'brush' && (
         <Section title="Stroke" testId="section-stroke">
-          <Slider id="brush-size" label="Size" value={settings.size} min={1} max={24} display={`${settings.size} px`} onChange={(v) => session.setSetting('size', v)} />
-          <Slider
+          <SliderField id="brush-size" label="Size" value={settings.size} min={1} max={24} display={`${settings.size} px`} onChange={(v) => session.setSetting('size', v)} />
+          <SliderField
             id="brush-smoothing"
             label="Smoothing"
             value={Math.round(settings.smoothing * 100)}
@@ -616,7 +651,7 @@ export function LeftSidebar() {
       )}
       {tool === 'eraser' && (
         <Section title="Eraser" testId="section-eraser">
-          <Slider id="eraser-size" label="Size" value={eraserSize} min={4} max={64} display={`${eraserSize} px`} onChange={(v) => session.setSetting('eraserSize', v)} />
+          <SliderField id="eraser-size" label="Size" value={eraserSize} min={4} max={64} display={`${eraserSize} px`} onChange={(v) => session.setSetting('eraserSize', v)} />
           <p className="hint">Removes every stroke it touches. Undo brings them back.</p>
         </Section>
       )}
@@ -657,16 +692,19 @@ function FiltersSection() {
         <div className="field-row">
           <span>Show</span>
         </div>
-        <div className="segmented" role="group" aria-label="Item kinds" data-testid="filter-kinds">
-          {ITEM_KINDS.map((k) => {
-            const on = !f.hiddenKinds.has(k.kind)
-            return (
-              <button key={k.kind} type="button" aria-pressed={on} data-kind={k.kind} className={on ? 'on' : ''} onClick={() => filters.setKindHidden(k.kind, on)}>
-                {k.label}
-              </button>
-            )
-          })}
-        </div>
+        <Segmented
+          type="multiple"
+          aria-label="Item kinds"
+          data-testid="filter-kinds"
+          value={ITEM_KINDS.filter((k) => !f.hiddenKinds.has(k.kind)).map((k) => k.kind)}
+          onValueChange={(shown) => ITEM_KINDS.forEach((k) => f.hiddenKinds.has(k.kind) === shown.includes(k.kind) && filters.setKindHidden(k.kind, !shown.includes(k.kind)))}
+        >
+          {ITEM_KINDS.map((k) => (
+            <SegmentedItem key={k.kind} value={k.kind} data-kind={k.kind}>
+              {k.label}
+            </SegmentedItem>
+          ))}
+        </Segmented>
       </div>
       <div className="field">
         <div className="field-row">
@@ -674,24 +712,24 @@ function FiltersSection() {
         </div>
         <div className="filter-actions">
           {annotation.length > 0 && (
-            <button type="button" className="link-btn" data-testid="filter-annotation" onClick={() => filters.setCategoriesHidden(annotation, !annotationHidden)}>
+            <LinkButton data-testid="filter-annotation" onClick={() => filters.setCategoriesHidden(annotation, !annotationHidden)}>
               {annotationHidden ? 'Show annotation' : 'Hide annotation'}
-            </button>
+            </LinkButton>
           )}
-          <button type="button" className="link-btn" data-testid="filter-reset" disabled={!hiddenHere} onClick={() => filters.reset()}>
+          <LinkButton data-testid="filter-reset" disabled={!hiddenHere} onClick={() => filters.reset()}>
             Show all
-          </button>
+          </LinkButton>
         </div>
         <ul className="filter-list" data-testid="filter-categories">
           {list.map((c) => {
             const on = !f.hiddenCategories.has(c.name)
             return (
               <li key={c.name}>
-                <label className={on ? '' : 'off'}>
-                  <input type="checkbox" checked={on} data-category={c.name} onChange={(e) => filters.setCategoryHidden(c.name, !e.target.checked)} />
+                <Label className={on ? '' : 'off'}>
+                  <Checkbox checked={on} data-category={c.name} onCheckedChange={(v) => filters.setCategoryHidden(c.name, v !== true)} />
                   <span className="filter-name">{c.name}</span>
                   <span className="secondary mono-num">{c.count}</span>
-                </label>
+                </Label>
               </li>
             )
           })}
@@ -722,16 +760,16 @@ function MeasureSection() {
                   <span>
                     <span className="mono-num">{scale ? formatMetres(sheetDistanceMetres(m.a, m.b, scale)) : 'no scale'}</span> <span className="secondary">{names.get(m.sheetId)}</span>
                   </span>
-                  <button type="button" className="link-btn" aria-label="Remove measurement" onClick={() => view.removeMeasurement(m.id)}>
+                  <LinkButton aria-label="Remove measurement" onClick={() => view.removeMeasurement(m.id)}>
                     Remove
-                  </button>
+                  </LinkButton>
                 </li>
               )
             })}
           </ol>
-          <button type="button" className="link-btn" data-testid="measure-clear" onClick={() => view.clearMeasurements()}>
+          <LinkButton className="self-start" data-testid="measure-clear" onClick={() => view.clearMeasurements()}>
             Clear all
-          </button>
+          </LinkButton>
         </>
       )}
       <p className="hint">Measurements are a view aid: they are not saved or sent as commands.</p>
@@ -743,19 +781,28 @@ function ViewSection() {
   const { grid, scaleBar, labelScale } = useView()
   return (
     <Section title="View" defaultOpen={false} testId="section-view">
-      <Toggle label="Metric grid" on={grid} onChange={(v) => view.setGrid(v)} testId="grid-toggle" />
-      <Toggle label="Scale bar" on={scaleBar} onChange={(v) => view.setScaleBar(v)} testId="scale-bar-toggle" />
+      <SwitchRow label="Metric grid" on={grid} onChange={(v) => view.setGrid(v)} testId="grid-toggle" />
+      <SwitchRow label="Scale bar" on={scaleBar} onChange={(v) => view.setScaleBar(v)} testId="scale-bar-toggle" />
       <div className="field">
         <div className="field-row">
           <span>Label size</span>
         </div>
-        <div className="segmented" role="radiogroup" aria-label="Label size" data-testid="label-size">
+        <Segmented
+          type="single"
+          aria-label="Label size"
+          data-testid="label-size"
+          value={String(labelScale)}
+          onValueChange={(v) => {
+            const o = LABEL_SCALES.find((x) => String(x.value) === v)
+            if (o) view.setLabelScale(o.value)
+          }}
+        >
           {LABEL_SCALES.map((o) => (
-            <button key={o.label} type="button" role="radio" aria-checked={labelScale === o.value} className={labelScale === o.value ? 'on' : ''} onClick={() => view.setLabelScale(o.value)}>
+            <SegmentedItem key={o.label} value={String(o.value)}>
               {o.label}
-            </button>
+            </SegmentedItem>
           ))}
-        </div>
+        </Segmented>
       </div>
       <p className="hint">Grid and scale bar need the sheet scale (read from text like “1:100”).</p>
     </Section>
@@ -786,7 +833,7 @@ function SessionList() {
         const reading = !a && live.strokeId === s.id && ['drawing', 'pending', 'offer'].includes(live.phase)
         return (
           <li key={s.id} data-stroke-id={s.id} data-kind={a?.kind ?? 'ink'} data-strokes={parts}>
-            <span className="swatch sm" style={{ background: a ? 'var(--accent)' : (s.color ?? '#D7263D') }} aria-hidden="true" />
+            <span className="swatch sm" style={{ background: a ? 'var(--brand)' : (s.color ?? '#D7263D') }} aria-hidden="true" />
             <div className="row-text">
               <span className="row-title">{a ? `1 ${a.kind}` : parts > 1 ? `Sketch · ${parts} strokes` : `Stroke ${n}`}</span>
               <span className="secondary">
@@ -836,19 +883,17 @@ function PhotoGroupRow({ group: g, sheetName }: { group: PhotoGroup; sheetName?:
           </span>
         )}
         <span className="row-actions">
-          <button
-            type="button"
-            className="link-btn"
+          <LinkButton
             data-testid="photo-group-elements"
             title="Read these strokes the way the brush reads a stroke, and turn the ones it is sure of into elements (one undo step)"
             disabled={reading || left === 0}
             onClick={() => void makeElements(g.id).catch(() => undefined)}
           >
             {reading ? 'Reading…' : left === 0 ? 'All elements' : 'Make elements'}
-          </button>
-          <button type="button" className="link-btn" data-testid="photo-group-remove" title="Remove every stroke of this import (one undo step)" disabled={reading} onClick={() => removePhotoGroup(g.id)}>
+          </LinkButton>
+          <LinkButton data-testid="photo-group-remove" title="Remove every stroke of this import (one undo step)" disabled={reading} onClick={() => removePhotoGroup(g.id)}>
             Remove
-          </button>
+          </LinkButton>
         </span>
       </div>
     </li>
@@ -859,7 +904,7 @@ function RecordingsList() {
   const rec = useRecorder()
   if (!rec.enabled && rec.items.length === 0) return null
   return (
-    <Section title="Recordings" aside={<span className="dev-tag">dev</span>} testId="section-recordings">
+    <Section title="Recordings" aside={<DevBadge />} testId="section-recordings">
       <ol className="session-list" data-testid="recordings-list">
         {rec.items.length === 0 && <li className="empty-row">Each stroke you draw now is recorded as “{rec.kind}”.</li>}
         {rec.items
@@ -873,9 +918,9 @@ function RecordingsList() {
                   {r.recording.label.kind} · sheet {r.recording.sheet + 1} · {r.recording.points.length} pts
                 </span>
               </div>
-              <button type="button" className="link-btn" data-testid="save-recording" onClick={() => void recorder.save(r.fileName)}>
+              <LinkButton data-testid="save-recording" onClick={() => void recorder.save(r.fileName)}>
                 {r.saved ? 'Saved' : 'Save'}
-              </button>
+              </LinkButton>
             </li>
           ))}
       </ol>

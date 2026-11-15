@@ -14,7 +14,7 @@
     "jsx": "react-jsx",
     "types": ["node", "vite/client"],
     "baseUrl": ".",
-    "paths": { "@core/*": ["src/core/*"], "@app/*": ["src/app/*"] }
+    "paths": { "@core/*": ["src/core/*"], "@app/*": ["src/app/*"], "@/*": ["src/app/*"] }
   },
   "include": ["src", "tests", "scripts", "api", "*.config.ts"]
 }
