@@ -10,6 +10,8 @@ import { closeSession, openEphemeralSession, openSession } from './session'
 import { closeContexts, openContexts, refreshContexts, type ContextProvider } from './brain/contextStore'
 import { DrawingFileSource, openSource, type DrawingSource, type PageRenderer } from './source'
 import { resetLive } from './brain/live'
+import { startConversion, ConversionCancelled, type Conversion } from './convertClient'
+import type { ConvertProgress } from './convertProgress'
 
 export type DocStatus = 'empty' | 'loading' | 'ready' | 'error'
 
@@ -25,6 +27,8 @@ export interface DocState {
   sheets: Sheet[]
   placements: Placement[]
   error?: string
+  /** While a Revit model converts (status 'loading'): where the conversion stands. */
+  progress?: ConvertProgress
   /** Bumped per load so views can re-render pages. */
   loadId: number
 }
@@ -89,6 +93,15 @@ export function looksLikePdf(name: string, bytes?: ArrayBuffer | Uint8Array): bo
 export interface OpenOptions {
   size?: number
   path?: string
+  /** What to show while this opens, when it is the last step of a conversion. Other opens clear any progress. */
+  progress?: ConvertProgress
+}
+
+/** The conversion in flight, if any: opening anything else supersedes it. */
+let conversion: Conversion | undefined
+function supersedeConversion() {
+  conversion?.cancel()
+  conversion = undefined
 }
 
 /** Resolves once the main thread is idle (a timer where requestIdleCallback is missing), so background work waits for paint. */
@@ -114,7 +127,8 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
   const loadId = state.loadId + 1
   const prev = state.source
   const size = opts.size ?? (typeof input === 'string' ? 0 : input.byteLength)
-  set({ status: 'loading', fileName, fileSize: size, loadId, error: undefined })
+  if (!opts.progress) supersedeConversion()
+  set({ status: 'loading', fileName, fileSize: size, loadId, error: undefined, progress: opts.progress })
   let source: DrawingSource | undefined
   try {
     // copy: pdf.js may transfer (detach) the buffer it is given
@@ -133,6 +147,7 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
     await openSession({ name: source.name, size, path: opts.path }, sheets.map((s) => s.id))
     set({
       status: 'ready',
+      progress: undefined,
       fileName: source.name,
       pages: pages ?? undefined,
       source,
@@ -160,7 +175,7 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
     const error = /not a PDF/i.test(msg)
       ? `“${fileName}” is not a PDF or a .drawing package. Choose a .pdf or .drawing file.`
       : `Could not read “${fileName}”. It may be damaged. (${msg})`
-    set({ status: 'error', pages: undefined, source: undefined, destroy: undefined, sheets: [], placements: [], error })
+    set({ status: 'error', progress: undefined, pages: undefined, source: undefined, destroy: undefined, sheets: [], placements: [], error })
     throw e
   }
 }
@@ -172,7 +187,8 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
 export async function openLinkedSource(source: DrawingSource, opts: { size?: number } = {}): Promise<number> {
   const loadId = state.loadId + 1
   const prev = state.source
-  set({ status: 'loading', fileName: source.name, fileSize: opts.size ?? 0, loadId, error: undefined })
+  supersedeConversion()
+  set({ status: 'loading', fileName: source.name, fileSize: opts.size ?? 0, loadId, error: undefined, progress: undefined })
   const { sheets, pages } = await source.load()
   if (loadId !== state.loadId) return loadId
   if (prev && prev !== source) void prev.close()
@@ -180,6 +196,7 @@ export async function openLinkedSource(source: DrawingSource, opts: { size?: num
   await openEphemeralSession()
   set({
     status: 'ready',
+    progress: undefined,
     fileName: source.name,
     pages: pages ?? undefined,
     source,
@@ -217,35 +234,40 @@ export async function refreshSource(source: DrawingSource, changed: readonly str
 
 /**
  * Where a Revit model goes to become a `.drawing`: a conversion server you run yourself, which answers `POST` (the
- * model's bytes, its URI-encoded name in `X-Filename`) with the `.drawing` file. `VITE_RVT_CONVERT_URL` moves it.
+ * model's bytes, its URI-encoded name in `X-Filename`) with the `.drawing` file, or (asked with `Prefer:
+ * respond-async`) with where to follow the conversion's progress (`convertClient.ts`). `VITE_RVT_CONVERT_URL` moves it.
  */
 const RVT_CONVERT_URL: string = import.meta.env.VITE_RVT_CONVERT_URL ?? 'http://127.0.0.1:4100/convert'
 
-/** Send a Revit model to the conversion server and open the `.drawing` it answers with. Same states as openDocument. */
+/** Send a Revit model to the conversion server and open the `.drawing` it answers with. Same states as openDocument, plus `progress` while it converts. */
 async function openRevitModel(file: OpenedFile): Promise<void> {
+  supersedeConversion()
   const loadId = state.loadId + 1
-  set({ status: 'loading', fileName: `${file.name}, converting to .drawing`, fileSize: file.size, loadId, error: undefined })
+  set({ status: 'loading', fileName: `${file.name}, converting to .drawing`, fileSize: file.size, loadId, error: undefined, progress: undefined })
+  const running = startConversion({ url: RVT_CONVERT_URL, name: file.name, bytes: file.bytes }, (progress) => {
+    // another file was opened meanwhile: its late progress is not shown, and the conversion stops
+    if (loadId !== state.loadId) return running.cancel()
+    set({ progress })
+  })
+  conversion = running
   let bytes: ArrayBuffer
   try {
-    const res = await fetch(RVT_CONVERT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': encodeURIComponent(file.name) },
-      body: file.bytes,
-    })
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`)
-    bytes = await res.arrayBuffer()
+    bytes = await running.result
   } catch (e) {
-    if (loadId !== state.loadId) return // another file was opened meanwhile
+    if (e instanceof ConversionCancelled || loadId !== state.loadId) return // another file was opened meanwhile
+    if (conversion === running) conversion = undefined
     void state.source?.close()
     closeSession()
     closeContexts()
     resetLive()
     const error = `Could not convert “${file.name}” to a .drawing at ${RVT_CONVERT_URL}. Is the conversion server running? (${(e as Error).message})`
-    set({ status: 'error', pages: undefined, source: undefined, destroy: undefined, sheets: [], placements: [], error })
+    set({ status: 'error', progress: undefined, pages: undefined, source: undefined, destroy: undefined, sheets: [], placements: [], error })
     return
   }
+  if (conversion === running) conversion = undefined
   if (loadId !== state.loadId) return
-  await openFile({ name: file.name.replace(/\.(rvt|rfa)$/i, '.drawing'), size: bytes.byteLength, bytes })
+  const opening: ConvertProgress = { phase: 'open', label: 'Opening', fraction: 0.99, elapsedMs: state.progress?.elapsedMs ?? 0 }
+  await openDocument(bytes, file.name.replace(/\.(rvt|rfa)$/i, '.drawing'), { size: bytes.byteLength, progress: opening }).catch(() => {})
 }
 
 /** Open a file the user picked or dropped: a PDF, a `.drawing`, or a Revit model (converted first). Swallows the error (it is shown inline). */

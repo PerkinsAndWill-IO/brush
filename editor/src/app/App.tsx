@@ -12,6 +12,7 @@ import { InspectOverlay } from './drawing/InspectLayers'
 import { useView } from './view'
 import { getPlatform } from './platform'
 import { fileToOpened } from './platform/browser'
+import { formatDuration, formatEta, type ConvertProgress } from './convertProgress'
 import { getDocState, openFile, useDocState } from './store'
 import brushLogoRed from './ui/assets/brush-logo-red.png'
 import { chooseFile, LeftSidebar, RightSidebar, ToolCapsule, TopBar } from './ui/Chrome'
@@ -89,7 +90,28 @@ function SamplePicker({ disabled }: { disabled: boolean }) {
   )
 }
 
-function EmptyState({ error, loading }: { error?: string; loading?: string }) {
+/** The bar of a Revit model converting: one `<progress>`, the step in words, time elapsed and time left. */
+function ConversionProgress({ name, progress }: { name: string; progress: ConvertProgress }) {
+  const percent = progress.fraction === null ? undefined : Math.floor(progress.fraction * 100)
+  const times = [progress.etaMs === undefined ? undefined : formatEta(progress.etaMs), `${formatDuration(progress.elapsedMs)} elapsed`].filter(Boolean).join(' · ')
+  return (
+    <div className="convert-progress" data-testid="convert-progress">
+      <progress
+        max={1}
+        value={progress.fraction ?? undefined}
+        aria-label={`Converting ${name}`}
+        aria-valuetext={percent === undefined ? progress.label : `${progress.label}, ${percent}%`}
+      />
+      <p className="convert-step" role="status">
+        {progress.label}
+        {percent !== undefined && <span className="convert-percent"> · {percent}%</span>}
+      </p>
+      <p className="convert-times secondary">{times}</p>
+    </div>
+  )
+}
+
+function EmptyState({ error, loading, progress }: { error?: string; loading?: string; progress?: ConvertProgress }) {
   return (
     <div className="empty landing" data-testid="empty-state">
       <div className="landing-paper" aria-hidden="true" />
@@ -109,6 +131,7 @@ function EmptyState({ error, loading }: { error?: string; loading?: string }) {
               {loading ? `Opening ${loading}…` : 'Choose file'}
             </button>
           </div>
+          {loading && progress && <ConversionProgress name={loading} progress={progress} />}
           <div className="landing-more">
             <SamplePicker disabled={!!loading} />
             <RevitStart />
@@ -177,7 +200,7 @@ export function App() {
           {ready ? (
             <Board pages={st.pages} loadId={st.loadId} sheets={st.sheets} placements={st.placements} fileName={st.fileName ?? ''} />
           ) : (
-            <EmptyState error={st.status === 'error' ? st.error : undefined} loading={st.status === 'loading' ? st.fileName : undefined} />
+            <EmptyState error={st.status === 'error' ? st.error : undefined} loading={st.status === 'loading' ? st.fileName : undefined} progress={st.status === 'loading' ? st.progress : undefined} />
           )}
           {ready && <RevitHud />}
           <ToolCapsule disabled={!ready} />

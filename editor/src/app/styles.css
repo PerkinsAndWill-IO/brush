@@ -176,6 +176,19 @@ input[type='range'] { width: 100%; margin: 0; accent-color: var(--accent); heigh
 .landing .dropzone h1 { font-size: 19px; font-weight: 400; line-height: 1.45; letter-spacing: 0; color: var(--ink-brown); }
 .btn.landing-cta { min-height: 48px; padding: 0 28px; border-radius: 999px; background: var(--terracotta); color: #fffdf8; font-size: 17px; font-weight: 600; }
 .btn.landing-cta:hover:not(:disabled) { background: var(--terracotta-hover); }
+.convert-progress { width: min(100%, 420px); display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+.convert-progress progress { width: 100%; height: 10px; border: 0; border-radius: 999px; overflow: hidden; background: rgba(62, 46, 40, 0.14); accent-color: var(--terracotta); appearance: none; }
+.convert-progress progress::-webkit-progress-bar { background: rgba(62, 46, 40, 0.14); border-radius: 999px; }
+.convert-progress progress::-webkit-progress-value { background: var(--terracotta); border-radius: 999px; transition: width 300ms ease-out; }
+.convert-progress progress::-moz-progress-bar { background: var(--terracotta); border-radius: 999px; }
+/* no position to show (the server reports no progress): a band sweeps along the track */
+.convert-progress progress:indeterminate { background: linear-gradient(90deg, rgba(62, 46, 40, 0.14) 0 30%, var(--terracotta) 50%, rgba(62, 46, 40, 0.14) 70% 100%) 0 0 / 300% 100%; animation: convert-sweep 1.6s linear infinite; }
+.convert-progress progress:indeterminate::-webkit-progress-bar { background: transparent; }
+@keyframes convert-sweep { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .convert-progress progress:indeterminate { animation: none; } }
+.convert-progress p { margin: 0; text-align: center; }
+.convert-step { color: var(--ink-brown); font-size: 14px; font-weight: 500; }
+.convert-times { font-size: 12px; font-variant-numeric: tabular-nums; }
 .landing-more { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .landing .dropzone .samples select { min-height: 40px; background: rgba(255, 255, 255, 0.7); }
 .app.landing-app.drag-over .dropzone { background: rgba(255, 253, 248, 0.92); }
