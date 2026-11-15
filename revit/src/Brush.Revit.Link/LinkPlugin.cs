@@ -118,6 +118,7 @@ internal static class StateKeys
 {
     public const string LinkOn = "link.on";
     public const string Ledgers = "link.ledgers";
+    public const string TypeChanges = "link.typeChanges";
     public const string SessionOrigins = "link.sessionOrigins";
 }
 
