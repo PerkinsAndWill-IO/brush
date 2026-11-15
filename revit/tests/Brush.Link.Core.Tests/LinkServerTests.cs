@@ -136,6 +136,86 @@ public sealed class LinkServerTests : IAsyncLifetime
         Assert.Equal("applied", applied["results"]![1]!["status"]!.GetValue<string>());
     }
 
+    private static JsonObject SetType(string id, string target, string typeName, string? family = null)
+    {
+        var o = new JsonObject { ["op"] = "set_type", ["id"] = id, ["sheetId"] = "A-201", ["targets"] = new JsonArray(target), ["typeName"] = typeName, ["strokeId"] = $"type:{target}" };
+        if (family is not null) o["family"] = family;
+        return o;
+    }
+
+    private static string? TypeOf(JsonObject sheetMsg, string elementId) =>
+        sheetMsg["package"]!["sheets"]![0]!["elements"]!.AsArray().First(e => e!["id"]!.GetValue<string>() == elementId)!["typeName"]?.GetValue<string>();
+
+    [Fact]
+    public async Task Set_type_changes_the_elements_type_and_revert_puts_the_old_one_back()
+    {
+        await using var c = await ConnectAsync();
+        await c.SendAsync(new JsonObject { ["type"] = "open_sheet", ["sheetId"] = "A-201" });
+        var v1 = await c.ExpectAsync("sheet");
+        Assert.Equal("Single-Flush 0900x2100", TypeOf(v1, "101000"));
+        Assert.Equal("Partition - 100mm", TypeOf(v1, "100005"));
+        var before = ElementCount(v1);
+
+        await c.SendAsync(Apply("t1", 1, SetType("cmd-0100", "101000", "Single-Flush 1400x2100"), SetType("cmd-0101", "wall-100005", "generic - 200MM")));
+        var applied = await c.ExpectAsync("applied");
+        var r = applied["results"]!.AsArray();
+        Assert.Equal("applied", r[0]!["status"]!.GetValue<string>());
+        Assert.Equal("101000", r[0]!["elementIds"]![0]!.GetValue<string>());
+        Assert.Null(r[0]!["notes"]);
+        Assert.Equal("applied", r[1]!["status"]!.GetValue<string>());
+        Assert.Equal("100005", r[1]!["elementIds"]![0]!.GetValue<string>());
+        var v2 = await c.ExpectAsync("sheet");
+        Assert.Equal("apply", v2["reason"]!.GetValue<string>());
+        Assert.Equal("Single-Flush 1400x2100", TypeOf(v2, "101000"));
+        Assert.Equal("Generic - 200mm", TypeOf(v2, "100005"));
+        Assert.Equal(before, ElementCount(v2)); // the same elements, nothing created or removed
+
+        await c.SendAsync(new JsonObject { ["type"] = "revert", ["requestId"] = "t2", ["sheetId"] = "A-201", ["commandIds"] = new JsonArray("cmd-0100", "cmd-0101") });
+        var reverted = (await c.ExpectAsync("reverted"))["results"]!.AsArray();
+        Assert.All(reverted, x => Assert.Equal("applied", x!["status"]!.GetValue<string>()));
+        Assert.Equal("101000", reverted[0]!["elementIds"]![0]!.GetValue<string>());
+        var v3 = await c.ExpectAsync("sheet");
+        Assert.Equal("revert", v3["reason"]!.GetValue<string>());
+        Assert.Equal("Single-Flush 0900x2100", TypeOf(v3, "101000"));
+        Assert.Equal("Partition - 100mm", TypeOf(v3, "100005"));
+    }
+
+    [Fact]
+    public async Task Set_type_to_a_missing_type_fails_and_names_the_types_there_are()
+    {
+        await using var c = await ConnectAsync();
+        await c.SendAsync(Apply("t", 0, SetType("cmd-0200", "100000", "Curtain Wall 1"), SetType("cmd-0201", "999999", "Generic - 200mm")));
+        var r = (await c.ExpectAsync("applied"))["results"]!.AsArray();
+        Assert.Equal("failed", r[0]!["status"]!.GetValue<string>());
+        var why = r[0]!["message"]!.GetValue<string>();
+        Assert.Contains("no Walls type 'Curtain Wall 1'", why);
+        Assert.Contains("'Partition - 100mm'", why);
+        Assert.Equal("failed", r[1]!["status"]!.GetValue<string>());
+        Assert.Contains("no element 999999", r[1]!["message"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task Set_type_uses_the_closest_match_with_a_note_and_a_later_change_is_not_undone_by_revert()
+    {
+        await using var c = await ConnectAsync();
+        // The editor names Revit types "Family: Type"; the fixture's door types have no family, so the type name wins.
+        await c.SendAsync(Apply("t1", 0, SetType("cmd-0300", "101001", "Single-Flush 1400x2100", family: "M_Single-Flush")));
+        var r = (await c.ExpectAsync("applied"))["results"]![0]!;
+        Assert.Equal("applied", r["status"]!.GetValue<string>());
+        Assert.Equal("no Doors type 'M_Single-Flush: Single-Flush 1400x2100', used 'Single-Flush 1400x2100'", r["notes"]![0]!.GetValue<string>());
+
+        // Someone changes the door's type again in the host; the editor's undo must not overwrite that.
+        host.ExternalEdit("A-201", els =>
+        {
+            var i = els.FindIndex(e => e.Id == "101001");
+            els[i] = els[i] with { TypeName = "Single-Flush 0900x2100" };
+        });
+        await c.SendAsync(new JsonObject { ["type"] = "revert", ["requestId"] = "t2", ["sheetId"] = "A-201", ["commandIds"] = new JsonArray("cmd-0300") });
+        var rev = (await c.ExpectAsync("reverted"))["results"]![0]!;
+        Assert.Equal("skipped", rev["status"]!.GetValue<string>());
+        Assert.Contains("left as it is", rev["message"]!.GetValue<string>());
+    }
+
     [Fact]
     public async Task Edits_made_in_the_host_reach_every_editor_with_the_sheet_open()
     {

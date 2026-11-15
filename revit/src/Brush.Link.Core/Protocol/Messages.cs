@@ -30,6 +30,12 @@ public sealed record CloseSheet(string SheetId) : ClientMessage;
 /// <summary>Make the sheet the active view in the host, so the user sees in Revit the sheet they opened in the editor.</summary>
 public sealed record ShowSheet(string SheetId) : ClientMessage;
 
+/// <summary>
+/// Apply editor commands (<see cref="Command"/>, mirrored in <c>Model/Command.cs</c>): <c>create_wall</c>,
+/// <c>place_door</c>, <c>place_instance</c>, <c>delete</c>, and <c>set_type</c> (editor decision 0011):
+/// <code>{ op: 'set_type', id, sheetId, targets: string[], typeName: string, family?: string, strokeId: 'type:&lt;element id&gt;' }</code>
+/// which changes the type of existing elements (<see cref="SetType"/>). Unknown ops come back failed.
+/// </summary>
 public sealed record Apply(string SheetId, int? BaseVersion, IReadOnlyList<Command> Commands) : ClientMessage;
 
 public sealed record Revert(string SheetId, IReadOnlyList<string> CommandIds) : ClientMessage;
