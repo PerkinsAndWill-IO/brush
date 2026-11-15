@@ -12,13 +12,15 @@
  *   await __brushDemo.beat('loop')        // one beat
  *   await __brushDemo.reset()             // undo what it drew (walls etc. leave Revit too)
  */
-import type { BrushMode, Point } from '@core/types'
+import type { BrushMode, Point, Stroke } from '@core/types'
 import { boardView, getViewportEl } from '../board/Board'
 import { sheetToScreen } from '../board/layout'
 import { getCamera, setCamera } from '../camera'
 import { getSession, session } from '../session'
 import { contextFor } from '../brain/contextStore'
-import { getDocState } from '../store'
+import { getDocState, openDocument } from '../store'
+import { importPhotoMarkup, setPhotoReplay } from '../photo/import'
+import { tracePaper } from '../photo/trace'
 import { revit, revitSnapshot } from '../revit/controller'
 import { roundTrips, tripStats } from '../revit/roundtrip'
 
@@ -116,6 +118,31 @@ export const RAC_BASIC_SPOTS: NoLicenseSpots = {
   // the bar chairs along the island sit 0.008 apart, with one missing between 0.2435 and 0.2595
   // ~300 mm across at 1:100: a Bar Chair (290 mm) by its size
   stool: { center: [0.2515, 0.2355], r: 0.0018 },
+}
+
+/**
+ * The "colleague's sketch" beat: a photo of marker on a print of the Medium sample's N01 plan, dropped on Brush and
+ * traced onto the sheet, then made into elements. The photo is copied into fixtures/demo/ (kept out of git).
+ */
+export interface SketchPhotoSpots {
+  sample: { url: string; name: string }
+  photo: { url: string; name: string }
+  sheet: string
+  /** Where the colleague drew, as two corners: the rest the trace picks up (dark print in the photo) is left out. */
+  keep: [Frac, Frac]
+  view: { center: Frac; width: number }
+}
+
+export const KRO_SKETCH_SPOTS: SketchPhotoSpots = {
+  sample: { url: '/samples/kro/kro-sample.drawing', name: 'kro-sample.drawing' },
+  photo: { url: '/fixtures/demo/colleague-sketch.jpg', name: 'colleague-sketch.jpg' },
+  // 0001 KRO-APD-ARC-PLN-A1A-N01-0001, N01 ACCÈS LOGEMENTS 1:100
+  sheet: '0001',
+  keep: [
+    [0.19, 0.43],
+    [0.315, 0.665],
+  ],
+  view: { center: [0.253, 0.548], width: 0.17 },
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
@@ -536,6 +563,134 @@ async function fitAll(ms = 1200) {
   }
 }
 
+// ─────────────── the colleague's sketch ───────────────
+
+/**
+ * The real import takes about a minute on the photo (finding the sheet among four, then registering it), which the
+ * stage does not have. `recordSketch()` runs it once on the presenting machine and keeps what it traced in the sketch
+ * area; dropping the same photo then plays that back through the import dialog in a few seconds.
+ */
+const REPLAY_KEY = 'brush.demo.sketchReplay'
+interface SketchRecording {
+  sheetNumber: string
+  photoSize: number
+  lines: string[]
+  strokes: { size: number; color?: string; tool: string; points: { x: number; y: number; t: number }[] }[]
+}
+const REPLAY_MS = 7000
+
+function readRecording(): SketchRecording | null {
+  try {
+    return JSON.parse(localStorage.getItem(REPLAY_KEY) ?? 'null') as SketchRecording | null
+  } catch {
+    return null
+  }
+}
+
+/** Play the recording back for that photo (known by its size), on the sheet it was recorded on. */
+function installReplay() {
+  setPhotoReplay((photo) => {
+    const rec = readRecording()
+    if (!rec || photo.size !== rec.photoSize) return null
+    const sheet = getDocState().sheets.find((s) => s.number === rec.sheetNumber)
+    if (!sheet) return null
+    const strokes = rec.strokes.map((st) => ({ ...st, id: '', sheetId: sheet.id, startedAt: 0 })) as unknown as Stroke[]
+    return { sheetId: sheet.id, strokes, lines: rec.lines, ms: REPLAY_MS }
+  })
+}
+installReplay()
+
+/** Open the sample (unless it is open) with no sketches from an earlier run on it. */
+async function openSample(spots: SketchPhotoSpots) {
+  const base = spots.sample.name.replace(/\.[^.]+$/, '').toLowerCase()
+  const isIt = () => getDocState().status === 'ready' && (getDocState().fileName ?? '').toLowerCase().startsWith(base) && getDocState().sheets.length > 0
+  if (!isIt()) {
+    if (revitSnapshot().state !== 'off') revit.disconnect()
+    await openDocument(spots.sample.url, spots.sample.name)
+    await until(isIt, 60000, `${spots.sample.name} to open`)
+  }
+  // a clean stage: Brush keeps each file's sketches; these exist only here, so clearing them touches no model.
+  // The trace paper of an earlier import goes too.
+  if (getSession().strokes.length) session.clear()
+  for (const sh of getDocState().sheets) tracePaper.rollUp(sh.id)
+}
+
+/** Run the real import once and keep what it traced in the sketch area, for the stage (about a minute). */
+async function recordSketch(spots: SketchPhotoSpots = KRO_SKETCH_SPOTS) {
+  await openSample(spots)
+  const res = await fetch(spots.photo.url)
+  if (!res.ok) throw new Error(`demo: ${spots.photo.url} is not there (copy the photo into editor/fixtures/demo/)`)
+  const photo = await res.blob()
+  const lines: string[] = []
+  setPhotoReplay(null)
+  const t0 = performance.now()
+  let summary
+  try {
+    summary = await importPhotoMarkup(photo, { onProgress: (l) => lines.push(l), keepCamera: true })
+  } finally {
+    installReplay()
+  }
+  const sheet = docSheet(spots.sheet)
+  const [[x0, y0], [x1, y1]] = spots.keep
+  const kept = getSession()
+    .strokes.filter((st) => st.id.startsWith(summary.groupId))
+    .filter((st) => {
+      const xs = st.points.map((p) => p.x / sheet.sizePt.w)
+      const ys = st.points.map((p) => p.y / sheet.sizePt.h)
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2
+      const cy = (Math.min(...ys) + Math.max(...ys)) / 2
+      return cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1
+    })
+  const rec: SketchRecording = {
+    sheetNumber: spots.sheet,
+    photoSize: photo.size,
+    // the lines say how many strokes the trace found: say how many are shown
+    lines: lines.map((l) => l.replace(/, \d+ strokes/, `, ${kept.length} strokes`)),
+    strokes: kept.map((st) => ({ size: st.size, color: st.color, tool: st.tool, points: st.points.map((p) => ({ x: p.x, y: p.y, t: p.t })) })),
+  }
+  localStorage.setItem(REPLAY_KEY, JSON.stringify(rec))
+  session.clear()
+  return { seconds: Math.round((performance.now() - t0) / 100) / 10, traced: summary.strokes, kept: kept.length }
+}
+
+/** Click a button the way a person does: the pen glides to it, then presses. */
+async function press(button: HTMLElement) {
+  const r = button.getBoundingClientRect()
+  await glide({ x: r.left + r.width / 2, y: r.top + r.height / 2 }, 600)
+  penAt(r.left + r.width / 2, r.top + r.height / 2, true)
+  await sleep(120)
+  button.click()
+  penOff()
+}
+
+/** Open the sample, drop the photo, import it through the dialog, and show the trace paper. */
+async function sketchFromPhoto(spots: SketchPhotoSpots = KRO_SKETCH_SPOTS) {
+  await openSample(spots)
+  const s = docSheet(spots.sheet)
+  boardView.focusSheet(s.pageIndex, 1.6)
+  await sleep(400)
+  await dropFile(spots.photo.url, spots.photo.name)
+  const run = await until(() => document.querySelector<HTMLButtonElement>('[data-testid="photo-run"]:not(:disabled)'), 10000, 'the photo import dialog')
+  await sleep(600)
+  await press(run)
+  const done = await until(() => document.querySelector<HTMLButtonElement>('[data-testid="photo-done"]'), 120000, 'the photo to be traced')
+  await sleep(900)
+  await press(done)
+  // the trace paper unrolls over the sheet; then close in on the sketch
+  await sleep(1800)
+  await look(s.id, spots.view.center, spots.view.width, 1200)
+}
+
+/** Make elements of the imported sketch: walls, doors and furniture, read as the brush reads a stroke. */
+async function makeSketchReal() {
+  const btn = await until(() => [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Make elements'), 10000, 'Make elements')
+  await press(btn)
+  // reading: done when the button stops saying so (strokes it does not read as an element stay ink)
+  const reading = () => [...document.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Reading…')
+  await until(reading, 3000, 'the reading to start').catch(() => undefined)
+  await until(() => !reading(), 120000, 'the sketch to become elements')
+}
+
 /** The open document's sheet with this number (any source, not only Revit's). */
 function docSheet(number: string) {
   const s = getDocState().sheets.find((x) => x.number?.toLowerCase() === number.toLowerCase())
@@ -632,11 +787,13 @@ const SAY = {
   inspect: 'Click a wall of the room: the north facade, a real Revit wall with all its parameters.',
   noLicense: 'No Revit licence? Drop the .rvt on Brush: it reads the model itself, no Revit needed.',
   kitchen: 'And you sketch on it the same way: a wall, and the stool missing from the kitchen island.',
+  photo: 'A colleague sketched on a print with a marker. Take a photo, drop it on Brush: it finds the sheet and traces the ink.',
+  real: 'Then make it real: the traced ink becomes walls, doors and furniture.',
   close: 'Brush. Sketch it, and it is built.',
 }
 
-type Beat = 'hook' | 'setup' | 'loop' | 'retype' | 'inspect' | 'nolicense' | 'close'
-export const BEATS: readonly Beat[] = ['hook', 'setup', 'loop', 'retype', 'inspect', 'nolicense', 'close']
+type Beat = 'hook' | 'setup' | 'loop' | 'retype' | 'inspect' | 'nolicense' | 'photo' | 'close'
+export const BEATS: readonly Beat[] = ['hook', 'setup', 'loop', 'retype', 'inspect', 'nolicense', 'photo', 'close']
 
 async function beat(name: Beat, opts: RunOptions = {}) {
   const spots = opts.spots ?? SNOWDON_SPOTS
@@ -752,6 +909,15 @@ async function beat(name: Beat, opts: RunOptions = {}) {
       caption('4:00 · No Revit licence?', SAY.kitchen)
       await sketchKitchen()
       await talk(5000)
+      return
+    }
+    case 'photo': {
+      caption("4:15 · A colleague's sketch", SAY.photo)
+      await sketchFromPhoto()
+      await talk(3000)
+      caption("4:15 · A colleague's sketch", SAY.real)
+      await makeSketchReal()
+      await talk(4000)
       return
     }
     case 'close': {
@@ -959,6 +1125,8 @@ export function presenterSteps(spots: DemoSpots = SNOWDON_SPOTS): Step[] {
     // if the presenter dragged the .rvt in by hand, this only zooms to the kitchen
     { id: 'nolicense', label: 'No Revit license?', run: () => quietly(() => openWithoutRevit()) },
     { id: 'kitchen', label: 'Sketch in the kitchen', run: () => quietly(() => sketchKitchen()) },
+    { id: 'photo', label: "A colleague's sketch", run: () => quietly(() => sketchFromPhoto()) },
+    { id: 'real', label: 'Make it real', run: () => quietly(() => makeSketchReal()) },
   ]
 }
 
@@ -982,6 +1150,11 @@ export function createRehearsal() {
     /** The no-licence beat on its own: drop the .rvt, then sketch in its kitchen. */
     openWithoutRevit,
     sketchKitchen,
+    /** The colleague's-sketch beat: record the real import once (about a minute), then play it back on stage. */
+    recordSketch,
+    sketchFromPhoto,
+    makeSketchReal,
+    hasSketchRecording: () => !!readRecording(),
     caption,
     look,
     spots: SNOWDON_SPOTS,

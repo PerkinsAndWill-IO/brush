@@ -13,7 +13,7 @@
  * `.drawing` is open): drawn in another style, it hardly matches the open sheet. Given that file, the photo is
  * matched to its pages instead, and the strokes are moved onto the open sheet that page is (same layout).
  */
-import type { Sheet } from '@core/types'
+import type { Sheet, Stroke } from '@core/types'
 import { boardView } from '../board/Board'
 import { whenRendersIdle } from '../board/renderQueue'
 import { session, getSession } from '../session'
@@ -56,6 +56,59 @@ export interface PhotoImportSummary {
   /** Working resolution, dpi on the sheet. */
   dpi: number
   ms: number
+}
+
+/**
+ * A recorded import, played back instead of reading the photo: the demo (DEMO.md) shows a real import of a real
+ * photo, but the pipeline takes 40-60 s and the stage has seconds. The strokes and progress lines are what the
+ * pipeline produced for that photo; playing them back still goes through the dialog, the trace paper and the session.
+ */
+export interface PhotoReplay {
+  sheetId: string
+  /** The traced strokes, in sheet points; their ids are replaced. */
+  strokes: Stroke[]
+  /** The progress lines the pipeline wrote, in order. */
+  lines: string[]
+  /** How long the playback takes. */
+  ms: number
+}
+
+let replayFor: ((photo: Blob) => PhotoReplay | null) | null = null
+
+/** Demo only: play back a recorded import for the photos `f` recognises (null: off). */
+export function setPhotoReplay(f: ((photo: Blob) => PhotoReplay | null) | null): void {
+  replayFor = f
+}
+
+async function playBack(rp: PhotoReplay, opts: PhotoImportOptions, t0: number): Promise<PhotoImportSummary> {
+  const doc = getDocState()
+  const sheet = doc.sheets.find((s) => s.id === rp.sheetId)
+  if (!sheet) throw new PhotoImportError('That sheet is not in the open document.')
+  const say = opts.onProgress ?? (() => {})
+  const step = rp.ms / Math.max(1, rp.lines.length)
+  for (const line of rp.lines) {
+    if (opts.signal?.aborted) throw new PhotoImportError('Cancelled.')
+    say(line)
+    await new Promise((r) => setTimeout(r, step))
+  }
+  const groupId = `p${Date.now().toString(36)}${(importSeq++).toString(36)}-`
+  const now = Date.now()
+  const strokes = rp.strokes.map((st, i) => ({ ...st, id: `${groupId}${i}`, sheetId: sheet.id, startedAt: now }))
+  session.addStrokes(strokes)
+  session.setActiveSheet(sheet.id)
+  if (!opts.keepCamera) boardView.focusSheet(sheet.pageIndex)
+  void unrollWhenDrawn(sheet.id)
+  const byColor = new Map<string, number>()
+  for (const st of strokes) byColor.set(st.color ?? '#000000', (byColor.get(st.color ?? '#000000') ?? 0) + 1)
+  return {
+    sheetId: sheet.id,
+    groupId,
+    sheetLabel: sheetLabel(sheet),
+    strokes: strokes.length,
+    layers: [...byColor].map(([color, n], i) => ({ name: i ? `ink ${i + 1}` : 'ink', color, strokes: n })),
+    dpi: 0,
+    ms: performance.now() - t0,
+  }
 }
 
 export class PhotoImportError extends Error {
@@ -252,6 +305,8 @@ export async function importPhotoMarkup(photo: Blob, opts: PhotoImportOptions = 
   const loadId = doc.loadId
   const say = opts.onProgress ?? (() => {})
   if (opts.sheetId && !doc.sheets.some((s) => s.id === opts.sheetId)) throw new PhotoImportError('That sheet is not in the open document.')
+  const recorded = replayFor?.(photo)
+  if (recorded) return playBack(recorded, opts, t0)
 
   const client = createWorkerClient(say, opts.signal)
   let helpers: WorkerClient[] = []

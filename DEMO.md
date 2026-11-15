@@ -9,17 +9,27 @@ sketch is real Revit model: walls, doors, furniture. The sheet comes back redraw
 
 ## Run of show
 
+Five minutes, every beat in. The **Show more** step for each beat is in brackets; the times are what the screen needs,
+measured on the dev laptop, so the talk fits around them.
+
 | Time | Beat | On screen | Say |
 |---|---|---|---|
-| 0:00 | **Hook** | The napkin photo (or the start page) | "Every building starts as a sketch. Then it takes weeks of clicking to become *this*." |
-| 0:30 | **Setup** | Start page, Revit linked: the sheet picker. Tick **A102, A103, A104, A105**, then **Open 4 sheets**. Zoom into A102. | "Revit is open with the real model, Snowdon Towers. Brush lists its sheets. I take four floors." (They take about 20 s to arrive: keep talking.) |
-| 1:00 | **The loop** | Sketch a **wall**, a **door** in it, a **table** beside it. The timer counts each one home. | "A wall… a door… a table." Then stop talking and let the room watch the timer. |
-| 2:15 | **Change your mind** | Select tool, **right-click the table**: the type menu lists every type Revit has. Pick **Table-Dining Round w Chairs: 60" Diameter**. The timer counts the swap. | "Not the table I wanted. Right-click, pick another type: Revit swaps it and redraws the sheet." |
-| 2:45 | **Hand over the pen** | A judge draws one wall. | "You've never opened Revit. Draw a wall." |
-| 3:15 | **It reads the building** | Select tool, hover the wall just drawn: the inspector shows its Revit type, level and parameters. Then **click the long north facade wall** on A102 and zoom out: it lights up on **all four floors**, and the card lists the four sheets. | "That's not ink any more. It's a real Revit wall, with its parameters." Then: "And Brush knows it's one building: select a wall on one floor, and it lights up on every sheet it's on." |
-| 3:45 | **Why it matters** | One slide | "Weeks become minutes, and the people who sketch can change the model directly." |
-| 4:00 | **No Revit license?** | Drag `C:\Program Files\Autodesk\Revit 2026\Samples\racbasicsampleproject.rvt` onto Brush (or let step 6 do it). Its 13 sheets appear in seconds. In the kitchen on **A102 Plans**: sketch a partition wall, and the stool missing from the island's row. | "No Revit license? Drop the .rvt: Brush reads the model itself." Then: "And you sketch the same way." |
-| 4:30 | **Close** | Show the timer's best time. | "Brush. Sketch it, and it's built." |
+| 0:00 | **Hook** | The start page | "Architects think with a pen. Revit makes them think in dialog boxes." |
+| 0:20 | **Setup** [1 Open four floors] | Picker: A102–A105 ticked, Open 4 sheets, zoom into Live/Work Unit 205 (~20 s) | "Revit is open with the real model, Snowdon Towers. I take four floors." Keep talking while they arrive. |
+| 0:45 | **The loop** [2 Sketch a wall, a door and a table] | Wall, door, table; the timer counts each home; the table turns round from the type menu (~20 s) | "A wall… a door… a table." Then, as it swaps: "Not that table: right-click, another type." |
+| 1:15 | **It reads the building** [3 What is it?, 4 Every floor, 5 Back] | The facade wall's card with its Revit parameters; zoom out: lit up on all four floors (~5 s) | "That's a real Revit wall, with its parameters. One wall, four floors." |
+| 1:45 | **Hand over the pen** (optional) | A judge draws one wall | "You've never opened Revit. Draw a wall." Skip it if the clock is tight. |
+| 2:15 | **No Revit license?** [6 No Revit license?, 7 Sketch in the kitchen] | Drop `racbasicsampleproject.rvt`: 13 sheets in ~8 s; the kitchen: a wall, and the missing bar stool (~15 s) | "No Revit license? Drop the .rvt: Brush reads the model itself. And you sketch the same way." |
+| 2:55 | **A colleague's sketch** [8 A colleague's sketch, 9 Make it real] | The photo drops in, the import dialog reads it (~18 s), the trace paper unrolls with the marker on it; Make elements: 6 walls and 4 doors (~1 s) | "My colleague sketched on a print with a marker. A photo is enough: Brush finds the sheet and traces the ink. Then make it real." |
+| 3:40 | **Why it matters** | One slide | "Weeks become minutes, and the people who sketch can change the model directly." |
+| 4:20 | **Close** | The timer's best time | "Brush. Sketch it, and it's built." |
+
+Measured, the nine steps need about 2 minutes of screen time in all: step 1 is the long one, 15-25 s on a freshly
+started Revit but a minute on one that has run all afternoon. Restart Revit before going on (see the checklist), and
+press step 1 as you start the hook, so the hook is said while the floors arrive.
+
+Twenty seconds of slack at the end. If time runs short, drop the judge's turn first, then stop clicking: every step
+leaves the screen in a good state.
 
 Rehearsed timings (Snowdon Towers, **A102**, dev laptop, five rehearsals): each element comes back modelled in
 **3–9 s** on A102, and the type change in about 5 s. A sheet with less on it is faster (A103: 2–4 s), but A102 is the one that draws furniture, so
@@ -70,6 +80,8 @@ right corner, saying what it will do next. Each click plays one step in the real
 | 5 | Back to the room | Zooms back in. |
 | 6 | No Revit license? | Disconnects from Revit and drops `racbasicsampleproject.rvt` on Brush (a file chip flies in): the conversion server turns it into a `.drawing` in about 7 s, and it zooms to the kitchen. If you dragged the file in by hand, it only zooms. Clears that file's sketches from earlier runs first. |
 | 7 | Sketch in the kitchen | Draws a partition wall between the dining table and the island, and the stool missing from the row along the island: it comes in as a **Bar Chair**, like its neighbours. |
+| 8 | A colleague's sketch | Opens the **Medium** sample (KRO, 4 sheets) with a clean session, drops the photo of the colleague's marker sketch on sheet **0001 (N01 Accès logements)**, clicks Import in the photo dialog, then Done: the trace paper unrolls with the sketch on it. |
+| 9 | Make it real | Clicks **Make elements**: the sketched walls and door swings become walls and doors (the round tables stay ink). |
 
 - **Keys:** **PageDown**, **→** or **N** advance (what presentation clickers send). **H** hides the button for a clean
   screen, and brings it back.
@@ -79,6 +91,10 @@ right corner, saying what it will do next. Each click plays one step in the real
 - **A step fails:** the button says why and turns into **Try again**; the next click retries that step.
 - **After the last step:** "That's the demo ✦" and **Start over**, which takes everything back out of Revit (like
   `reset()`) and goes back to step 1.
+- **What is played back:** the photo import (step 8). The real import of that photo takes 60–110 s (finding the sheet
+  among four, then registering the photo to it), so it is recorded once on the presenting machine and played back
+  through the same dialog in 7 s: the strokes are exactly what the import traced, minus the dark print around the
+  sketch it also picked up. Everything else is live. Without a recording, step 8 runs the real import.
 - No captions in this mode: you are the voice. (`__brushDemo.run()` still plays the captioned rehearsal.)
 
 ## Setup checklist (30 minutes before)
@@ -96,6 +112,9 @@ right corner, saying what it will do next. Each click plays one step in the real
 5. **No-license beat:** the conversion server running (`editor/CLAUDE.md`), and a copy of
    `racbasicsampleproject.rvt` in `editor/fixtures/demo/` for step 6 to drop (kept out of git). Drop it once before
    going on stage so the server has it cached.
+   **Colleague's sketch:** the photo in `editor/fixtures/demo/colleague-sketch.jpg` (kept out of git), and once, in the
+   browser you will present from, in the console: `await __brushDemo.recordSketch()` (about a minute; it runs the
+   real import and keeps what it traced for step 8 to play back).
 6. **Editor:** `pnpm --dir editor dev` and open `http://localhost:5173/?demo` (the Show more button; it turns the
    timer on at step 1).
    `?timer` turns the round-trip timer on (it's also a switch in the Revit panel, and it's remembered).
