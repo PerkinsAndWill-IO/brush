@@ -44,6 +44,11 @@ export interface DemoSpots {
   everywhere: { element: string; label: string }
   /** What the camera shows while sketching: the centre and how much of the sheet's width fills the view. */
   view: { center: Frac; width: number }
+  /**
+   * Where the demo draws, as two corners. Empty in the model as it ships, so a wall, door or piece of furniture found
+   * in it was left by an earlier run, and the stage is not clean.
+   */
+  stage: [Frac, Frac]
 }
 
 /**
@@ -55,6 +60,11 @@ export const SNOWDON_SPOTS: DemoSpots = {
   sheet: 'A102',
   // the empty top half of Live/Work Unit 205, below the north wall
   view: { center: [0.522, 0.353], width: 0.14 },
+  // inside Live/Work Unit 205, clear of its own walls: nothing of Snowdon's own is in here
+  stage: [
+    [0.492, 0.324],
+    [0.556, 0.384],
+  ],
   wall: [
     [0.5039, 0.32],
     [0.5039, 0.3874],
@@ -76,6 +86,36 @@ export const SNOWDON_SPOTS: DemoSpots = {
   // floors 3 to 5: the north facade's long exterior wall is drawn on A102, A103, A104 and A105
   alsoOpen: ['A103', 'A104', 'A105'],
   everywhere: { element: '1919205', label: 'the north facade wall' },
+}
+
+/**
+ * The "no Revit license" beat: a model dropped in as a `.rvt` file, converted to a `.drawing` by the conversion server
+ * (no Revit involved), and sketched on. Revit's own basic sample house; a copy is served from fixtures/demo/ in dev
+ * (kept out of git), so a rehearsal can drop it without a person dragging it from the Samples folder.
+ */
+export interface NoLicenseSpots {
+  /** URL the rehearsal fetches the file from, and the name it is dropped under. */
+  file: { url: string; name: string }
+  sheet: string
+  view: { center: Frac; width: number }
+  /** A partition between the dining table and the kitchen island. */
+  wall: Frac[]
+  /** The stool missing from the row along the island: its centre, and its radius as a fraction of the sheet width. */
+  stool: { center: Frac; r: number }
+}
+
+export const RAC_BASIC_SPOTS: NoLicenseSpots = {
+  file: { url: '/fixtures/demo/racbasicsampleproject.rvt', name: 'racbasicsampleproject.rvt' },
+  // A102 Plans, room 101 Kitchen & Dining
+  sheet: 'A102',
+  view: { center: [0.232, 0.226], width: 0.17 },
+  wall: [
+    [0.2072, 0.1891],
+    [0.2072, 0.245],
+  ],
+  // the bar chairs along the island sit 0.008 apart, with one missing between 0.2435 and 0.2595
+  // ~300 mm across at 1:100: a Bar Chair (290 mm) by its size
+  stool: { center: [0.2515, 0.2355], r: 0.0018 },
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
@@ -337,22 +377,6 @@ async function look(sheetId: string, center: Frac, width: number, ms = 900) {
   }
 }
 
-/** Hover a point with the select tool, so the inspector shows what is under it. */
-async function hover(sheetId: string, f: Frac, ms = 900) {
-  const vp = getViewportEl()
-  if (!vp) return
-  session.setTool('select')
-  await glide(toScreen(sheetId, toSheet(sheetId, f)), ms)
-  // the inspector opening reflows the page and moves the board under a still pointer: aim again until it holds
-  for (let i = 0; i < 4; i++) {
-    const to = toScreen(sheetId, toSheet(sheetId, f))
-    penAt(to.x, to.y, false)
-    vp.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: to.x, clientY: to.y, pointerType: 'mouse', pointerId: 1, isPrimary: true }))
-    await frame()
-    await frame()
-  }
-}
-
 /**
  * Change a placed element's type the way a person does: right-click it (the type menu opens and asks Revit for every
  * type it allows), then pick the type. Resolves with the type picked.
@@ -411,7 +435,7 @@ function pointer(type: string, at: { x: number; y: number }, buttons = 0) {
  * Select host element `elementId` on a sheet with a click, the way a person does: bring a stretch of it into view, find
  * a point on it that picks it (not a window or a tag on top of it), and click there.
  */
-async function selectElement(sheetId: string, elementId: string) {
+async function selectElement(sheetId: string, elementId: string, near?: Frac) {
   const ctx = await contextFor(sheetId)
   const item = ctx?.items.find((i) => i.hostRef === elementId)
   if (!item) throw new Error(`demo: element ${elementId} is not on sheet ${sheetId}`)
@@ -431,26 +455,57 @@ async function selectElement(sheetId: string, elementId: string) {
     return pts[0]
   }
   session.setTool('select')
-  const mid = along(0.5)
-  await look(sheetId, [mid.x / sheet.sizePt.w, mid.y / sheet.sizePt.h], 0.3, 1100)
-  for (const t of [0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74, 0.18, 0.82]) {
-    const p = along(t)
+  // where along it to click: next to `near` (the view stays where it is), else its middle, closed in on. A grid line
+  // can run along a wall (Snowdon's grid E on the north facade), and the pick tolerance is in screen pixels, so the
+  // closer the view the further apart they are
+  let t0 = 0.5
+  if (near) {
+    const a = pts[0]
+    const b = pts[pts.length - 1]
+    const n = { x: near[0] * sheet.sizePt.w, y: near[1] * sheet.sizePt.h }
+    const len2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2 || 1
+    t0 = Math.min(0.98, Math.max(0.02, ((n.x - a.x) * (b.x - a.x) + (n.y - a.y) * (b.y - a.y)) / len2))
+  } else {
+    const mid = along(0.5)
+    await look(sheetId, [mid.x / sheet.sizePt.w, mid.y / sheet.sizePt.h], 0.12, 1100)
+  }
+  // on the centreline, then a little to either side of it (still on the wall's thickness)
+  const normal = (() => {
+    const a = pts[0]
+    const b = pts[pts.length - 1]
+    const len = Math.hypot(b.x - a.x, b.y - a.y) || 1
+    return { x: -(b.y - a.y) / len, y: (b.x - a.x) / len }
+  })()
+  const tries: Point[] = []
+  for (const off of [0, 2.5, -2.5, 4, -4])
+    for (const t of near ? [t0, t0 - 0.01, t0 + 0.01, t0 - 0.02, t0 + 0.02] : [0.5, 0.42, 0.58, 0.34, 0.66]) {
+      const c = along(t)
+      tries.push({ x: c.x + normal.x * off, y: c.y + normal.y * off })
+    }
+  for (const p of tries) {
     const at = toScreen(sheetId, p)
-    await glide(at, 250)
+    await glide(at, 120)
     pointer('pointermove', at)
     await frame()
     await frame()
     if (inspected() !== elementId) continue
-    // the card opening may move the board: aim again, then click
+    // the card opening widens the sidebar, and the board re-centres a moment later: let it settle, aim again, and
+    // click only if the wall is still what is under the pointer
+    await sleep(350)
     const again = toScreen(sheetId, p)
     penAt(again.x, again.y, true)
     pointer('pointermove', again)
     await frame()
+    await frame()
+    if (inspected() !== elementId) continue
     pointer('pointerdown', again, 1)
     pointer('pointerup', again)
     await frame()
+    await frame()
     penAt(again.x, again.y, false)
-    return
+    // a click can pick what runs alongside (a grid line) where a hover found the wall: check what got selected
+    const card = document.querySelector<HTMLElement>('[data-testid="inspect-panel"]')
+    if (card?.dataset.element === elementId && card.dataset.pinned === 'true') return
   }
   throw new Error(`demo: no point on element ${elementId} picks it`)
 }
@@ -481,6 +536,80 @@ async function fitAll(ms = 1200) {
   }
 }
 
+/** The open document's sheet with this number (any source, not only Revit's). */
+function docSheet(number: string) {
+  const s = getDocState().sheets.find((x) => x.number?.toLowerCase() === number.toLowerCase())
+  if (!s) throw new Error(`demo: the open file has no sheet ${number}`)
+  return s
+}
+
+/**
+ * Drop a file on Brush the way a person drags one in from Explorer: a file chip glides onto the page, the page lights
+ * up for the drop, and the app's own drop handler opens it.
+ */
+async function dropFile(url: string, name: string) {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`demo: ${url} is not there (copy ${name} into editor/fixtures/demo/)`)
+  const file = new File([await res.blob()], name)
+  const app = document.querySelector<HTMLElement>('.app')
+  if (!app) throw new Error('demo: no app on screen')
+  const chip = document.createElement('div')
+  chip.textContent = `📄 ${name}`
+  chip.style.cssText =
+    'position:fixed;z-index:1002;left:-260px;top:62%;padding:10px 14px;border-radius:10px;background:#fff;color:#1b1d21;font:600 14px system-ui,sans-serif;box-shadow:0 12px 30px rgba(0,0,0,.25);transition:left 900ms cubic-bezier(.2,.8,.2,1),top 900ms cubic-bezier(.2,.8,.2,1),opacity 250ms ease-out;pointer-events:none'
+  document.body.appendChild(chip)
+  await frame()
+  chip.style.left = 'calc(50% - 120px)'
+  chip.style.top = '48%'
+  const dt = new DataTransfer()
+  dt.items.add(file)
+  await sleep(500)
+  app.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }))
+  await sleep(600)
+  app.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }))
+  chip.style.opacity = '0'
+  setTimeout(() => chip.remove(), 400)
+}
+
+/** No Revit: drop the model's `.rvt`, wait for its sheets, and zoom to where the beat sketches. */
+async function openWithoutRevit(spots: NoLicenseSpots = RAC_BASIC_SPOTS) {
+  // the point of the beat: no live link
+  if (revitSnapshot().state !== 'off') revit.disconnect()
+  // dragged in by hand already? (the converted document is named after the model, without the .rvt)
+  const base = spots.file.name.replace(/\.[^.]+$/, '').toLowerCase()
+  const isIt = () => getDocState().status === 'ready' && (getDocState().fileName ?? '').toLowerCase().startsWith(base) && getDocState().sheets.length > 0
+  if (!isIt()) {
+    const before = getDocState().source
+    await dropFile(spots.file.url, spots.file.name)
+    await until(() => getDocState().source !== before && isIt(), 120000, `${spots.file.name} to open`)
+  }
+  // a clean stage: Brush keeps each file's sketches, so an earlier rehearsal's wall and stool would come back with it.
+  // They exist only here (no Revit), so clearing them touches no model.
+  if (getSession().strokes.length) session.clear()
+  const s = docSheet(spots.sheet)
+  await until(() => document.querySelector(`[data-testid="sheet"][data-sheet-id="${CSS.escape(s.id)}"]`), 30000, 'the sheet on the board')
+  boardView.focusSheet(s.pageIndex, 1.6)
+  await sleep(600)
+  await look(s.id, spots.view.center, spots.view.width, 1400)
+}
+
+/** Sketch in the kitchen: a partition wall, then the stool missing from the row along the island. */
+async function sketchKitchen(spots: NoLicenseSpots = RAC_BASIC_SPOTS) {
+  const s = docSheet(spots.sheet)
+  const at = (f: Frac) => toSheet(s.id, f)
+  await draw('wall', s.id, spots.wall.map(at), 1000)
+  const c = at(spots.stool.center)
+  const r = spots.stool.r * s.sizePt.w
+  // a small hand-drawn circle; next to the bar chairs it reads as one more of them
+  const ring = Array.from({ length: 19 }, (_, i) => {
+    const a = (i / 18) * Math.PI * 2 - Math.PI / 2
+    return { x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r }
+  })
+  await draw('furniture', s.id, ring, 700)
+  session.setSetting('mode', 'auto')
+  penOff()
+}
+
 // ─────────────── beats ───────────────
 
 export interface RunOptions {
@@ -493,19 +622,21 @@ const SAY = {
   hook: 'Architects think with a pen. Revit makes them think in dialog boxes.',
   setup: 'Revit is open with the real model. Brush lists its sheets: pick four floors.',
   opening: 'Revit sends each sheet as it is now: the PDF plus every element on it.',
-  everywhere: 'Select a wall of the building on one floor: Brush lights it up on every sheet it is on.',
+  everywhere: 'Zoom out: Brush lights the selected wall up on every sheet it is on.',
   wall: 'Sketch a wall…',
   door: '…a door in it…',
   table: '…and a table.',
   back: 'Each one is now a real Revit element, and the sheet came back drawn by Revit.',
   retype: 'Not the table I wanted. Right-click it and pick another type: Revit lists every one it has.',
   retyped: 'Swapped in Revit, and redrawn.',
-  inspect: 'Hover the wall you just sketched: it is a real Revit wall now, with its type and level.',
+  inspect: 'Click a wall of the room: the north facade, a real Revit wall with all its parameters.',
+  noLicense: 'No Revit licence? Drop the .rvt on Brush: it reads the model itself, no Revit needed.',
+  kitchen: 'And you sketch on it the same way: a wall, and the stool missing from the kitchen island.',
   close: 'Brush. Sketch it, and it is built.',
 }
 
-type Beat = 'hook' | 'setup' | 'loop' | 'retype' | 'inspect' | 'close'
-export const BEATS: readonly Beat[] = ['hook', 'setup', 'loop', 'retype', 'inspect', 'close']
+type Beat = 'hook' | 'setup' | 'loop' | 'retype' | 'inspect' | 'nolicense' | 'close'
+export const BEATS: readonly Beat[] = ['hook', 'setup', 'loop', 'retype', 'inspect', 'nolicense', 'close']
 
 async function beat(name: Beat, opts: RunOptions = {}) {
   const spots = opts.spots ?? SNOWDON_SPOTS
@@ -554,6 +685,8 @@ async function beat(name: Beat, opts: RunOptions = {}) {
         await until(() => document.querySelector(`[data-testid="sheet"][data-sheet-id="${CSS.escape(s.id)}"][data-rendered="true"]`), 30000, 'the sheet to draw')
         caption('0:30 · Setup', SAY.setup)
       }
+      // never draw on top of an earlier run: take back what it left, or stop here
+      await ensureClean(spots)
       const { sheet } = placement(s.id)
       boardView.focusSheet(sheet.pageIndex, 1.6)
       await talk(1500)
@@ -596,13 +729,12 @@ async function beat(name: Beat, opts: RunOptions = {}) {
     case 'inspect': {
       const s = sheetByNumber(spots.sheet)
       caption('3:15 · It reads the building', SAY.inspect)
-      await hover(s.id, spots.inspect)
+      // select (not just hover) the facade wall along the room, still zoomed in: its card stays open
+      await selectElement(s.id, spots.everywhere.element, spots.view.center)
+      penOff()
       await talk(6000)
       if (spots.alsoOpen.length && revitSnapshot().open.length > 1) {
         caption('3:15 · It reads the building', SAY.everywhere)
-        await selectElement(s.id, spots.everywhere.element)
-        penOff()
-        await talk(1200)
         await fitAll()
         caption('3:15 · It reads the building', `One wall, ${revitSnapshot().open.filter((o) => document.querySelector(`[data-sheet-id="${CSS.escape(o.id)}"] [data-testid="selected-sheet"]`)).length || spots.alsoOpen.length + 1} sheets: ${spots.everywhere.label} on every floor it is on.`)
         await talk(6000)
@@ -611,6 +743,15 @@ async function beat(name: Beat, opts: RunOptions = {}) {
       }
       penOff()
       session.setTool('brush')
+      return
+    }
+    case 'nolicense': {
+      caption('4:00 · No Revit licence?', SAY.noLicense)
+      await openWithoutRevit()
+      await talk(2500)
+      caption('4:00 · No Revit licence?', SAY.kitchen)
+      await sketchKitchen()
+      await talk(5000)
       return
     }
     case 'close': {
@@ -631,6 +772,56 @@ async function run(opts: RunOptions = {}) {
     times[b] = Math.round((performance.now() - t0) / 100) / 10
   }
   return { seconds: times, trips: tripStats(roundTrips.get().trips) }
+}
+
+/** Walls, doors and furniture on the stage (anything there was left by an earlier run): Revit ids. */
+async function leftovers(spots: DemoSpots): Promise<string[]> {
+  const s = sheetByNumber(spots.sheet)
+  const ctx = await contextFor(s.id)
+  const { sheet } = placement(s.id)
+  const [[x0, y0], [x1, y1]] = spots.stage
+  const inside = (x: number, y: number) => {
+    const fx = x / sheet.sizePt.w
+    const fy = y / sheet.sizePt.h
+    return fx >= x0 && fx <= x1 && fy >= y0 && fy <= y1
+  }
+  // along the whole outline, not only its corners: a wall can cross the stage with both ends outside it
+  const crosses = (pts: readonly Point[]) =>
+    pts.some((p, i) => {
+      const q = pts[i + 1] ?? p
+      for (let k = 0; k <= 20; k++) if (inside(p.x + ((q.x - p.x) * k) / 20, p.y + ((q.y - p.y) * k) / 20)) return true
+      return false
+    })
+  const ids = (ctx?.items ?? []).filter((i) => i.hostRef && ['Walls', 'Doors', 'Windows', 'Furniture', 'Casework'].includes(i.props?.category ?? '') && crosses(i.geometry.points)).map((i) => i.hostRef!)
+  return [...new Set(ids)]
+}
+
+/**
+ * Make sure the stage is clean before a rehearsal: open the sheet, take back what the last run left (its strokes, and
+ * the elements on record), then delete whatever is still on the stage. Throws, drawing nothing, when it stays dirty.
+ */
+async function ensureClean(spots: DemoSpots = SNOWDON_SPOTS): Promise<{ removed: number }> {
+  if (revitSnapshot().state !== 'on') {
+    revit.connect()
+    await until(() => revitSnapshot().state === 'on', 20000, 'Revit to connect')
+  }
+  const s = sheetByNumber(spots.sheet)
+  await ensureOpen(s.id)
+  let removed = (await reset()).deleted
+  for (let pass = 0; pass < 3; pass++) {
+    // the sheet comes back from Revit after each change: read it again
+    await until(() => revitSnapshot().inFlight === 0, 30000, 'Revit to settle').catch(() => undefined)
+    const left = await leftovers(spots)
+    if (!left.length) return { removed }
+    const versionOf = () => revitSnapshot().open.find((o) => o.id === s.id)?.version ?? 0
+    const version = versionOf()
+    for (const id of left) if (await revit.deleteElements(s.id, [id])) removed++
+    // wait for the sheet's new version, which no longer draws them
+    await until(() => versionOf() > version, 30000, 'the cleaned sheet').catch(() => undefined)
+  }
+  const still = await leftovers(spots)
+  if (still.length) throw new Error(`demo: the stage is not clean: elements ${still.join(', ')} are still in Live/Work Unit 205`)
+  return { removed }
 }
 
 /** Connect to Revit and open a sheet (by Revit id) if it is not on screen yet. */
@@ -724,38 +915,20 @@ export function presenterSteps(spots: DemoSpots = SNOWDON_SPOTS): Step[] {
   return [
     { id: 'floors', label: 'Open four floors', run: () => quietly(() => beat('setup', { spots, fast: true })) },
     {
-      id: 'wall',
-      label: 'Sketch a wall',
+      id: 'sketch',
+      label: 'Sketch a wall, a door and a table',
       run: () => quietly(async () => {
+        // one stroke after the other, as a person would; Revit models each while the next is drawn
         await draw('wall', sheet().id, spots.wall.map(at), 1100)
-        session.setSetting('mode', 'auto')
-      }),
-    },
-    {
-      id: 'door',
-      label: 'Add a door',
-      run: () => quietly(async () => {
         await draw('door', sheet().id, spots.door.map(at), 450)
-        session.setSetting('mode', 'auto')
-      }),
-    },
-    {
-      id: 'table',
-      label: 'Add a table',
-      run: () => quietly(async () => {
         const [a, b] = spots.table.map(at)
         await draw('furniture', sheet().id, [a, { x: b.x, y: a.y }, b, { x: a.x, y: b.y }, a], 1300)
         session.setSetting('mode', 'auto')
-      }),
-    },
-    {
-      id: 'retype',
-      label: 'Make it round',
-      run: () => quietly(async () => {
-        // the table must be a Revit element (drawn by Revit) before its type can change
+        penOff()
+        // then change the table's type: it must be a Revit element (drawn by Revit) first
         await settle()
-        const [a, b] = spots.table
-        await retype(sheet().id, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], spots.retypeTo)
+        const [ta, tb] = spots.table
+        await retype(sheet().id, [(ta[0] + tb[0]) / 2, (ta[1] + tb[1]) / 2], spots.retypeTo)
         session.setTool('brush')
       }),
     },
@@ -764,18 +937,16 @@ export function presenterSteps(spots: DemoSpots = SNOWDON_SPOTS): Step[] {
       label: 'What is it?',
       run: () => quietly(async () => {
         await settle()
+        // still zoomed into the room: click the facade wall along its north side; the card pins open with its
+        // Revit parameters, and the selection is what lights up on the other floors next
         await look(sheet().id, spots.view.center, spots.view.width, 600)
-        await hover(sheet().id, spots.inspect)
+        await selectElement(sheet().id, spots.everywhere.element, spots.view.center)
       }),
     },
     {
       id: 'everywhere',
       label: 'Every floor',
-      run: () => quietly(async () => {
-        await selectElement(sheet().id, spots.everywhere.element)
-        await sleep(700)
-        await fitAll()
-      }),
+      run: () => quietly(() => fitAll()),
     },
     {
       id: 'back',
@@ -785,6 +956,9 @@ export function presenterSteps(spots: DemoSpots = SNOWDON_SPOTS): Step[] {
         session.setTool('brush')
       }),
     },
+    // if the presenter dragged the .rvt in by hand, this only zooms to the kitchen
+    { id: 'nolicense', label: 'No Revit license?', run: () => quietly(() => openWithoutRevit()) },
+    { id: 'kitchen', label: 'Sketch in the kitchen', run: () => quietly(() => sketchKitchen()) },
   ]
 }
 
@@ -795,13 +969,19 @@ export function endPresenting() {
 }
 
 /** `reset()` for the presenter's Start over. */
-export const resetRehearsal = () => reset()
+export const resetRehearsal = () => ensureClean()
 
 export function createRehearsal() {
   return {
     run,
     beat,
     reset,
+    /** Take back what earlier runs left and check the stage is empty (setup does this first). */
+    ensureClean,
+    leftovers: () => leftovers(SNOWDON_SPOTS),
+    /** The no-licence beat on its own: drop the .rvt, then sketch in its kitchen. */
+    openWithoutRevit,
+    sketchKitchen,
     caption,
     look,
     spots: SNOWDON_SPOTS,

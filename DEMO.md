@@ -18,6 +18,7 @@ sketch is real Revit model: walls, doors, furniture. The sheet comes back redraw
 | 2:45 | **Hand over the pen** | A judge draws one wall. | "You've never opened Revit. Draw a wall." |
 | 3:15 | **It reads the building** | Select tool, hover the wall just drawn: the inspector shows its Revit type, level and parameters. Then **click the long north facade wall** on A102 and zoom out: it lights up on **all four floors**, and the card lists the four sheets. | "That's not ink any more. It's a real Revit wall, with its parameters." Then: "And Brush knows it's one building: select a wall on one floor, and it lights up on every sheet it's on." |
 | 3:45 | **Why it matters** | One slide | "Weeks become minutes, and the people who sketch can change the model directly." |
+| 4:00 | **No Revit license?** | Drag `C:\Program Files\Autodesk\Revit 2026\Samples\racbasicsampleproject.rvt` onto Brush (or let step 6 do it). Its 13 sheets appear in seconds. In the kitchen on **A102 Plans**: sketch a partition wall, and the stool missing from the island's row. | "No Revit license? Drop the .rvt: Brush reads the model itself." Then: "And you sketch the same way." |
 | 4:30 | **Close** | Show the timer's best time. | "Brush. Sketch it, and it's built." |
 
 Rehearsed timings (Snowdon Towers, **A102**, dev laptop, five rehearsals): each element comes back modelled in
@@ -62,14 +63,13 @@ right corner, saying what it will do next. Each click plays one step in the real
 
 | # | Button says | What happens |
 |---|---|---|
-| 1 | Open four floors | Connects to Revit, ticks A102–A105 in the picker, opens them, zooms into Live/Work Unit 205. |
-| 2 | Sketch a wall | Draws the wall; Revit models it while you talk. |
-| 3 | Add a door | Draws the door in it. |
-| 4 | Add a table | Draws the table. |
-| 5 | Make it round | Waits for the table to be in Revit, right-clicks it and picks the 60" round dining table. |
-| 6 | What is it? | Hovers the new wall: the inspector shows its Revit parameters. |
-| 7 | Every floor | Selects the north facade wall and zooms out: it lights up on all four floors. |
-| 8 | Back to the room | Zooms back in. |
+| 1 | Open four floors | Connects to Revit, ticks A102–A105 in the picker, opens them, **cleans the stage** (takes back anything an earlier run left in Live/Work Unit 205, or stops and says so), zooms into the room. |
+| 2 | Sketch a wall, a door and a table | Draws all three, waits for the table to be in Revit, then right-clicks it and picks the 60" round dining table. |
+| 3 | What is it? | Still zoomed in, **clicks** the north facade wall along the room: its card pins open with its Revit parameters. |
+| 4 | Every floor | Zooms out: the selected wall is lit up on all four floors. |
+| 5 | Back to the room | Zooms back in. |
+| 6 | No Revit license? | Disconnects from Revit and drops `racbasicsampleproject.rvt` on Brush (a file chip flies in): the conversion server turns it into a `.drawing` in about 7 s, and it zooms to the kitchen. If you dragged the file in by hand, it only zooms. Clears that file's sketches from earlier runs first. |
+| 7 | Sketch in the kitchen | Draws a partition wall between the dining table and the island, and the stool missing from the row along the island: it comes in as a **Bar Chair**, like its neighbours. |
 
 - **Keys:** **PageDown**, **→** or **N** advance (what presentation clickers send). **H** hides the button for a clean
   screen, and brings it back.
@@ -93,14 +93,18 @@ right corner, saying what it will do next. Each click plays one step in the real
    up the type change). Read at Revit start (or *Reload the plugin*).
 4. **Revit 2026** open with *Snowdon Towers Sample Architectural* (`C:\Program Files\Autodesk\Revit 2026\Samples`).
    Brush Link on: Add-Ins → Brush → Brush Link. The pill in Brush's top bar should go green.
-5. **Editor:** `pnpm --dir editor dev` and open `http://localhost:5173/?demo` (the Show more button; it turns the
+5. **No-license beat:** the conversion server running (`editor/CLAUDE.md`), and a copy of
+   `racbasicsampleproject.rvt` in `editor/fixtures/demo/` for step 6 to drop (kept out of git). Drop it once before
+   going on stage so the server has it cached.
+6. **Editor:** `pnpm --dir editor dev` and open `http://localhost:5173/?demo` (the Show more button; it turns the
    timer on at step 1).
    `?timer` turns the round-trip timer on (it's also a switch in the Revit panel, and it's remembered).
-6. **Warm up:** open A102, draw and undo one wall. The first export after Revit opens a model is the slow one.
-7. **Close everything else** that talks to Revit (a second browser tab on the editor, PW Tools sessions).
-8. **Screen:** 1920×1080, browser zoom 100%, Brush full screen (F11). Hide the right sidebar if it crowds the sheet.
-9. **Back-up video:** record one clean run (`Win+Alt+R`) and keep it on the desktop.
-10. **Reset the model** after rehearsing (see below), so the stage run starts in an empty room.
+7. **Warm up:** open A102, draw and undo one wall. The first export after Revit opens a model is the slow one.
+8. **Close everything else** that talks to Revit (a second browser tab on the editor, PW Tools sessions).
+9. **Screen:** 1920×1080, browser zoom 100%, Brush full screen (F11). Hide the right sidebar if it crowds the sheet.
+10. **Back-up video:** record one clean run (`Win+Alt+R`) and keep it on the desktop.
+11. **Start clean:** after the last rehearsal press **Start over** (or `await __brushDemo.ensureClean()`). Step 1 also
+   checks the stage and cleans it, but cleaning a whole earlier run takes about a minute you don't want on stage.
 
 ## The round-trip timer
 
