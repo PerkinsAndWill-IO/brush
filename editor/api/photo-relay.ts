@@ -56,7 +56,7 @@ async function sweep(now: number): Promise<void> {
   }
 }
 
-export async function POST(request: Request): Promise<Response> {
+async function post(request: Request): Promise<Response> {
   const id = slotOf(request)
   if (!id) return text(400, 'invalid upload link')
   if (!configured()) return text(503, NOT_SET_UP)
@@ -72,7 +72,7 @@ export async function POST(request: Request): Promise<Response> {
   return empty()
 }
 
-export async function GET(request: Request): Promise<Response> {
+async function get_(request: Request): Promise<Response> {
   const params = new URL(request.url).searchParams
   if (!params.has('id')) return new Response(JSON.stringify({ available: configured() }), { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
   const id = slotOf(request)
@@ -86,9 +86,25 @@ export async function GET(request: Request): Promise<Response> {
   return new Response(body, { headers: { 'content-type': found.blob.contentType ?? 'application/octet-stream', 'cache-control': 'no-store' } })
 }
 
-export async function DELETE(request: Request): Promise<Response> {
+async function remove(request: Request): Promise<Response> {
   const id = slotOf(request)
   if (!id) return text(400, 'invalid slot')
   if (configured()) await del(PREFIX + id).catch(() => undefined)
   return empty()
 }
+
+/** A storage failure answers 502 with the store's message (it names no secrets), not a bare 500. */
+const guarded =
+  (handler: (request: Request) => Promise<Response>) =>
+  async (request: Request): Promise<Response> => {
+    try {
+      return await handler(request)
+    } catch (e) {
+      console.error('photo-relay', e)
+      return text(502, `Storage error: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+export const POST = guarded(post)
+export const GET = guarded(get_)
+export const DELETE = guarded(remove)

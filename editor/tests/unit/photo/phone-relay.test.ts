@@ -68,6 +68,15 @@ describe('P1-11 the photo relay (server)', () => {
     expect(await (await relay.GET(req('GET', ''))).json()).toEqual({ available: true })
   })
 
+  it('P1-11: a storage failure answers 502 with its message, not a bare 500', async () => {
+    const blob = await import('@vercel/blob')
+    vi.mocked(blob.get).mockRejectedValueOnce(new Error('Vercel Blob: the store is unavailable'))
+    vi.spyOn(console, 'error').mockImplementationOnce(() => undefined)
+    const r = await relay.GET(req('GET', `?id=${SLOT}`))
+    expect(r.status).toBe(502)
+    expect(await r.text()).toContain('the store is unavailable')
+  })
+
   it('P1-11: knows JPEG, PNG and HEIC by their first bytes, the same way as the phone page', async () => {
     const { imageType: pageImageType } = await import('../../../src/app/photo/imageType')
     const cases: [Uint8Array, string | null][] = [
