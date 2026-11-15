@@ -53,35 +53,83 @@ export interface Registered {
 
 const toMat = (cv: Cv, data: Uint8Array, w: number, h: number): Mat => { const m = new cv.Mat(h, w, cv.CV_8UC1); m.data.set(data); return m; };
 
+/** AKAZE keypoints (x, y pairs) and their descriptors, for one detector threshold. */
+interface Features { xy: Float32Array; n: number; desc: Mat }
+
+/**
+ * A grey image prepared for feature matching. Keypoints and descriptors are computed once per detector threshold
+ * and kept: the photo is matched against every candidate sheet and then again for the trace, and the loose pass
+ * reuses the strict pass's features. Call `dispose()` to free the descriptors (WASM memory).
+ */
+class FeatureSide {
+  private mat: Mat | null = null;
+  private readonly byThreshold = new Map<number, Features>();
+  constructor(private readonly cv: Cv, readonly img: GrayImage, private readonly clahe: boolean) {}
+  get(threshold: number): Features {
+    const known = this.byThreshold.get(threshold);
+    if (known) return known;
+    const cv = this.cv;
+    if (!this.mat) {
+      this.mat = toMat(cv, this.img.data, this.img.w, this.img.h);
+      if (this.clahe) { const c = new cv.CLAHE(3.0, new cv.Size(8, 8)); c.apply(this.mat, this.mat); c.delete(); } // the drawing is faint through trace; lift local contrast
+    }
+    const det = new cv.AKAZE();
+    det.setThreshold(threshold);
+    const kp = new cv.KeyPointVector(), desc = new cv.Mat(), none = new cv.Mat();
+    det.detectAndCompute(this.mat, none, kp, desc);
+    const n = kp.size(), xy = new Float32Array(n * 2);
+    for (let i = 0; i < n; i++) { const p = kp.get(i).pt; xy[i * 2] = p.x; xy[i * 2 + 1] = p.y; }
+    kp.delete(); none.delete(); det.delete();
+    const f = { xy, n, desc };
+    this.byThreshold.set(threshold, f);
+    return f;
+  }
+  dispose(): void {
+    this.mat?.delete(); this.mat = null;
+    for (const f of this.byThreshold.values()) f.desc.delete();
+    this.byThreshold.clear();
+  }
+}
+
 /**
  * Feature-based homographies between two grey images, H (a -> b) in the given pixel frames, the most consistent
  * first. Up to `rounds` per detector threshold: after each RANSAC fit its inliers are set aside and the rest fitted
  * again, because when the two images are drawn differently a wrong but larger consensus (repeated symbols, a
  * regular grid) can hide the right one. The caller checks which one is right.
  */
-function featureCandidates(cv: Cv, a: GrayImage, b: GrayImage, log: Log, { thresholds = [0.001, 0.0003], ratio = 0.8, rounds = 3, enough = 40, label = "features" }: { thresholds?: number[]; ratio?: number; rounds?: number; enough?: number; label?: string } = {}): FeatureMatch[] {
-  const A = toMat(cv, a.data, a.w, a.h), B = toMat(cv, b.data, b.w, b.h);
-  const clahe = new cv.CLAHE(3.0, new cv.Size(8, 8));
-  clahe.apply(A, A); // the drawing is faint through trace; lift local contrast
+/**
+ * The two nearest descriptors of `b` for every descriptor of `a` (brute force, Hamming): per keypoint of `a`, the
+ * best match's index in `b` and both distances (-1: fewer than two). The slowest step of a match on a large sheet,
+ * so the loose pass reuses the strict pass's (same features, only the ratio test differs).
+ */
+interface Knn { train: Int32Array; d1: Float32Array; d2: Float32Array }
+function knnMatch(cv: Cv, fA: Features, fB: Features, cache: Map<string, Knn> | undefined, key: string): Knn {
+  const known = cache?.get(key);
+  if (known) return known;
+  const train = new Int32Array(fA.n).fill(-1), d1 = new Float32Array(fA.n), d2 = new Float32Array(fA.n);
+  if (fA.n >= 8 && fB.n >= 8) {
+    const bf = new cv.BFMatcher(cv.NORM_HAMMING, false), knn = new cv.DMatchVectorVector();
+    bf.knnMatch(fA.desc, fB.desc, knn, 2);
+    for (let i = 0; i < knn.size(); i++) {
+      const pair = knn.get(i);
+      if (pair.size() >= 2) { const m = pair.get(0), n = pair.get(1); train[m.queryIdx] = m.trainIdx; d1[m.queryIdx] = m.distance; d2[m.queryIdx] = n.distance; }
+      pair.delete();
+    }
+    bf.delete(); knn.delete();
+  }
+  const k = { train, d1, d2 };
+  cache?.set(key, k);
+  return k;
+}
+
+function featureCandidates(cv: Cv, a: FeatureSide, b: FeatureSide, log: Log, { thresholds = [0.001, 0.0003], ratio = 0.8, rounds = 3, enough = 40, label = "features", knnCache }: { thresholds?: number[]; ratio?: number; rounds?: number; enough?: number; label?: string; knnCache?: Map<string, Knn> } = {}): FeatureMatch[] {
   const out: FeatureMatch[] = [];
   for (const threshold of thresholds) {
-    const det = new cv.AKAZE();
-    det.setThreshold(threshold);
-    const kA = new cv.KeyPointVector(), kB = new cv.KeyPointVector(), dA = new cv.Mat(), dB = new cv.Mat(), none = new cv.Mat();
-    det.detectAndCompute(A, none, kA, dA);
-    det.detectAndCompute(B, none, kB, dB);
+    const fA = a.get(threshold), fB = b.get(threshold);
+    const knn = knnMatch(cv, fA, fB, knnCache, String(threshold));
     const good: [number, number][] = [];
-    if (kA.size() >= 8 && kB.size() >= 8) {
-      const bf = new cv.BFMatcher(cv.NORM_HAMMING, false), knn = new cv.DMatchVectorVector();
-      bf.knnMatch(dA, dB, knn, 2);
-      for (let i = 0; i < knn.size(); i++) {
-        const pair = knn.get(i);
-        if (pair.size() >= 2) { const m = pair.get(0), n = pair.get(1); if (m.distance < ratio * n.distance) good.push([m.queryIdx, m.trainIdx]); }
-        pair.delete();
-      }
-      bf.delete(); knn.delete();
-    }
-    const pts = good.map(([q, t]) => { const p = kA.get(q).pt, r = kB.get(t).pt; return [p.x, p.y, r.x, r.y]; });
+    for (let q = 0; q < fA.n; q++) if (knn.train[q] >= 0 && knn.d1[q] < ratio * knn.d2[q]) good.push([q, knn.train[q]]);
+    const pts = good.map(([q, t]) => [fA.xy[q * 2], fA.xy[q * 2 + 1], fB.xy[t * 2], fB.xy[t * 2 + 1]]);
     const found: number[] = [];
     for (let round = 0; round < rounds && pts.length >= 12; round++) {
       const src = new cv.Mat(pts.length, 1, cv.CV_32FC2), dst = new cv.Mat(pts.length, 1, cv.CV_32FC2), mask = new cv.Mat();
@@ -97,25 +145,58 @@ function featureCandidates(cv: Cv, a: GrayImage, b: GrayImage, log: Log, { thres
       found.push(inliers);
       if (inliers < 8) break;
     }
-    log(`${label} (threshold ${threshold}): photo ${kA.size()}, drawing ${kB.size()}, matches ${good.length}, inliers ${found.join(" / ") || 0}`);
-    kA.delete(); kB.delete(); dA.delete(); dB.delete(); none.delete(); det.delete();
+    log(`${label} (threshold ${threshold}): photo ${fA.n}, drawing ${fB.n}, matches ${good.length}, inliers ${found.join(" / ") || 0}`);
     if (out.some((m) => m.inliers >= enough)) break;
   }
-  A.delete(); B.delete(); clahe.delete();
   return out.sort((p, q) => q.inliers - p.inliers);
+}
+
+/** Long side of the rasters the features are found on. */
+const FEATURE_SIDE = 2000;
+
+/** The photo, prepared once for every match against it: its grey version and its features (see FeatureSide). */
+interface PhotoPrep { gray: GrayImage; side: FeatureSide }
+const photoPreps = new WeakMap<RgbImage, PhotoPrep>();
+
+function prepPhoto(cv: Cv, photo: RgbImage): PhotoPrep {
+  let prep = photoPreps.get(photo);
+  if (prep) return prep;
+  // brightest channel rather than luminance: coloured ink nearly vanishes, the drawing's grey linework does not
+  const data = new Uint8Array(photo.w * photo.h);
+  for (let i = 0, j = 0; i < data.length; i++, j += 3) data[i] = Math.max(photo.rgb[j], photo.rgb[j + 1], photo.rgb[j + 2]);
+  const sp = Math.min(1, FEATURE_SIDE / Math.max(photo.w, photo.h)), pw = Math.round(photo.w * sp), ph = Math.round(photo.h * sp);
+  const small: GrayImage = { data: resizeRaw(cv, data, photo.w, photo.h, 1, pw, ph), w: pw, h: ph };
+  prep = { gray: { data, w: photo.w, h: photo.h }, side: new FeatureSide(cv, small, true) };
+  photoPreps.set(photo, prep);
+  return prep;
+}
+
+/**
+ * Get the photo ready for matching (grey version, features at the first detector threshold) ahead of the first
+ * probe. The photo worker runs this while the main thread renders the first candidate sheet.
+ */
+export async function preparePhoto(photo: RgbImage): Promise<void> {
+  const cv = await loadCv();
+  prepPhoto(cv, photo).side.get(0.001);
+}
+
+/** Free the photo's cached features (WASM memory). The worker drops them with the photo. */
+export function releasePhoto(photo: RgbImage): void {
+  photoPreps.get(photo)?.side.dispose();
+  photoPreps.delete(photo);
 }
 
 /** Side of the raster the tile check runs at. */
 const CHECK_SIDE = 1400;
+const checkSize = (ref: GrayImage) => { const r = Math.min(1, CHECK_SIDE / Math.max(ref.w, ref.h)); return { r, w: Math.round(ref.w * r), h: Math.round(ref.h * r) }; };
 
 /**
  * Does H (photo px -> ref px) put the drawing's linework onto the photo's? The photo is warped into the sheet and
  * tiles of the drawing are matched in a small window: under a wrong H nothing locks, under a right one tiles lock
  * wherever both show linework, even when the two are drawn differently.
  */
-async function checkHomography(cv: Cv, photo: GrayImage, ref: GrayImage, H: Mat3): Promise<{ tiles: number; usable: number }> {
-  const r = Math.min(1, CHECK_SIDE / Math.max(ref.w, ref.h)), w = Math.round(ref.w * r), h = Math.round(ref.h * r);
-  const refSmall = await blurRaw(cv, await resizeRaw(cv, ref.data, ref.w, ref.h, 1, w, h), w, h, 1, 1.0);
+function checkHomography(cv: Cv, photo: GrayImage, ref: GrayImage, H: Mat3, refSmall: Uint8Array): { tiles: number; usable: number } {
+  const { r, w, h } = checkSize(ref);
   const warped = warpGray(photo, matInv3(matMul3(scaleMat(r, r), H)), null, w, h);
   const f = measureField(cv, refSmall, warped, w, h, { step: 48, tile: 64, search: 10 });
   const st = fieldStats(f);
@@ -137,34 +218,40 @@ const MIN_TILES = 12, MIN_TILE_SHARE = 0.08;
  * text), a looser match adds more. Each candidate is checked tile by tile, and the one that locks most tiles wins:
  * a handful of right matches is enough, and a large wrong consensus is turned down.
  */
-async function coarseHomography(cv: Cv, photo: GrayImage, ref: GrayImage, log: Log): Promise<CoarseMatch | null> {
-  const sp = Math.min(1, 2000 / Math.max(photo.w, photo.h)), sr = Math.min(1, 2000 / Math.max(ref.w, ref.h));
-  const pw = Math.round(photo.w * sp), ph = Math.round(photo.h * sp), rw = Math.round(ref.w * sr), rh = Math.round(ref.h * sr);
-  const a: GrayImage = { data: await resizeRaw(cv, photo.data, photo.w, photo.h, 1, pw, ph), w: pw, h: ph };
-  const b: GrayImage = { data: await resizeRaw(cv, ref.data, ref.w, ref.h, 1, rw, rh), w: rw, h: rh };
+async function coarseHomography(cv: Cv, prep: PhotoPrep, ref: GrayImage, log: Log): Promise<CoarseMatch | null> {
+  const photo = prep.gray, a = prep.side;
+  const sr = Math.min(1, FEATURE_SIDE / Math.max(ref.w, ref.h)), rw = Math.round(ref.w * sr), rh = Math.round(ref.h * sr);
+  const b = new FeatureSide(cv, { data: resizeRaw(cv, ref.data, ref.w, ref.h, 1, rw, rh), w: rw, h: rh }, false);
   // lift to full-resolution frames: photo px -> ref px
-  const lift = (H: Mat3) => matMul3(scaleMat(ref.w / rw, ref.h / rh), matMul3(H, scaleMat(pw / photo.w, ph / photo.h)));
+  const lift = (H: Mat3) => matMul3(scaleMat(ref.w / rw, ref.h / rh), matMul3(H, scaleMat(a.img.w / photo.w, a.img.h / photo.h)));
+  // the drawing as the tile check sees it, made once for all the candidates
+  let refCheck: Uint8Array | null = null;
   let best: CoarseMatch | null = null;
   const tried: Mat3[] = [];
-  const consider = async (ms: FeatureMatch[], via: string) => {
+  const consider = (ms: FeatureMatch[], via: string) => {
     for (const m of ms.slice(0, 6)) {
       const H = lift(m.H);
       // the same alignment found twice (another threshold or pass): check it once
       if (tried.some((T) => sameHomography(T, H, ref.w, ref.h))) continue;
       tried.push(H);
-      const c = await checkHomography(cv, photo, ref, H);
+      if (!refCheck) { const { w, h } = checkSize(ref); refCheck = blurRaw(cv, resizeRaw(cv, ref.data, ref.w, ref.h, 1, w, h), w, h, 1, 1.0); }
+      const c = checkHomography(cv, photo, ref, H, refCheck);
       const ok = c.tiles >= MIN_TILES && c.tiles >= MIN_TILE_SHARE * c.usable;
       log(`  ${via}: ${m.inliers} inliers, ${c.tiles} of ${c.usable} tiles lock${ok ? "" : " (rejected)"}`);
       if (ok && (!best || c.tiles > best.tiles)) best = { ...m, H, tiles: c.tiles, via };
     }
   };
-  const strict = featureCandidates(cv, a, b, log);
-  await consider(strict, "features");
-  if (best) return best;
-  // nothing locked on: the print may be drawn differently from the app's sheet. A looser ratio test keeps more of
-  // the right matches (and more wrong ones, which the tile check turns down)
-  await consider(featureCandidates(cv, a, b, log, { thresholds: [0.001], ratio: 0.9, rounds: 4, label: "loose features" }), "loose features");
-  return best;
+  const knnCache = new Map<string, Knn>();
+  try {
+    consider(featureCandidates(cv, a, b, log, { knnCache }), "features");
+    if (best) return best;
+    // nothing locked on: the print may be drawn differently from the app's sheet. A looser ratio test keeps more of
+    // the right matches (and more wrong ones, which the tile check turns down)
+    consider(featureCandidates(cv, a, b, log, { thresholds: [0.001], ratio: 0.9, rounds: 4, label: "loose features", knnCache }), "loose features");
+    return best;
+  } finally {
+    b.dispose();
+  }
 }
 
 /** Bilinear grey warp of the photo into a sheet-space raster. `toPhoto` maps output px -> photo px. */
@@ -367,78 +454,108 @@ function completeField(f: MeasuredField, lambda = 0.3): MeasuredField {
 }
 
 /**
+ * Where a quick probe (probePhoto) found the sheet in the photo: its homography (photo px -> px of the probe's
+ * render, `w` x `h`). The full registration starts from it instead of matching features again.
+ */
+export interface Seed { H: Mat3; w: number; h: number; inliers: number; matches: number }
+
+/**
  * @param photo {rgb,w,h}  @param ref {rgb,w,h} rendered drawing at output resolution
+ * @param seed the probe's match of this photo to this sheet (used with `refine` only; checked by the refit, and
+ *        features are matched afresh if it does not hold)
  * @returns {rgb, valid, w, h, report} photo resampled into sheet space
  */
-export async function registerPhoto(photo: RgbImage, ref: RgbImage, { log = console.log, refine = true }: { log?: Log; refine?: boolean } = {}): Promise<Registered> {
+export async function registerPhoto(photo: RgbImage, ref: RgbImage, { log = console.log, refine = true, seed }: { log?: Log; refine?: boolean; seed?: Seed } = {}): Promise<Registered> {
   const cv = await loadCv();
   const refGray = rgbToGray(ref.rgb, ref.w, ref.h);
-  // brightest channel rather than luminance: coloured ink nearly vanishes, the drawing's grey linework does not
-  const photoGray = new Uint8Array(photo.w * photo.h);
-  for (let i = 0, j = 0; i < photoGray.length; i++, j += 3) photoGray[i] = Math.max(photo.rgb[j], photo.rgb[j + 1], photo.rgb[j + 2]);
+  const prep = prepPhoto(cv, photo), pg = prep.gray;
 
-  // a) global homography from features, at a working size of ~2000 px, checked tile by tile
-  const feat = await coarseHomography(cv, { data: photoGray, w: photo.w, h: photo.h }, { data: refGray, w: ref.w, h: ref.h }, log);
-  if (!feat) throw new Error("Could not register the photo to the drawing: no alignment puts the drawing's lines onto the photo's. Check that the page is the sheet in the photo.");
+  // a) global homography from features, at a working size of ~2000 px, checked tile by tile; or the probe's
+  const matchFeatures = async (): Promise<FeatureMatch> => {
+    const m = await coarseHomography(cv, prep, { data: refGray, w: ref.w, h: ref.h }, log);
+    if (!m) throw new Error("Could not register the photo to the drawing: no alignment puts the drawing's lines onto the photo's. Check that the page is the sheet in the photo.");
+    return m;
+  };
+  const seeded = !!seed && refine;
+  let feat: FeatureMatch;
+  if (seed && seeded) {
+    feat = { H: matMul3(scaleMat(ref.w / seed.w, ref.h / seed.h), seed.H), inliers: seed.inliers, matches: seed.matches };
+    log(`starting from the sheet match (${seed.inliers} inliers)`);
+  } else feat = await matchFeatures();
   let H = feat.H;
   const report: RegistrationReport = { featureMatches: feat.matches, featureInliers: feat.inliers, scale: 1 };
-
-  // how many photo pixels land on one sheet pixel near the sheet centre
-  const c0 = applyH(matInv3(H), ref.w / 2, ref.h / 2), c1 = applyH(matInv3(H), ref.w / 2 + 1, ref.h / 2);
-  report.photoPxPerSheetPx = Math.hypot(c1[0] - c0[0], c1[1] - c0[1]);
 
   // b) refine against the drawing itself at half the output resolution
   let field: Field | null = null;
   const r = Math.min(1, 2700 / Math.max(ref.w, ref.h)), fw = Math.round(ref.w * r), fh = Math.round(ref.h * r);
+  const refSmall = refine ? blurRaw(cv, resizeRaw(cv, refGray, ref.w, ref.h, 1, fw, fh), fw, fh, 1, 1.0) : null;
+  const toSmall = scaleMat(fw / ref.w, fh / ref.h);
+  let locked = false;
+  if (refSmall) {
+    const refit = (H0: Mat3): { H: Mat3; locked: boolean; before: number } => {
+      let H = H0, before = NaN;
+      for (let round = 0; round < 2; round++) {
+        // re-fit the homography on tile matches: hundreds of well-spread points instead of clustered features
+        const toPhoto = matInv3(matMul3(toSmall, H)); // small sheet px -> photo px
+        const f = measureField(cv, refSmall, warpGray(pg, toPhoto, null, fw, fh), fw, fh, { search: round === 0 ? 28 : 16 });
+        const st = fieldStats(f);
+        log(`homography refit ${round + 1}: ${st.nodes}/${st.total} tiles locked, median offset ${(st.median / r).toFixed(2)} px, p95 ${(st.p95 / r).toFixed(2)} px (sheet px)`);
+        if (round === 0) before = st.median / r;
+        if (st.nodes < 12) return { H, locked: false, before };
+        const src = new cv.Mat(st.nodes, 1, cv.CV_32FC2), dst = new cv.Mat(st.nodes, 1, cv.CV_32FC2), mask = new cv.Mat();
+        for (let g = 0, k = 0; g < f.okx.length; g++) {
+          if (!(f.okx[g] && f.oky[g])) continue;
+          const cx = f.x0 + (g % f.gw) * f.step, cy = f.y0 + Math.floor(g / f.gw) * f.step;
+          const p = applyH(toPhoto, cx + f.dx[g], cy + f.dy[g]);
+          src.data32F[k * 2] = p[0]; src.data32F[k * 2 + 1] = p[1]; dst.data32F[k * 2] = cx / r; dst.data32F[k * 2 + 1] = cy / r; k++;
+        }
+        const Hm = cv.findHomography(src, dst, cv.RANSAC, 4.0, mask);
+        if (!Hm.empty()) H = Array.from(Hm.data64F);
+        src.delete(); dst.delete(); mask.delete(); Hm.delete();
+      }
+      return { H, locked: true, before };
+    };
+    let fit = refit(H);
+    if (!fit.locked && seeded) {
+      // the probe's coarse match did not hold at this resolution: match features at this one, as without a seed
+      log("the sheet match did not hold at full resolution; matching features again");
+      feat = await matchFeatures();
+      report.featureMatches = feat.matches; report.featureInliers = feat.inliers;
+      fit = refit(feat.H);
+    }
+    report.offsetBeforeRefine = fit.before;
+    locked = fit.locked;
+    H = fit.H;
+    if (!locked) log("too few tiles locked on; keeping the feature-based registration");
+  }
+
+  // how many photo pixels land on one sheet pixel near the sheet centre
+  const c0 = applyH(matInv3(feat.H), ref.w / 2, ref.h / 2), c1 = applyH(matInv3(feat.H), ref.w / 2 + 1, ref.h / 2);
+  report.photoPxPerSheetPx = Math.hypot(c1[0] - c0[0], c1[1] - c0[1]);
   const scale = Math.max(0.5, Math.min(3, 1 / (1.5 * report.photoPxPerSheetPx))); // sheet px per ~1.5 photo px
-  if (refine) {
-    const refSmall = await blurRaw(cv, await resizeRaw(cv, refGray, ref.w, ref.h, 1, fw, fh), fw, fh, 1, 1.0);
-    const pg = { data: photoGray, w: photo.w, h: photo.h };
-    const toSmall = scaleMat(fw / ref.w, fh / ref.h);
-    let locked = true;
-    for (let round = 0; round < 2 && locked; round++) {
-      // re-fit the homography on tile matches: hundreds of well-spread points instead of clustered features
-      const toPhoto = matInv3(matMul3(toSmall, H)); // small sheet px -> photo px
-      const f = measureField(cv, refSmall, warpGray(pg, toPhoto, null, fw, fh), fw, fh, { search: round === 0 ? 28 : 16 });
-      const st = fieldStats(f);
-      log(`homography refit ${round + 1}: ${st.nodes}/${st.total} tiles locked, median offset ${(st.median / r).toFixed(2)} px, p95 ${(st.p95 / r).toFixed(2)} px (sheet px)`);
-      if (round === 0) report.offsetBeforeRefine = st.median / r;
-      if (st.nodes < 12) { log("too few tiles locked on; keeping the feature-based registration"); locked = false; break; }
-      const src = new cv.Mat(st.nodes, 1, cv.CV_32FC2), dst = new cv.Mat(st.nodes, 1, cv.CV_32FC2), mask = new cv.Mat();
-      for (let g = 0, k = 0; g < f.okx.length; g++) {
-        if (!(f.okx[g] && f.oky[g])) continue;
-        const cx = f.x0 + (g % f.gw) * f.step, cy = f.y0 + Math.floor(g / f.gw) * f.step;
-        const p = applyH(toPhoto, cx + f.dx[g], cy + f.dy[g]);
-        src.data32F[k * 2] = p[0]; src.data32F[k * 2 + 1] = p[1]; dst.data32F[k * 2] = cx / r; dst.data32F[k * 2 + 1] = cy / r; k++;
-      }
-      const Hm = cv.findHomography(src, dst, cv.RANSAC, 4.0, mask);
-      if (!Hm.empty()) H = Array.from(Hm.data64F);
-      src.delete(); dst.delete(); mask.delete(); Hm.delete();
+  if (refSmall && locked) {
+    // What a homography cannot explain (wrinkle, curl, lens) becomes a smooth residual field, built up over
+    // a few passes. These passes look at a copy of the photo with the markup suppressed, so that heavy pen
+    // or marker strokes cannot pull the alignment towards themselves.
+    const small = warpRgb(photo, matInv3(matMul3(toSmall, H)), null, 1, fw, fh);
+    const base = await suppressMarkup(cv, small, await resizeRaw(cv, ref.rgb, ref.w, ref.h, 3, fw, fh), fw, fh, scale * r);
+    let check: FieldStats | null = null, best: { check: FieldStats; field: Field | null } | null = null;
+    for (let pass = 0; pass < 5; pass++) {
+      const m = measureField(cv, refSmall, field ? warpByField(base, field, fw, fh) : base, fw, fh, { search: pass === 0 ? 16 : 12 });
+      check = fieldStats(m);
+      log(`wrinkle correction ${pass === 0 ? "before" : "pass " + pass}: median offset ${(check.median / r).toFixed(2)} px, p95 ${(check.p95 / r).toFixed(2)} px, ${check.nodes} tiles pinned both ways + ${check.partial} one way, of ${check.total}`);
+      if (pass === 0) { report.offsetAfterHomography = check.median / r; log(`  tiles not used: ${JSON.stringify(m.why)}`); }
+      if (check.nodes < 12) break;
+      // keep whichever state measured best; stop as soon as a pass makes things worse
+      if (best && check.median > best.check.median * 0.97) { if (check.median > best.check.median) { field = best.field; check = best.check; } break; }
+      best = { check, field: field ? { ...field, dx: Float32Array.from(field.dx), dy: Float32Array.from(field.dy) } : null };
+      if (pass === 4 || (pass > 0 && check.median / r < 0.3)) break;
+      const inc = completeField(m);
+      if (!field) field = inc;
+      else for (let g = 0; g < field.dx.length; g++) { field.dx[g] += inc.dx[g]; field.dy[g] += inc.dy[g]; }
     }
-    if (locked) {
-      // What a homography cannot explain (wrinkle, curl, lens) becomes a smooth residual field, built up over
-      // a few passes. These passes look at a copy of the photo with the markup suppressed, so that heavy pen
-      // or marker strokes cannot pull the alignment towards themselves.
-      const small = warpRgb(photo, matInv3(matMul3(toSmall, H)), null, 1, fw, fh);
-      const base = await suppressMarkup(cv, small, await resizeRaw(cv, ref.rgb, ref.w, ref.h, 3, fw, fh), fw, fh, scale * r);
-      let check: FieldStats | null = null, best: { check: FieldStats; field: Field | null } | null = null;
-      for (let pass = 0; pass < 5; pass++) {
-        const m = measureField(cv, refSmall, field ? warpByField(base, field, fw, fh) : base, fw, fh, { search: pass === 0 ? 16 : 12 });
-        check = fieldStats(m);
-        log(`wrinkle correction ${pass === 0 ? "before" : "pass " + pass}: median offset ${(check.median / r).toFixed(2)} px, p95 ${(check.p95 / r).toFixed(2)} px, ${check.nodes} tiles pinned both ways + ${check.partial} one way, of ${check.total}`);
-        if (pass === 0) { report.offsetAfterHomography = check.median / r; log(`  tiles not used: ${JSON.stringify(m.why)}`); }
-        if (check.nodes < 12) break;
-        // keep whichever state measured best; stop as soon as a pass makes things worse
-        if (best && check.median > best.check.median * 0.97) { if (check.median > best.check.median) { field = best.field; check = best.check; } break; }
-        best = { check, field: field ? { ...field, dx: Float32Array.from(field.dx), dy: Float32Array.from(field.dy) } : null };
-        if (pass === 4 || (pass > 0 && check.median / r < 0.3)) break;
-        const inc = completeField(m);
-        if (!field) field = inc;
-        else for (let g = 0; g < field.dx.length; g++) { field.dx[g] += inc.dx[g]; field.dy[g] += inc.dy[g]; }
-      }
-      const last = check as FieldStats | null;
-      if (last) { report.offsetFinal = last.median / r; report.offsetFinalP95 = last.p95 / r; report.tilesLocked = last.nodes; report.tilesTotal = last.total; }
-    }
+    const last = check as FieldStats | null;
+    if (last) { report.offsetFinal = last.median / r; report.offsetFinalP95 = last.p95 / r; report.tilesLocked = last.nodes; report.tilesTotal = last.total; }
   }
 
   // c) resample the colour photo once, straight into sheet space
@@ -464,18 +581,21 @@ export interface Probe {
   inliers: number
   /** Tiles of the drawing that lock onto the photo: how well the sheet fits it, whatever style it is drawn in. */
   tiles: number
+  /** Feature matches that passed the ratio test. */
+  matches: number
+  /** The match: photo px -> px of the probe's render (the full registration can start from it, see Seed). */
+  H: Mat3
 }
 
 export async function probePhoto(photo: RgbImage, ref: RgbImage, refDpi: number, log: Log = () => {}): Promise<Probe | null> {
   const cv = await loadCv();
-  const refGray = rgbToGray(ref.rgb, ref.w, ref.h), photoGray = new Uint8Array(photo.w * photo.h);
-  for (let i = 0, j = 0; i < photoGray.length; i++, j += 3) photoGray[i] = Math.max(photo.rgb[j], photo.rgb[j + 1], photo.rgb[j + 2]);
-  const feat = await coarseHomography(cv, { data: photoGray, w: photo.w, h: photo.h }, { data: refGray, w: ref.w, h: ref.h }, log);
+  const refGray = rgbToGray(ref.rgb, ref.w, ref.h);
+  const feat = await coarseHomography(cv, prepPhoto(cv, photo), { data: refGray, w: ref.w, h: ref.h }, log);
   if (!feat) return null;
   const H = feat.H, inv = matInv3(H);
   // measure where the photo actually looks: around the sheet position of the photo centre
   const c = applyH(H, photo.w / 2, photo.h / 2);
   const x = Math.max(0, Math.min(ref.w, c[0])), y = Math.max(0, Math.min(ref.h, c[1]));
   const p0 = applyH(inv, x, y), p1 = applyH(inv, x + 1, y), p2 = applyH(inv, x, y + 1);
-  return { seenDpi: refDpi * Math.sqrt(Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) * Math.hypot(p2[0] - p0[0], p2[1] - p0[1])), inliers: feat.inliers, tiles: feat.tiles };
+  return { seenDpi: refDpi * Math.sqrt(Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) * Math.hypot(p2[0] - p0[0], p2[1] - p0[1])), inliers: feat.inliers, tiles: feat.tiles, matches: feat.matches, H };
 }

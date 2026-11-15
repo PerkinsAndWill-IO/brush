@@ -3,8 +3,10 @@
  * One worker per import; the client terminates it afterwards, which frees the WASM heap.
  */
 import './pipeline/cv-browser'
+import { createModelPool } from './modelPool'
+import { useModelWorkers } from './pipeline/fit'
 import { decodeHeif, isHeif } from './heic'
-import { photoToMarkup, probe, type RgbImage } from './pipeline'
+import { photoToMarkup, preparePhoto, probe, releasePhoto, type RgbImage } from './pipeline'
 import { rgbaToRgb } from './pipeline/raster'
 import type { PhotoRequest, PhotoResponse, RasterMessage } from './protocol'
 
@@ -12,6 +14,10 @@ const scope = self as unknown as {
   postMessage(message: PhotoResponse): void
   onmessage: ((e: MessageEvent<PhotoRequest>) => void) | null
 }
+
+// the ink is read on a few helper workers at once (one core is left for the page)
+const cores = navigator.hardwareConcurrency || 2
+if (typeof Worker !== 'undefined' && cores > 2) useModelWorkers(createModelPool(Math.min(4, cores - 1)))
 
 /** Photos larger than this on the long side are scaled down while decoding (memory; no sheet needs more). */
 const MAX_PHOTO_SIDE = 6000
@@ -58,8 +64,12 @@ scope.onmessage = async (e) => {
   const log = (line: string) => post({ id: req.id, type: 'log', line })
   try {
     if (req.type === 'decode') {
+      if (photo) releasePhoto(photo)
       photo = await decode(req.blob)
       post({ id: req.id, ok: true, type: 'decode', w: photo.w, h: photo.h })
+      // find the photo's features now, while the main thread renders the first sheet to compare it with
+      // (a failure here shows up again, with its message, in the probe)
+      await preparePhoto(photo).catch(() => {})
       return
     }
     if (!photo) throw new Error('no photo decoded yet')

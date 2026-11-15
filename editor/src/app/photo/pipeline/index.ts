@@ -12,10 +12,11 @@ import { loadCv } from './cv'
 import { isolateMarkup } from './isolate'
 import { traceOutlines } from './outline'
 import type { Log, RgbImage } from './raster'
-import { probePhoto, registerPhoto, type Probe, type RegistrationReport } from './register'
+import { probePhoto, registerPhoto, type Probe, type RegistrationReport, type Seed } from './register'
 import { centrelines } from './strokes'
 
-export type { Probe, RegistrationReport } from './register'
+export type { Probe, RegistrationReport, Seed } from './register'
+export { preparePhoto, releasePhoto } from './register'
 export type { RgbImage } from './raster'
 
 export type InkChoice = 'both' | 'color' | 'dark'
@@ -36,6 +37,8 @@ export interface MarkupOptions {
   maxStroke?: number
   /** Skip the wrinkle correction (feature-based registration only). */
   refine?: boolean
+  /** Where the probe found the sheet in the photo: the registration starts there instead of matching features again. */
+  seed?: Seed
   log?: Log
 }
 
@@ -76,11 +79,11 @@ export function probe(photo: RgbImage, ref: RgbImage, refDpi: number, log?: Log)
  * @param dpi resolution of `ref`: pixels per inch of sheet
  */
 export async function photoToMarkup(photo: RgbImage, ref: RgbImage, dpi: number, opts: MarkupOptions = {}): Promise<MarkupResult> {
-  const { ink = 'both', colorThresh, darkThresh, minArea, maxStroke, refine = true, log = () => {} } = opts
+  const { ink = 'both', colorThresh, darkThresh, minArea, maxStroke, refine = true, seed, log = () => {} } = opts
   const cv = await loadCv()
   const pxToPt = 72 / dpi
 
-  const reg = await registerPhoto(photo, ref, { log, refine })
+  const reg = await registerPhoto(photo, ref, { log, refine, seed })
   const s = reg.report.scale
   log('separating the ink from the print…')
   const iso = await isolateMarkup(reg, { scale: s, ink, colorThresh, darkThresh, minArea, maxStroke, log })
