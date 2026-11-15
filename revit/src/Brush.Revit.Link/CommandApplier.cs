@@ -40,7 +40,8 @@ internal sealed class CommandApplier(Document doc, CommandLedger ledger)
                 results.Add(CommandResult.Skipped(c.Id, "already applied"));
                 continue;
             }
-            var op = CommandPlanner.Plan(c, geometry, ledger.Knows);
+            // S2: a copy pasted on another sheet maps through that sheet's plan viewport
+            var op = CommandPlanner.Plan(c, geometry, ledger.Knows, id => SheetReader.ParseId(id) is { } sid && doc.GetElement(sid) is ViewSheet vs ? SheetReader.GeometryOf(vs) : null);
             results.Add(op is RejectedOp r ? CommandResult.Failed(c.Id, r.Reason) : Run(c.Id, op));
         }
         if (results.Any(r => r.Status == CommandStatus.Applied)) group.Assimilate();
@@ -58,6 +59,14 @@ internal sealed class CommandApplier(Document doc, CommandLedger ledger)
             if (!ledger.Knows(id))
             {
                 results.Add(CommandResult.Skipped(id, "not a command of this link session"));
+                continue;
+            }
+            if (ledger.MovesOf(id) is { } moves)
+            {
+                // S2: every element the move touched goes back where it was (the moved ones and the walls that followed)
+                var back = InTransaction($"Brush: undo {id}", () => RestoreLocations(moves));
+                if (back.Status == CommandStatus.Applied) ledger.Forget(id);
+                results.Add(back with { Id = id });
                 continue;
             }
             if (ledger.TypeChangesOf(id) is { } changes)
@@ -92,6 +101,7 @@ internal sealed class CommandApplier(Document doc, CommandLedger ledger)
     private CommandResult Run(string id, ModelOp op)
     {
         var typeChanges = new List<TypeChange>();
+        var moved = new List<MovedElement>();
         var r = InTransaction($"Brush: {id}", () => op switch
         {
             WallOp w => Walls(w),
@@ -99,13 +109,147 @@ internal sealed class CommandApplier(Document doc, CommandLedger ledger)
             InstanceOp i => Instance(i),
             DeleteOp x => Delete(x),
             SetTypeOp t => SetTypes(t, typeChanges),
+            MoveOp m => Move(m, moved),
+            CopyOp k => Copy(k),
             _ => throw new InvalidOperationException($"no executor for {op.GetType().Name}"),
         });
         r = r with { Id = id };
         if (r.Status != CommandStatus.Applied) return r;
         if (op is SetTypeOp) ledger.RecordTypeChanges(id, typeChanges);
+        else if (op is MoveOp) ledger.RecordMoves(id, moved);
         else ledger.Record(id, op is DeleteOp ? Array.Empty<string>() : r.ElementIds);
         return r;
+    }
+
+    // ─────────────── S2: move and copy ───────────────
+
+    private static string Num(double v) => v.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string Num(long v) => v.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    private static double Parse(string s) => double.Parse(s, System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Where an element is: <c>L|x0|y0|z0|x1|y1|z1</c> for a straight location line, <c>P|x|y|z|rotation</c> for a point;
+    /// null for anything else (curved walls, elements without a location), which revert then cannot put back.
+    /// </summary>
+    private static string? LocationText(Element e) => e.Location switch
+    {
+        LocationCurve { Curve: Line l } => $"L|{Num(l.GetEndPoint(0).X)}|{Num(l.GetEndPoint(0).Y)}|{Num(l.GetEndPoint(0).Z)}|{Num(l.GetEndPoint(1).X)}|{Num(l.GetEndPoint(1).Y)}|{Num(l.GetEndPoint(1).Z)}",
+        LocationPoint p => $"P|{Num(p.Point.X)}|{Num(p.Point.Y)}|{Num(p.Point.Z)}|{Num(p.Rotation)}",
+        _ => null,
+    };
+
+    /// <summary>
+    /// <c>MoveElements</c> by the op's vector. Joined walls follow (Revit's default) and hosted doors and windows go
+    /// with their wall; every element that can move (targets, and walls joined at a moved wall's ends) has its location
+    /// recorded first, so revert puts it back exactly.
+    /// </summary>
+    private (List<string>, List<string>) Move(MoveOp op, List<MovedElement> before)
+    {
+        var notes = new List<string>();
+        var ids = new List<ElementId>();
+        foreach (var hostId in op.HostIds)
+        {
+            if (SheetReader.ParseId(hostId) is { } eid && doc.GetElement(eid) is { } e) ids.Add(e.Id);
+            else notes.Add($"no element {hostId} in this model");
+        }
+        if (ids.Count == 0) throw new InvalidOperationException(string.Join("; ", notes));
+        var touched = new HashSet<ElementId>(ids);
+        foreach (var id in ids)
+            if (doc.GetElement(id) is Wall { Location: LocationCurve lc })
+                for (var end = 0; end < 2; end++)
+                    foreach (Element j in lc.get_ElementsAtJoin(end))
+                        if (j is Wall) touched.Add(j.Id);
+        foreach (var id in touched)
+        {
+            var e = doc.GetElement(id);
+            if (LocationText(e) is { } loc) before.Add(new MovedElement(SheetReader.IdOf(e), loc));
+            else if (ids.Contains(id)) notes.Add($"{SheetReader.IdOf(e)} has no straight location: undo cannot put it back exactly");
+        }
+        var v = op.Translation;
+        ElementTransformUtils.MoveElements(doc, ids, new XYZ(v.X, v.Y, v.Z));
+        return (ids.Select(id => Num(id.Value)).ToList(), notes);
+    }
+
+    /// <summary>Revert of a move: each recorded element back to its recorded location (gone ones are a note).</summary>
+    private (List<string>, List<string>) RestoreLocations(IReadOnlyList<MovedElement> moves)
+    {
+        var notes = new List<string>();
+        var back = new List<string>();
+        foreach (var m in moves)
+        {
+            if (SheetReader.ParseId(m.ElementId) is not { } eid || doc.GetElement(eid) is not { } e)
+            {
+                notes.Add($"{m.ElementId} is gone");
+                continue;
+            }
+            var f = m.Location.Split('|');
+            if (f[0] == "L" && e.Location is LocationCurve lc)
+                lc.Curve = Line.CreateBound(new XYZ(Parse(f[1]), Parse(f[2]), Parse(f[3])), new XYZ(Parse(f[4]), Parse(f[5]), Parse(f[6])));
+            else if (f[0] == "P" && e.Location is LocationPoint lp)
+            {
+                lp.Point = new XYZ(Parse(f[1]), Parse(f[2]), Parse(f[3]));
+                var turn = Parse(f[4]) - lp.Rotation;
+                if (Math.Abs(turn) > 1e-9) lp.Rotate(Line.CreateBound(lp.Point, lp.Point + XYZ.BasisZ), turn);
+            }
+            else continue;
+            back.Add(m.ElementId);
+        }
+        if (back.Count == 0) throw new InvalidOperationException(notes.Count > 0 ? string.Join("; ", notes) : "nothing to put back");
+        return (back, notes);
+    }
+
+    /// <summary>
+    /// <c>CopyElements</c>: the targets, with the doors and windows a copied wall hosts. On another level's plan the copies
+    /// are made flat (no Z) and then given that level, which keeps their offsets.
+    /// </summary>
+    private (List<string>, List<string>) Copy(CopyOp op)
+    {
+        var notes = new List<string>();
+        var ids = new HashSet<ElementId>();
+        foreach (var hostId in op.HostIds)
+        {
+            if (SheetReader.ParseId(hostId) is not { } eid || doc.GetElement(eid) is not { } e)
+            {
+                notes.Add($"no element {hostId} in this model");
+                continue;
+            }
+            ids.Add(e.Id);
+            if (e is Wall w)
+                foreach (var ins in w.FindInserts(false, false, false, false))
+                    if (doc.GetElement(ins) is FamilyInstance) ids.Add(ins);
+        }
+        if (ids.Count == 0) throw new InvalidOperationException(string.Join("; ", notes));
+        var v = op.Translation;
+        var level = op.TargetLevelId is { } lid && SheetReader.ParseId(lid) is { } lvid ? doc.GetElement(lvid) as Level : null;
+        var copies = ElementTransformUtils.CopyElements(doc, ids.ToList(), new XYZ(v.X, v.Y, level is null ? v.Z : 0));
+        if (level is not null)
+            foreach (var cid in copies)
+                if (!SetLevel(doc.GetElement(cid), level)) notes.Add($"{Num(cid.Value)} kept its level (no level parameter to set)");
+        return (copies.Select(id => id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)).ToList(), notes);
+    }
+
+    /// <summary>Put a copy on <paramref name="level"/>, keeping its offsets: a wall's base constraint, an instance's level.</summary>
+    private static bool SetLevel(Element e, Level level)
+    {
+        if (e is Wall)
+        {
+            // keep its height: a top tied to a level ("up to Level 2") could end up below the new base
+            var height = e.get_Parameter(BuiltInParameter.WALL_USER_HEIGHT_PARAM)?.AsDouble();
+            var top = e.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE);
+            if (top is { IsReadOnly: false } && top.AsElementId() != ElementId.InvalidElementId) top.Set(ElementId.InvalidElementId);
+            if (height is > 0 && e.get_Parameter(BuiltInParameter.WALL_USER_HEIGHT_PARAM) is { IsReadOnly: false } hp) hp.Set(height.Value);
+        }
+        var p = e switch
+        {
+            Wall => e.get_Parameter(BuiltInParameter.WALL_BASE_CONSTRAINT),
+            FamilyInstance { Host: Wall } => null, // a hosted door or window follows its copied wall
+            _ => e.get_Parameter(BuiltInParameter.FAMILY_LEVEL_PARAM) ?? e.get_Parameter(BuiltInParameter.INSTANCE_SCHEDULE_ONLY_LEVEL_PARAM),
+        };
+        if (e is FamilyInstance { Host: Wall }) return true;
+        if (p is null || p.IsReadOnly) return false;
+        return p.Set(level.Id);
     }
 
     private CommandResult InTransaction(string name, Func<(List<string> elements, List<string> notes)> work)

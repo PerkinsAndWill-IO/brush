@@ -101,17 +101,77 @@ public sealed class PackageHost : ILinkHost
                     results.Add(CommandResult.Skipped(c.Id, "already applied"));
                     continue;
                 }
-                var op = CommandPlanner.Plan(c, geometry, ledger.Knows);
+                var op = CommandPlanner.Plan(c, geometry, ledger.Knows, id => sheets.FirstOrDefault(s => s.Sheet.Id == id) is { } other ? GeometryOf(other.Sheet) : null);
                 results.Add(op switch
                 {
                     RejectedOp r => CommandResult.Failed(c.Id, r.Reason),
                     DeleteOp d => Delete(sheet, d),
                     SetTypeOp t => SetTypes(sheet, t),
+                    MoveOp m when c is MoveElements mv => MoveFootprints(m, mv),
+                    CopyOp k when c is CopyElements cp => CopyFootprints(k, cp),
                     _ => Add(sheet, c),
                 });
             }
             return Task.FromResult<IReadOnlyList<CommandResult>>(results);
         }
+    }
+
+    // ─────────────── S2: move and copy, on the manifest's footprints (sheet points) ───────────────
+
+    private static string FootprintText(IEnumerable<SheetPoint> pts) =>
+        string.Join(";", pts.Select(p => FormattableString.Invariant($"{p.X:R},{p.Y:R}")));
+
+    private static List<SheetPoint> FootprintOf(string text) =>
+        text.Split(';', StringSplitOptions.RemoveEmptyEntries).Select(s => s.Split(','))
+            .Select(a => new SheetPoint(double.Parse(a[0], System.Globalization.CultureInfo.InvariantCulture), double.Parse(a[1], System.Globalization.CultureInfo.InvariantCulture))).ToList();
+
+    private CommandResult MoveFootprints(MoveOp op, MoveElements c)
+    {
+        var before = new List<MovedElement>();
+        foreach (var s in sheets)
+            for (var i = 0; i < s.Elements.Count; i++)
+            {
+                var e = s.Elements[i];
+                if (!op.HostIds.Contains(e.Id)) continue;
+                before.Add(new MovedElement(e.Id, FootprintText(e.Footprint)));
+                s.Elements[i] = e with { Footprint = e.Footprint.Select(p => new SheetPoint(p.X + c.Dx, p.Y + c.Dy)).ToList() };
+            }
+        if (before.Count == 0) return CommandResult.Failed(op.CommandId, "the targets are not in the model");
+        ledger.RecordMoves(op.CommandId, before);
+        return CommandResult.Applied(op.CommandId, before.Select(m => m.ElementId).Distinct().ToList());
+    }
+
+    private CommandResult CopyFootprints(CopyOp op, CopyElements c)
+    {
+        var target = sheets.FirstOrDefault(s => s.Sheet.Id == c.ToSheetId);
+        if (target is null) return CommandResult.Failed(op.CommandId, $"no sheet '{c.ToSheetId}'");
+        double dx = c.To.X - c.At.X, dy = c.To.Y - c.At.Y;
+        var made = new List<string>();
+        foreach (var src in sheets.SelectMany(s => s.Elements).Where(e => op.HostIds.Contains(e.Id)).DistinctBy(e => e.Id).ToList())
+        {
+            var id = (nextId++).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            target.Elements.Add(src with { Id = id, Footprint = src.Footprint.Select(p => new SheetPoint(p.X + dx, p.Y + dy)).ToList() });
+            made.Add(id);
+        }
+        if (made.Count == 0) return CommandResult.Failed(op.CommandId, "the targets are not in the model");
+        ledger.Record(op.CommandId, made);
+        return CommandResult.Applied(op.CommandId, made);
+    }
+
+    private CommandResult RestoreFootprints(string commandId, IReadOnlyList<MovedElement> moves)
+    {
+        var restored = new List<string>();
+        foreach (var s in sheets)
+            for (var i = 0; i < s.Elements.Count; i++)
+            {
+                var e = s.Elements[i];
+                var m = moves.FirstOrDefault(x => x.ElementId == e.Id);
+                if (m is null) continue;
+                s.Elements[i] = e with { Footprint = FootprintOf(m.Location) };
+                restored.Add(e.Id);
+            }
+        ledger.Forget(commandId);
+        return restored.Count == 0 ? CommandResult.Skipped(commandId, "the moved elements are gone") : CommandResult.Applied(commandId, restored.Distinct().ToList());
     }
 
     private CommandResult Add(MutableSheet sheet, Command c)
@@ -212,6 +272,11 @@ public sealed class PackageHost : ILinkHost
                 if (ledger.TypeChangesOf(id) is { } changes)
                 {
                     results.Add(RestoreTypes(id, changes));
+                    continue;
+                }
+                if (ledger.MovesOf(id) is { } moves)
+                {
+                    results.Add(RestoreFootprints(id, moves));
                     continue;
                 }
                 var els = ledger.ElementsOf(id).ToHashSet(StringComparer.Ordinal);
