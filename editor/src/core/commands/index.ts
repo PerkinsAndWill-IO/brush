@@ -38,6 +38,8 @@ const centroid = (pts: readonly Point[]): Point => {
  *
  * - place_door: `at` is the middle of the opening (the decision's geometry is the
  *   opening segment on the host wall), `widthPt` its length, `angleRad` its direction.
+ *   On an elevation the geometry is the door's closed outline face on; its first edge
+ *   (bottom: sill line) gives `at`, `widthPt` and `angleRad`.
  * - place_instance: `at` is the footprint centre; `bbox` is the footprint in its own
  *   (unrotated) frame placed at `at` — rotate it by `angleRad` about `at` to get the
  *   footprint on the sheet.
@@ -56,8 +58,10 @@ export function commandFromDecision(d: AcceptedDecision, id: string, ctx?: Sheet
     }
     case 'door': {
       if (pts.length < 2) return null
+      // closed outline = elevation door face on: points[0] -> points[1] is its bottom edge (the opening's width)
+      const face = d.geometry.closed && pts.length >= 4
       const a = pts[0]
-      const b = pts[pts.length - 1]
+      const b = face ? pts[1] : pts[pts.length - 1]
       const widthPt = Math.hypot(b.x - a.x, b.y - a.y)
       if (widthPt <= 0) return null
       const c: Command = {

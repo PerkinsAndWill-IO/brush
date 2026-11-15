@@ -11,7 +11,7 @@ import {
 } from '../types'
 import { DEFAULT_PALETTE, type TypePalette } from '../context'
 import { gatherEvidence, type Evidence } from './evidence'
-import { KINDS_FOR_COARSE, RULES, coarseOf, scoreKinds, type Coarse } from './score'
+import { RULES, coarseOf, kindsFor, scoreKinds, type Coarse } from './score'
 import { initialStability, stabilityStep, type StabilityState } from './stability'
 import { shapeFor } from './shape'
 import { defaultSequencePrior, type SequencePrior } from './history'
@@ -163,7 +163,7 @@ export class StreamingPredictor implements Predictor {
     const rr = scoreKinds(ev)
     const prior = (this.opts.sequencePrior ?? defaultSequencePrior)(this.opts.history ?? [])
     const allowed = new Set<DecisionKind>(settings.allowedKinds?.length ? [...settings.allowedKinds, 'markup'] : DECISION_KINDS)
-    const compatible = new Set<DecisionKind>(KINDS_FOR_COARSE[coarse])
+    const compatible = new Set<DecisionKind>(kindsFor(coarse, ev.view))
     // Raw scores are smoothed over runs while drawing (half old, half new) so a transient dip
     // in one fit does not flicker the reading; the final run on the finished stroke uses them as is.
     const fresh = emptyProbs()
