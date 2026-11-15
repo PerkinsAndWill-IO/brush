@@ -15,7 +15,6 @@
  * checked by their first bytes, and a size cap below the 4.5 MB request limit of Vercel Functions.
  */
 import { del, get, list, put } from '@vercel/blob'
-import { imageType } from '../src/app/photo/imageType'
 
 const SLOT = /^[A-Za-z0-9_-]{22,64}$/
 const PREFIX = 'photo-relay/'
@@ -26,7 +25,17 @@ const MAX_AGE_MS = 60 * 60 * 1000
 const text = (status: number, message: string) => new Response(message, { status, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } })
 const empty = (status = 204) => new Response(null, { status, headers: { 'cache-control': 'no-store' } })
 
-export { imageType }
+/**
+ * The image type by its first bytes, or null. A copy of src/app/photo/imageType.ts (the phone page uses that one):
+ * a function file must not import other project files, since Vercel runs it as plain ES modules, where an import
+ * without a file extension fails. The relay tests check that the two agree.
+ */
+export function imageType(b: Uint8Array): 'image/jpeg' | 'image/png' | 'image/heic' | null {
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg'
+  if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png'
+  if (b.length >= 12 && String.fromCharCode(...b.subarray(4, 8)) === 'ftyp' && /^(hei[cxms]|hev[cxms]|mif1|msf1)$/.test(String.fromCharCode(...b.subarray(8, 12)))) return 'image/heic'
+  return null
+}
 
 function slotOf(request: Request): string | null {
   const id = new URL(request.url).searchParams.get('id')
