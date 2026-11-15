@@ -99,10 +99,12 @@ function SamplePicker({ disabled }: { disabled: boolean }) {
                 onClick={() => void open(s.name)}
               >
                 <span className="sample-art" aria-hidden="true">
-                  {fetching === s.name ? <HandLoader size={44} /> : <img className="sample-icon" src={tier.icon} alt="" />}
+                  {fetching === s.name ? <HandLoader size={30} /> : <img className="sample-icon" src={tier.icon} alt="" />}
                 </span>
-                <span className="sample-name">{tier.name}</span>
-                <span className="sample-meta">{fetching === s.name ? 'Downloading…' : formatSize(s.size)}</span>
+                <span className="sample-text">
+                  <span className="sample-name">{tier.name}</span>
+                  <span className="sample-meta">{fetching === s.name ? 'Downloading…' : formatSize(s.size)}</span>
+                </span>
               </button>
             )
           })}
