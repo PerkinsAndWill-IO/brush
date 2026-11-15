@@ -57,17 +57,23 @@ as something else. Set the mode back to **Auto** for the judge's turn: it's more
 
 ## Setup checklist (30 minutes before)
 
-0. **Brush Link built from this branch:** it sends each element's Revit parameters (the inspector shows them).
+1. **Brush Link built from this branch:** it sends each element's Revit parameters (the inspector shows them).
    After deploying, click *Reload the plugin* in Revit (Add-Ins → Brush) or restart Revit.
-1. **Revit 2026** open with *Snowdon Towers Sample Architectural* (`C:\Program Files\Autodesk\Revit 2026\Samples`).
+2. **Start Revit fresh** shortly before the demo. After an afternoon of rehearsals, reloads and undos, the same sheet
+   took 14–27 s to export instead of 3–7 s, and the type change took nearly a minute.
+3. **Don't refresh the other floors during the demo:** in `%APPDATA%\Brush\revit-link.json` set
+   `"otherSheetsAfterEditMs": 60000`. Everything is drawn on L2, so A103–A105 never change, but by default each is
+   re-exported 3 s after every edit, and an export already started can't be interrupted (one took 27 s and held
+   up the type change). Read at Revit start (or *Reload the plugin*).
+4. **Revit 2026** open with *Snowdon Towers Sample Architectural* (`C:\Program Files\Autodesk\Revit 2026\Samples`).
    Brush Link on: Add-Ins → Brush → Brush Link. The pill in Brush's top bar should go green.
-2. **Editor:** `pnpm --dir editor dev` and open `http://localhost:5173/?timer`.
+5. **Editor:** `pnpm --dir editor dev` and open `http://localhost:5173/?timer`.
    `?timer` turns the round-trip timer on (it's also a switch in the Revit panel, and it's remembered).
-3. **Warm up:** open A102, draw and undo one wall. The first export after Revit opens a model is the slow one.
-4. **Close everything else** that talks to Revit (a second browser tab on the editor, PW Tools sessions).
-5. **Screen:** 1920×1080, browser zoom 100%, Brush full screen (F11). Hide the right sidebar if it crowds the sheet.
-6. **Back-up video:** record one clean run (`Win+Alt+R`) and keep it on the desktop.
-7. **Reset the model** after rehearsing (see below), so the stage run starts in an empty room.
+6. **Warm up:** open A102, draw and undo one wall. The first export after Revit opens a model is the slow one.
+7. **Close everything else** that talks to Revit (a second browser tab on the editor, PW Tools sessions).
+8. **Screen:** 1920×1080, browser zoom 100%, Brush full screen (F11). Hide the right sidebar if it crowds the sheet.
+9. **Back-up video:** record one clean run (`Win+Alt+R`) and keep it on the desktop.
+10. **Reset the model** after rehearsing (see below), so the stage run starts in an empty room.
 
 ## The round-trip timer
 
