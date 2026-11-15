@@ -36,10 +36,10 @@ import type { Removed } from './history'
 import { cachedInk, getSheetLayers, setLiveZoom, SheetView } from './SheetView'
 import { ScaleBarHud, snapMeasurePoint } from './viewAidLayers'
 import { getView, view } from '../view'
-import { elementAtIfReady, getInspect, inspect, onHitIndexReady, warmHitIndexes } from '../drawing/inspect'
+import { elementAt, elementAtIfReady, getInspect, inspect, onHitIndexReady, warmHitIndexes } from '../drawing/inspect'
 import { getFilters, hiddenPredicate } from '../drawing/filters'
 import { selection } from '../select/selection'
-import { beginMove, constrainMove, copySelection, endMove, pasteAt, type MoveSession } from '../select/moveOnBoard'
+import { beginMove, constrainMove, copySelection, endMove, movedElementAt, pasteAt, type MoveSession } from '../select/moveOnBoard'
 import { dragOffset, isClipboardKey } from '../select/drag'
 import { acceptReading } from '../brain/predictEngine'
 import { getLive } from '../brain/live'
@@ -388,7 +388,8 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
 
     // ── inspect (V3): Select tool hovers and clicks host elements of `.drawing` sheets; a drag pans ──
     const PICK_PX = 4
-    const elementUnder = (e: { clientX: number; clientY: number }): string | null => {
+    /** Hover passes `ready` (never builds a page index on the hover path); a press builds it if needed (S2-07). */
+    const elementUnder = (e: { clientX: number; clientY: number }, ready = true): string | null => {
       const source = getDocState().source
       if (!source?.vectorPage) return null
       const cam = getCamera()
@@ -398,7 +399,8 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
       const vp = source.vectorPage(pl.sheetId)
       if (!vp) return null
       const sp = boardToSheet(pl, b)
-      return elementAtIfReady(vp.page, sp.x, sp.y, PICK_PX / cam.z, hiddenPredicate({ elements: vp.elements }, getFilters()))
+      const pick = ready ? elementAtIfReady : elementAt
+      return pick(vp.page, sp.x, sp.y, PICK_PX / cam.z, hiddenPredicate({ elements: vp.elements }, getFilters()))
     }
     // ── selection (S1): drawn elements first (they lie over the sheet), then host elements ──
     const drawnUnder = (e: { clientX: number; clientY: number }): string | null => {
@@ -418,10 +420,16 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
         wallHalf: (d) => (((walls?.find((w) => w.name === d.type)?.thicknessMm ?? 150) / 1000) * ptPerM) / 2,
       })
     }
-    const itemUnder = (e: { clientX: number; clientY: number }): SelItem | null => {
+    const itemUnder = (e: { clientX: number; clientY: number }, ready = true): SelItem | null => {
       const strokeId = drawnUnder(e)
       if (strokeId) return { t: 'drawn', strokeId }
-      const id = elementUnder(e)
+      // S2-07: an element moved on the board is grabbed at its new place (its old one is hidden)
+      const cam = getCamera()
+      const bp = screenToBoard(cam, local(e))
+      const mpl = sheetAt(placementsNow(), bp)
+      const moved = mpl ? movedElementAt(mpl.sheetId, boardToSheet(mpl, bp), PICK_PX / cam.z) : null
+      if (moved) return { t: 'sheet', id: moved }
+      const id = elementUnder(e, ready)
       return id !== null ? { t: 'sheet', id } : null
     }
     /** A click with the Select tool: select what is under it (Shift adds / removes); host elements also pin the card. */
@@ -480,7 +488,7 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
         const ink = getSession().strokes.find((s) => s.id === live.strokeId)
         if (ink && ink.points.length > 1 && closestPointOnPolyline(p, ink.points).distance <= Math.max(PICK_PX / cam.z, ink.size)) acceptReading(live.chips[0])
       }
-      const it = itemUnder(e)
+      const it = itemUnder(e, false)
       if (!it) return null
       if (!selection.has(it)) {
         if (e.shiftKey) selection.toggle(it)
@@ -540,7 +548,10 @@ export function Board({ pages, loadId, sheets, placements, fileName }: BoardProp
       } catch {
         /* synthetic events have no active pointer to capture */
       }
-      if (e.button === 1 || spaceDown || t === 'pan') {
+      // S2-07: with the move/pan tool (the four arrows), a press on an element moves it; anywhere else it pans
+      const grabbed = t === 'pan' && e.button === 0 && !spaceDown ? grabAt(e) : null
+      if (grabbed) gesture = { kind: 'inspect', pointerId: e.pointerId, downX: e.clientX, downY: e.clientY, lastX: e.clientX, lastY: e.clientY, dragged: false, grab: grabbed }
+      else if (e.button === 1 || spaceDown || t === 'pan') {
         gesture = { kind: 'pan', pointerId: e.pointerId, lastX: e.clientX, lastY: e.clientY }
         vp.classList.add('panning')
       } else if (e.button !== 0) return

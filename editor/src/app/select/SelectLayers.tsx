@@ -40,11 +40,24 @@ export function SelectionOverlay({ sheet }: { sheet: Sheet; placement: Placement
   }, [items, accepted, strokes, hidden, sheet.id])
 
   const hostIds = useMemo(() => items.flatMap((s) => (s.t === 'sheet' ? [s.id] : [])), [items])
-  const host = useMemo(() => {
-    if (!vp || !hostIds.length) return null
-    const its = itemsOf(vp.page, hostIds)
-    return its.length ? shapes(its) : null
-  }, [vp, hostIds])
+  // S2-07: a selected element moved on the board is highlighted where it is now (its pending move's offset)
+  const hostGroups = useMemo(() => {
+    if (!vp || !hostIds.length) return []
+    const byOffset = new Map<string, { dx: number; dy: number; ids: string[] }>()
+    for (const id of hostIds) {
+      const m = commands.find((c) => c.op === 'move' && c.targets.includes(id) && c.sheetId === sheet.id && !entryFor(c.id)?.landed)
+      const dx = m?.op === 'move' ? m.dx : 0
+      const dy = m?.op === 'move' ? m.dy : 0
+      const k = `${dx},${dy}`
+      if (!byOffset.has(k)) byOffset.set(k, { dx, dy, ids: [] })
+      byOffset.get(k)!.ids.push(id)
+    }
+    return [...byOffset.values()].flatMap((g) => {
+      const its = itemsOf(vp.page, g.ids)
+      return its.length ? [{ ...g, shapes: shapes(its) }] : []
+    })
+  }, [vp, hostIds, commands, sheet.id])
+  const host = hostGroups.length ? hostGroups[0].shapes : null
 
   // pending type changes on host elements, marked where each element is drawn on this sheet
   const marks = useMemo(() => {
@@ -96,24 +109,25 @@ export function SelectionOverlay({ sheet }: { sheet: Sheet; placement: Placement
       ))}
       {ghosts.map((g) => (
         <g key={g.key} className="move-ghost" data-testid="move-ghost" data-kind={g.label} transform={`translate(${g.dx} ${g.dy})`}>
-          {g.shapes.lines && <path className="line" d={g.shapes.lines} style={{ strokeWidth: px(2), strokeDasharray: `${px(5)} ${px(3)}` }} />}
+          {/* drawn like the sheet draws it: the old place is hidden, this is where the element is now */}
           {g.shapes.fills && <path className="fill" d={g.shapes.fills} fillRule="evenodd" />}
+          {g.shapes.lines && <path className="line" d={g.shapes.lines} style={{ strokeWidth: `calc(${Math.max(g.shapes.maxW, 0.5)}px + 0.6px / var(--z))` }} />}
         </g>
       ))}
-      {host && (
-        <g transform={shift}>
-        <g className="select-hl" data-testid="selected-sheet" data-items={hostIds.join(',')}>
-          {host.fills && <path className="fill" d={host.fills} fillRule="evenodd" />}
-          {host.lines && <path className="line" d={host.lines} style={{ strokeWidth: `calc(${host.maxW}px + 6px / var(--z))` }} />}
-          {host.rects.map((b, i) => (
-            <rect key={i} className="box" x={b.x} y={b.y} width={b.w} height={b.h} style={{ strokeWidth: px(2) }} />
-          ))}
-          {host.quads.map((q, i) => (
-            <polygon key={i} className="box" points={q} style={{ strokeWidth: px(2) }} />
-          ))}
+      {hostGroups.map((g) => (
+        <g key={`${g.dx},${g.dy}`} transform={shift}>
+          <g className="select-hl" data-testid="selected-sheet" data-items={g.ids.join(',')} transform={g.dx || g.dy ? `translate(${g.dx} ${g.dy})` : undefined}>
+            {g.shapes.fills && <path className="fill" d={g.shapes.fills} fillRule="evenodd" />}
+            {g.shapes.lines && <path className="line" d={g.shapes.lines} style={{ strokeWidth: `calc(${g.shapes.maxW}px + 6px / var(--z))` }} />}
+            {g.shapes.rects.map((b, i) => (
+              <rect key={i} className="box" x={b.x} y={b.y} width={b.w} height={b.h} style={{ strokeWidth: px(2) }} />
+            ))}
+            {g.shapes.quads.map((q, i) => (
+              <polygon key={i} className="box" points={q} style={{ strokeWidth: px(2) }} />
+            ))}
+          </g>
         </g>
-        </g>
-      )}
+      ))}
       <g transform={shift}>
         {drawn.map((s) => (
           <path key={s.id} className="select-drawn" data-testid="selected-drawn" data-stroke-id={s.id} d={d(s.path.points, s.path.closed)} style={{ strokeWidth: px(10) }} />

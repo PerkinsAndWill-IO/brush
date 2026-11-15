@@ -10,7 +10,7 @@ import { getSession, session } from '../session'
 import { getDocState } from '../store'
 import { contextNow, emptyContext } from '../brain/contextStore'
 import { entryFor } from '../revit/controller'
-import { itemsOf } from '../drawing/inspect'
+import { elementAt, itemsOf } from '../drawing/inspect'
 import { copyDrawn, moveDrawn, pasteDrawn, type DrawnClip } from './moveDrawn'
 import { moveHost, pasteHost, slideAlongWall, snapDrag, type HostClip } from './moveHost'
 import { elementBox, resolveSelection, selection, type Resolved } from './selection'
@@ -152,6 +152,21 @@ export function pasteAt(sheetId: string, cursor: Point): void {
 /** Host `copy` commands pasted on `sheetId` that Revit has not confirmed: their copies cannot be grabbed yet. */
 export function pendingCopiesOn(sheetId: string): Extract<Command, { op: 'copy' }>[] {
   return getSession().commands.filter((c): c is Extract<Command, { op: 'copy' }> => c.op === 'copy' && c.toSheetId === sheetId && !entryFor(c.id)?.landed)
+}
+
+/**
+ * A host element moved on the board, under `p` at its new place (its old place is hidden): hit-tested on its own
+ * items shifted by its pending move. Null when none is there.
+ */
+export function movedElementAt(sheetId: string, p: Point, tol: number): string | null {
+  const vp = getDocState().source?.vectorPage?.(sheetId)
+  if (!vp) return null
+  for (const m of pendingMovesOn(sheetId)) {
+    const el = m.targets[0]
+    const hit = elementAt(vp.page, p.x - m.dx, p.y - m.dy, tol, (it) => it.el !== el)
+    if (hit === el) return el
+  }
+  return null
 }
 
 /** Host `move` commands Revit has not redrawn yet. */
