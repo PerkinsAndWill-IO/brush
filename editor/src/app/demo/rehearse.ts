@@ -16,10 +16,12 @@ import type { BrushMode, Point, Stroke } from '@core/types'
 import { boardView, getViewportEl } from '../board/Board'
 import { sheetToScreen } from '../board/layout'
 import { getCamera, setCamera } from '../camera'
-import { getSession, session } from '../session'
+import { getSession, session, sessionFileFor, sidecarKeyNow, flushSave } from '../session'
+import { getPlatform, type SidecarKey } from '../platform'
+import { sidePanels } from '../ui/SidePanels'
 import { contextFor } from '../brain/contextStore'
 import { inspect } from '../drawing/inspect'
-import { getDocState, openDocument } from '../store'
+import { closeDocument, getDocState, openDocument } from '../store'
 import { importPhotoMarkup, setPhotoReplay } from '../photo/import'
 import { tracePaper } from '../photo/trace'
 import { revit, revitSnapshot } from '../revit/controller'
@@ -625,6 +627,27 @@ function installReplay() {
 }
 installReplay()
 
+/** Files the demo sketched on (their saved sessions), so Start over can empty them. */
+const FILES_KEY = 'brush.demo.files'
+function readFiles(): SidecarKey[] {
+  try {
+    return JSON.parse(localStorage.getItem(FILES_KEY) ?? '[]') as SidecarKey[]
+  } catch {
+    return []
+  }
+}
+function rememberFile() {
+  const key = sidecarKeyNow()
+  if (!key) return
+  const files = readFiles()
+  if (!files.some((f) => f.name === key.name && f.size === key.size)) files.push({ name: key.name, size: key.size })
+  try {
+    localStorage.setItem(FILES_KEY, JSON.stringify(files))
+  } catch {
+    /* private mode: the next open of the file clears it instead */
+  }
+}
+
 /** Open the sample (unless it is open) with no sketches from an earlier run on it. */
 async function openSample(spots: SketchPhotoSpots) {
   const base = spots.sample.name.replace(/\.[^.]+$/, '').toLowerCase()
@@ -634,6 +657,7 @@ async function openSample(spots: SketchPhotoSpots) {
     await openDocument(spots.sample.url, spots.sample.name)
     await until(isIt, 60000, `${spots.sample.name} to open`)
   }
+  rememberFile()
   // a clean stage: Brush keeps each file's sketches; these exist only here, so clearing them touches no model.
   // The trace paper of an earlier import goes too.
   if (getSession().strokes.length) session.clear()
@@ -765,6 +789,7 @@ async function openWithoutRevit(spots: NoLicenseSpots = RAC_BASIC_SPOTS) {
     await dropFile(spots.file.url, spots.file.name)
     await until(() => getDocState().source !== before && isIt(), 120000, `${spots.file.name} to open`)
   }
+  rememberFile()
   // a clean stage: Brush keeps each file's sketches, so an earlier rehearsal's wall and stool would come back with it.
   // They exist only here (no Revit), so clearing them touches no model.
   if (getSession().strokes.length) session.clear()
@@ -1167,8 +1192,33 @@ export function endPresenting() {
   penOff()
 }
 
-/** `reset()` for the presenter's Start over. */
-export const resetRehearsal = () => ensureClean()
+/**
+ * The presenter's Start over: take the demo back out of Revit (and check the stage is clean), empty the sketches it
+ * left on the sample files, then close everything and go back to the Brush start page, ready to run it again.
+ */
+export async function startOver() {
+  // the trace paper is on the file open now (the colleague's sketch): roll it up before Revit's sheets replace it
+  for (const sh of getDocState().sheets) tracePaper.rollUp(sh.id)
+  await ensureClean()
+  // the sample files' sketches (the kitchen wall and stool, the colleague's sketch): emptied where they are saved
+  const open = sidecarKeyNow()
+  const platform = await getPlatform()
+  for (const key of readFiles()) {
+    if (open && open.name === key.name && open.size === key.size) {
+      session.clear()
+      await flushSave()
+    } else await platform.writeSidecar(key, sessionFileFor(key, []))
+  }
+  inspect.unpin()
+  sidePanels.close('left')
+  sidePanels.close('right')
+  // the start page, as a person finds it: no link (Kickoff connects again), no document
+  revit.disconnect()
+  closeDocument()
+  penOff()
+  caption('', '')
+}
+export const resetRehearsal = () => startOver()
 
 export function createRehearsal() {
   return {
@@ -1177,6 +1227,7 @@ export function createRehearsal() {
     reset,
     /** Take back what earlier runs left and check the stage is empty (setup does this first). */
     ensureClean,
+    startOver,
     leftovers: () => leftovers(SNOWDON_SPOTS),
     /** The no-licence beat on its own: drop the .rvt, then sketch in its kitchen. */
     openWithoutRevit,

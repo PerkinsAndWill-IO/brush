@@ -89,8 +89,9 @@ right corner, saying what it will do next. Each click plays one step in the real
   Steps that need Revit's result wait for it (5 waits for the table).
 - **Out of time:** just stop clicking. Nothing is left half done.
 - **A step fails:** the button says why and turns into **Try again**; the next click retries that step.
-- **After the last step:** "That's the demo ✦" and **Start over**, which takes everything back out of Revit (like
-  `reset()`) and goes back to step 1.
+- **After the last step:** "That's the demo ✦" and **Start over**: it takes the demo's elements back out of Revit (and
+  checks the room is clean), empties the sketches the demo left on the two sample files, rolls up the trace paper,
+  disconnects Revit and closes the document: you are back on the Brush start page, the button on Kickoff demo.
 - **What is played back:** the photo import (step 8). The real import of that photo takes 60–110 s (finding the sheet
   among four, then registering the photo to it), so it is recorded once on the presenting machine and played back
   through the same dialog in 7 s: the strokes are exactly what the import traced, minus the dark print around the

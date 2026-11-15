@@ -316,6 +316,15 @@ export function setRevitModelHook(hook: typeof revitModelHook) {
   revitModelHook = hook
 }
 
+/** Close the open document and show the start page (the demo's Start over). */
+export function closeDocument(): void {
+  void state.source?.close()
+  closeSession()
+  closeContexts()
+  resetLive()
+  set({ status: 'empty', fileName: undefined, fileSize: undefined, pages: undefined, source: undefined, destroy: undefined, sheets: [], placements: [], loadId: state.loadId + 1, error: undefined })
+}
+
 /** The model is open in Revit: show the start page, where the link panel lists its sheets. */
 async function takeRevitModel(file: OpenedFile): Promise<boolean> {
   if (!revitModelHook || !/\.rvt$/i.test(file.name)) return false
