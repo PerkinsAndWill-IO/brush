@@ -112,11 +112,15 @@ export const panBy = (cam: Camera, dxScreen: number, dyScreen: number): Camera =
   z: cam.z,
 })
 
-/** Camera that fits `rect` (board units) into a viewport of `vw × vh` px with `pad` px margin, centered. */
+/**
+ * Camera that fits `rect` (board units) into a viewport of `vw × vh` px with `pad` px margin, centered. A side that
+ * does not fit even at the minimum zoom shows its start (left, top: where the first sheet is) instead of its middle.
+ */
 export function fitCamera(rect: Rect, vw: number, vh: number, pad = 48, maxZ = 1): Camera {
   if (rect.w <= 0 || rect.h <= 0 || vw <= 0 || vh <= 0) return { x: 0, y: 0, z: 1 }
   const z = clampZoom(Math.min((vw - 2 * pad) / rect.w, (vh - 2 * pad) / rect.h, maxZ))
-  return { x: vw / 2 / z - (rect.x + rect.w / 2), y: vh / 2 / z - (rect.y + rect.h / 2), z }
+  const at = (start: number, size: number, view: number) => (size * z > view - 2 * pad ? pad / z - start : view / 2 / z - (start + size / 2))
+  return { x: at(rect.x, rect.w, vw), y: at(rect.y, rect.h, vh), z }
 }
 
 /** Board-space rectangle visible in a `vw × vh` viewport. */
