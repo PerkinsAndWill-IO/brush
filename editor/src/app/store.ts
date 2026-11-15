@@ -215,7 +215,41 @@ export async function refreshSource(source: DrawingSource, changed: readonly str
   refreshContexts(sheets.map((s) => s.id), changed)
 }
 
-/** Open a file the user picked or dropped. Swallows the error (it is shown inline). */
+/**
+ * Where a Revit model goes to become a `.drawing`: a conversion server you run yourself, which answers `POST` (the
+ * model's bytes, its URI-encoded name in `X-Filename`) with the `.drawing` file. `VITE_RVT_CONVERT_URL` moves it.
+ */
+const RVT_CONVERT_URL: string = import.meta.env.VITE_RVT_CONVERT_URL ?? 'http://127.0.0.1:4100/convert'
+
+/** Send a Revit model to the conversion server and open the `.drawing` it answers with. Same states as openDocument. */
+async function openRevitModel(file: OpenedFile): Promise<void> {
+  const loadId = state.loadId + 1
+  set({ status: 'loading', fileName: `${file.name}, converting to .drawing`, fileSize: file.size, loadId, error: undefined })
+  let bytes: ArrayBuffer
+  try {
+    const res = await fetch(RVT_CONVERT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': encodeURIComponent(file.name) },
+      body: file.bytes,
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`)
+    bytes = await res.arrayBuffer()
+  } catch (e) {
+    if (loadId !== state.loadId) return // another file was opened meanwhile
+    void state.source?.close()
+    closeSession()
+    closeContexts()
+    resetLive()
+    const error = `Could not convert “${file.name}” to a .drawing at ${RVT_CONVERT_URL}. Is the conversion server running? (${(e as Error).message})`
+    set({ status: 'error', pages: undefined, source: undefined, destroy: undefined, sheets: [], placements: [], error })
+    return
+  }
+  if (loadId !== state.loadId) return
+  await openFile({ name: file.name.replace(/\.(rvt|rfa)$/i, '.drawing'), size: bytes.byteLength, bytes })
+}
+
+/** Open a file the user picked or dropped: a PDF, a `.drawing`, or a Revit model (converted first). Swallows the error (it is shown inline). */
 export async function openFile(file: OpenedFile): Promise<void> {
+  if (/\.(rvt|rfa)$/i.test(file.name)) return openRevitModel(file)
   await openDocument(file.bytes, file.name, { size: file.size, path: file.path }).catch(() => {})
 }

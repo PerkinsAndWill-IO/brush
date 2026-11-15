@@ -99,7 +99,7 @@ function EmptyState({ error, loading }: { error?: string; loading?: string }) {
             Drop a <span className="mono">PDF</span> to start
           </h1>
           <p>
-            Each page opens here as a sheet, side by side, ready to sketch on. Exported <span className="mono">.drawing</span> packages open too.
+            Each page opens here as a sheet, side by side, ready to sketch on. Exported <span className="mono">.drawing</span> packages open too, and a Revit <span className="mono">.rvt</span> is converted to one first.
           </p>
         </div>
         <div className="cta">
