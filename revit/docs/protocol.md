@@ -39,7 +39,10 @@ editor                                   plugin
 ```
 
 The plugin answers messages from one connection in order, and makes one host call at a time across all connections.
-`applied` always comes before the `sheet` it caused.
+`applied` always comes before the `sheet` it caused. After an `apply` or `revert` only the edited sheet is
+re-exported straight away. Other open sheets that show the same elements get their new version later, as
+`model_changed`, from a background refresh (`otherSheetsAfterEditMs` after the last edit, default 3000). That refresh
+exports one sheet at a time and lets a waiting `apply` or `revert` go first.
 
 ## Editor → plugin
 

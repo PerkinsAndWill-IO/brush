@@ -93,6 +93,7 @@ Settings, all optional, in `%APPDATA%\Brush\revit-link.json`:
   "allowedOrigins": ["http://localhost:5173", "https://brush-editor.example"],
   "allowMissingOrigin": true,
   "modelChangeDebounceMs": 600,
+  "otherSheetsAfterEditMs": 3000,
   "hotReload": true,
   "pluginDir": "C:\\src\\brush\\revit\\src\\Brush.Revit.Link\\bin\\Debug\\net8.0-windows"
 }
@@ -125,7 +126,8 @@ Known limits:
 - A `delete` cannot be reverted from the editor (use Undo in Revit). Element ids and replaced types recorded per command
   are kept only for the Revit session.
 - Every model change re-exports every open sheet. Exports that did not change are not pushed, but they still cost
-  Revit time.
+  Revit time. After an editor edit only the edited sheet is exported at once; the other open sheets follow
+  `otherSheetsAfterEditMs` after the last edit, one sheet at a time, and step aside for any edit that comes in.
 - The sheet goes back as the editor's JSON-envelope package (manifest + PDF), which the editor now treats as legacy.
   The editor reads the binary `.drawing` since its decision 0008; sending that instead is the next format step (see
   decision 0001).

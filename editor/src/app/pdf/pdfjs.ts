@@ -184,6 +184,17 @@ async function renderInto(doc: PDFDocumentProxy, pageIndex: number, canvas: HTML
 
 const sleep = (ms: number) => new Promise<'slow'>((r) => setTimeout(() => r('slow'), ms))
 
+/**
+ * Render the whole page into `canvas` for use off screen (the photo import): no image-less preview, and it does not
+ * take over the board's background render of the page the way a renderPageAt call does (which would leave the
+ * board's sheet showing its preview). pdf.js shares the page's operator list with that render, so the page's images
+ * are decoded once.
+ */
+export async function renderPageOffscreen(doc: PDFDocumentProxy, pageIndex: number, canvas: HTMLCanvasElement, pxPerPt: number, signal?: AbortSignal): Promise<void> {
+  await renderInto(doc, pageIndex, canvas, pxPerPt, signal)
+  previews.get(doc)?.fullDone.add(pageIndex)
+}
+
 /** Render only `region` (PDF points, top-left origin) of a page at `pxPerPt`; the canvas covers exactly `region`. */
 export async function renderPageRegion(
   doc: PDFDocumentProxy,

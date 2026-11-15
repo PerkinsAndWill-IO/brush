@@ -16,7 +16,7 @@ import { probePhoto, registerPhoto, type Probe, type RegistrationReport, type Se
 import { centrelines } from './strokes'
 
 export type { Probe, RegistrationReport, Seed } from './register'
-export { preparePhoto, releasePhoto } from './register'
+export { SheetProbe, preparePhoto, releasePhoto } from './register'
 export type { RgbImage } from './raster'
 
 export type InkChoice = 'both' | 'color' | 'dark'

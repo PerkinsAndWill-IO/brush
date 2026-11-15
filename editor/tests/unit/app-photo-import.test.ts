@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import type { Sheet, Stroke } from '@core/types'
 import { StrokeHistory } from '../../src/app/board/history'
 import { inkRender } from '../../src/app/board/ink'
-import { MAX_AUTO_SHEETS, MAX_WORK_SIDE, MIN_TILES, candidateSheets, knownSheetId, matchPrintedSheet, pickSheet, printedCandidates, printedScale, sheetLabel, workingDpi } from '../../src/app/photo/plan'
+import { CONFIDENT_TILES, MAX_AUTO_SHEETS, MAX_WORK_SIDE, MIN_TILES, candidateSheets, knownSheetId, matchPrintedSheet, pickSheet, printedCandidates, printedScale, sheetLabel, sheetsToFinish, workingDpi } from '../../src/app/photo/plan'
 import { markupToStrokes, resampleCentreline, rgbToHex } from '../../src/app/photo/toStrokes'
 import type { MarkupLayer } from '../../src/app/photo/pipeline'
 
@@ -135,6 +135,19 @@ describe('P1-02: which sheets to try, and at what resolution', () => {
     expect(pickSheet([])).toBeNull()
     expect(pickSheet([{ sheet: sheets[4], probe: { tiles: 50 } }, { sheet: sheets[1], probe: { tiles: 50 } }])?.sheet.id).toBe('sheet-4')
     expect(pickSheet([{ sheet: sheets[0], probe: { tiles: MIN_TILES } }])?.sheet.id).toBe('sheet-0')
+  })
+
+  it('P1-02: the slow fallback matches are skipped only while another sheet has clearly been found', () => {
+    const done = (tiles: number) => ({ final: true, probe: { tiles } })
+    const open = { final: false, probe: null }
+    // a confident lock elsewhere: the sheets whose strict match was not conclusive cannot beat it
+    expect(sheetsToFinish([done(420), open, open])).toEqual([])
+    // look-alike sheets that both matched confidently are both compared in full already (they are final)
+    expect(sheetsToFinish([done(180), done(420)])).toEqual([])
+    // no confident lock anywhere (a print in another style, or not this drawing): every sheet is finished
+    const weak = [done(CONFIDENT_TILES - 1), open, { final: false, probe: null }]
+    expect(sheetsToFinish(weak)).toEqual([weak[1], weak[2]])
+    expect(sheetsToFinish([open, open])).toHaveLength(2)
   })
 
   it('a remembered sheet choice only counts if that sheet is in the open document', () => {

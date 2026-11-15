@@ -4,9 +4,13 @@
  *    fitted robustly;
  *  - explainRows: every pixel against the nine nearest models (how much light ink takes away, its colour, ...).
  * Every node, and every pixel, is worked out on its own, so both split into bands of rows that give exactly the same
- * result side by side as in one go (the photo worker hands the bands to helper workers, see useModelWorkers).
+ * result side by side as in one go (the photo worker hands the bands to helper workers, see useModelWorkers). So do
+ * two other steps of the registration done here through the same helpers: shrinking the rendered sheet (Lanczos) and
+ * warping the photo into sheet space.
  * PURE: no DOM, no OpenCV.
  */
+import { lanczosReduceRows, type Mat3, type RgbImage } from "./raster";
+import { warpRgb, type Field, type Warp } from "./warp";
 
 /** The grid: nodes every `S` px, each fitted on the window of +-`half` px around it, sampled every `stride` px. */
 export interface FitGrid { w: number; h: number; S: number; half: number; stride: number; gw: number; gh: number }
@@ -136,15 +140,19 @@ export function explainRows(params: ExplainParams, band: ExplainBand): Explained
   return { absorb, inkRgb, clean, flat, foreign, edgeZone };
 }
 
-/** Both loops over a whole image, maybe on several threads. */
+/** The steps that run on several threads, each over a whole image. */
 export interface ModelWorkers {
   fit(grid: FitGrid, rgb: Uint8Array, valid: Uint8Array, refBlur: Uint8Array): Promise<FitResult>;
   explain(params: ExplainParams, rgb: Uint8Array, valid: Uint8Array, refLo: Uint8Array): Promise<Explained>;
+  /** lanczosReduce (to a smaller size only). */
+  shrink(data: Uint8Array, w: number, h: number, ch: number, nw: number, nh: number): Promise<Uint8Array>;
+  /** warpRgb. The helpers keep a copy of `photo`, sent once. */
+  warp(photo: RgbImage, toPhoto: Mat3, field: Field | null, fieldScale: number, w: number, h: number): Promise<Warp>;
 }
 
 let workers: ModelWorkers | null = null;
 
-/** Hand in helpers that run the loops in parallel (the photo worker does); null runs them on this thread. */
+/** Hand in helpers that run these steps in parallel (the photo worker does); null runs them on this thread. */
 export function useModelWorkers(w: ModelWorkers | null): void {
   workers = w;
 }
@@ -155,4 +163,15 @@ export function fitModels(grid: FitGrid, rgb: Uint8Array, valid: Uint8Array, ref
 
 export function explainPixels(params: ExplainParams, rgb: Uint8Array, valid: Uint8Array, refLo: Uint8Array): Promise<Explained> {
   return workers ? workers.explain(params, rgb, valid, refLo) : Promise.resolve(explainRows(params, { rgb, valid, refLo, y0: 0, y1: params.h }));
+}
+
+/** Shrink a raster with lanczosReduce (`nw` <= `w`, `nh` <= `h`; the same size gives a copy). */
+export function shrinkRaster(data: Uint8Array, w: number, h: number, ch: number, nw: number, nh: number): Promise<Uint8Array> {
+  if (nw === w && nh === h) return Promise.resolve(Uint8Array.from(data));
+  if (nw > w || nh > h) throw new Error("shrinkRaster only makes rasters smaller");
+  return workers ? workers.shrink(data, w, h, ch, nw, nh) : Promise.resolve(lanczosReduceRows(data, 0, w, h, ch, nw, nh, 0, nh));
+}
+
+export function warpPhoto(photo: RgbImage, toPhoto: Mat3, field: Field | null, fieldScale: number, w: number, h: number): Promise<Warp> {
+  return workers ? workers.warp(photo, toPhoto, field, fieldScale, w, h) : Promise.resolve(warpRgb(photo, toPhoto, field, fieldScale, w, h));
 }

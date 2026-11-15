@@ -13,6 +13,7 @@ import {
   paletteFromPackage,
   sheetsFromDrawing,
   sheetsFromPackage,
+  vectorPageFromPackage,
   type DrawingManifest,
   type FurnitureSymbol,
   type TypePalette,
@@ -28,9 +29,11 @@ import { PackageError, parsePackage, sniffBytes, type PackagePdfRef } from './pa
 export interface PageRenderer {
   /**
    * Render page `pageIndex` (0-based) into `canvas` at `pxPerPt` device pixels per sheet point; sets the backing
-   * size only. `gate` returns a promise while rendering must pause (pen down).
+   * size only. `gate` returns a promise while rendering must pause (pen down). `offscreen`: a one-off render that is
+   * never shown (the photo import's): it resolves with the whole page, never a preview, and leaves the board's own
+   * renders of that page alone.
    */
-  render(pageIndex: number, canvas: HTMLCanvasElement, pxPerPt: number, signal?: AbortSignal, gate?: () => Promise<void> | null): Promise<void>
+  render(pageIndex: number, canvas: HTMLCanvasElement, pxPerPt: number, signal?: AbortSignal, gate?: () => Promise<void> | null, opts?: { offscreen?: boolean }): Promise<void>
   /**
    * Render only `region` (sheet points) of page `pageIndex` at `pxPerPt`; the canvas covers exactly that region.
    * Used for the sharp detail layer when zoomed in past what a whole-page raster can hold.
@@ -47,9 +50,9 @@ export interface PageRenderer {
 
 function pdfRenderer(pdf: LoadedPdf): PageRenderer {
   return {
-    render: async (i, canvas, pxPerPt, signal, gate) => {
+    render: async (i, canvas, pxPerPt, signal, gate, opts) => {
       const m = await import('../pdf/pdfjs')
-      return m.renderPageAt(pdf.doc, i, canvas, pxPerPt, signal, gate)
+      return opts?.offscreen ? m.renderPageOffscreen(pdf.doc, i, canvas, pxPerPt, signal) : m.renderPageAt(pdf.doc, i, canvas, pxPerPt, signal, gate)
     },
     renderRegion: async (i, canvas, pxPerPt, region, signal, gate) => {
       const m = await import('../pdf/pdfjs')
@@ -190,6 +193,22 @@ export class PackageDrawingSource implements DrawingSource {
 
   async contextFor(sheetId: string): Promise<SheetContext> {
     return contextFromPackage(this.manifest, sheetId)
+  }
+
+  private vectors = new Map<string, VectorPage>()
+  /**
+   * The manifest's elements as a pickable page (the package has no vector items of its own): what makes the
+   * inspector, selection and hover work on a Revit link sheet. Built once per sheet; the same object every call, as
+   * the hit index and overlays are keyed by page.
+   */
+  vectorPage(sheetId: string): VectorPage | null {
+    const hit = this.vectors.get(sheetId)
+    if (hit) return hit
+    const sheet = this.manifest.sheets.find((s) => s.id === sheetId)
+    if (!sheet) return null
+    const vp = vectorPageFromPackage(sheet)
+    this.vectors.set(sheetId, vp)
+    return vp
   }
 
   async close(): Promise<void> {

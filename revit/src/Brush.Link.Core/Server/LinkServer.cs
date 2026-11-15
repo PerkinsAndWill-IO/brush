@@ -49,7 +49,9 @@ public sealed class LinkServer : IAsyncDisposable
         listener = new TcpListener(IPAddress.Loopback, options.Port);
         listener.Start();
         Port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        acceptLoop = AcceptLoopAsync(stop.Token);
+        // On the thread pool: started from Revit's UI thread, the loop would otherwise resume there after each await, and
+        // could not finish while that thread waits for it to stop.
+        acceptLoop = Task.Run(() => AcceptLoopAsync(stop.Token));
         log.Info($"listening on {Url}");
     }
 
@@ -167,6 +169,11 @@ public sealed class LinkServer : IAsyncDisposable
         await stream.WriteAsync(bytes, ct);
     }
 
+    /// <summary>
+    /// Stop listening and wait for the accept loop. Never resumes on the caller's synchronization context: Revit calls
+    /// this from its UI thread and blocks on it, and a continuation posted back to that thread would never run (Revit
+    /// froze on "Reload the plugin").
+    /// </summary>
     public async ValueTask DisposeAsync()
     {
         stop.Cancel();
@@ -175,13 +182,13 @@ public sealed class LinkServer : IAsyncDisposable
         {
             try
             {
-                await acceptLoop;
+                await acceptLoop.ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
             }
         }
-        await Hub.DisposeAsync();
+        await Hub.DisposeAsync().ConfigureAwait(false);
         stop.Dispose();
         log.Info("stopped");
     }

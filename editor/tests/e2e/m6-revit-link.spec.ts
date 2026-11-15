@@ -295,3 +295,84 @@ test('M6-01: Revit not running → waiting and retrying; the panel says so', asy
   await page.evaluate(() => window.__brushDev!.revitDisconnect())
   expect((await snap(page)).state).toBe('off')
 })
+
+test('M6-13: on the start page, a linked model with many sheets turns the drop card into a picker that fits the window', async ({ page }) => {
+  // a Snowdon-sized set: architectural, life safety and schematic sheets
+  const sheets = [
+    ...Array.from({ length: 38 }, (_, i) => ({ id: `a${i}`, number: `A${100 + i}`, name: i % 3 ? 'Floor Plan' : 'Building Sections' })),
+    ...Array.from({ length: 14 }, (_, i) => ({ id: `g${i}`, number: `G${100 + i}`, name: 'Life Safety Plan' })),
+    ...Array.from({ length: 6 }, (_, i) => ({ id: `s${i}`, number: `SD${101 + i}`, name: 'Schematic Floor Plan' })),
+  ]
+  await mockPlugin(page, () => [], [], sheets)
+  for (const size of [
+    { width: 1280, height: 800, name: 'desktop' },
+    { width: 390, height: 760, name: 'phone' },
+  ]) {
+    await page.setViewportSize(size)
+    await openApp(page)
+    await page.evaluate(() => window.__brushDev!.revitConnect())
+    await page.waitForFunction(() => window.__brushDev!.revit().state === 'on')
+
+    const card = page.getByTestId('revit-picker-card')
+    await expect(card).toBeVisible()
+    // the whole card, footer included, is inside the window: the list scrolls instead of the page
+    const box = (await card.boundingBox())!
+    expect(box.y).toBeGreaterThanOrEqual(0)
+    expect(box.y + box.height).toBeLessThanOrEqual(size.height)
+    await expect(card.getByTestId('revit-stream-toggle')).toBeInViewport()
+
+    await card.locator('li[data-sheet-id="a3"]').getByTestId('revit-pick-sheet').check()
+    await expect(card.getByTestId('revit-open-selected')).toBeInViewport()
+    await page.screenshot({ path: screenPath(`m6-picker-${size.name}`) })
+
+    // discipline chips narrow the list; the search narrows it further; a ticked sheet stays ticked while hidden
+    await card.getByTestId('revit-discipline').filter({ hasText: 'SD' }).click()
+    await expect(card.locator('li[data-sheet-id]')).toHaveCount(6)
+    await card.getByTestId('revit-sheet-search').fill('sd103')
+    await expect(card.locator('li[data-sheet-id]')).toHaveCount(1)
+    await card.locator('li[data-sheet-id="s2"]').getByTestId('revit-pick-sheet').check()
+    await expect(card.getByTestId('revit-open-selected')).toHaveText('Open 2 sheets')
+    await page.evaluate(() => window.__brushDev!.revitDisconnect())
+  }
+})
+
+test('M6-14: the inspector works on a linked Revit sheet: hovering a wall shows its data and highlights it', async ({ page }) => {
+  await mockPlugin(page, () => [])
+  await openApp(page)
+  await page.evaluate(() => window.__brushDev!.revitConnect())
+  await page.waitForFunction(() => window.__brushDev!.revit().state === 'on')
+  await page.getByTestId('revit-start').locator(`li[data-sheet-id="${SHEET}"]`).getByTestId('revit-open-sheet').click()
+  await expect(page.locator(`[data-sheet-id="${SHEET}"][data-rendered="true"]`)).toBeVisible()
+  await page.keyboard.press('v')
+
+  // a point on a wall of the package, found through the app's own modules
+  const target = await page.evaluate(async (sheetId) => {
+    const load = (p: string) => import(/* @vite-ignore */ p)
+    const { getDocState } = await load('/src/app/store.ts')
+    const { getCamera } = await load('/src/app/camera.ts')
+    const { elementAt } = await load('/src/app/drawing/inspect.ts')
+    const st = getDocState()
+    const vp = st.source.vectorPage(sheetId)
+    if (!vp) return null
+    const pl = st.placements.find((p: { sheetId: string }) => p.sheetId === sheetId)
+    const cam = getCamera()
+    const r = document.querySelector('[data-testid="board"]')!.getBoundingClientRect()
+    for (const it of vp.page.items as { t: string; el: string; xy: Float32Array }[]) {
+      if (it.t !== 'path' || vp.elements[it.el]?.category !== 'Walls') continue
+      const x = (it.xy[0] + it.xy[2]) / 2, y = (it.xy[1] + it.xy[3]) / 2
+      if (elementAt(vp.page, x, y, 4 / cam.z) !== it.el) continue
+      return { el: it.el, type: vp.elements[it.el].type as string, x: r.left + (x + pl.x + cam.x) * cam.z, y: r.top + (y + pl.y + cam.y) * cam.z }
+    }
+    return null
+  }, SHEET)
+  expect(target).not.toBeNull()
+
+  await page.mouse.move(target!.x, target!.y)
+  await page.mouse.move(target!.x + 0.5, target!.y)
+  const card = page.getByTestId('left-sidebar').getByTestId('inspect-panel')
+  await expect(card).toHaveAttribute('data-element', target!.el)
+  await expect(card).toContainText('Walls')
+  await expect(card).toContainText(target!.type)
+  await expect(page.getByTestId('inspect-highlight')).toHaveAttribute('data-element', target!.el)
+  await page.screenshot({ path: screenPath('m6-inspect-revit-sheet') })
+})

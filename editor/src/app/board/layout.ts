@@ -39,31 +39,49 @@ export interface LayoutOptions {
 export const MIN_ZOOM = 0.05
 export const MAX_ZOOM = 24
 
-/** Lay sheets out in a grid, row-major in page order. Cells are sized by the largest sheet in their column/row. */
+const median = (xs: readonly number[]): number => {
+  const s = [...xs].sort((a, b) => a - b)
+  const m = s.length >> 1
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+}
+
+/**
+ * Lay sheets out row-major in page order on a grid of cells sized by the typical (median) sheet width, `columns`
+ * cells per row. A wider sheet spans as many cells as it needs and moves to the next row when it does not fit in what
+ * is left of the current one, so a few oversized sheets (Revit coordination sheets can be 7× a normal one) no longer
+ * stretch every column and gap. Each row is as tall as its tallest sheet. Same-size sheets give a plain grid.
+ */
 export function layoutSheets(sheets: readonly Pick<Sheet, 'id' | 'pageIndex' | 'sizePt'>[], opts: LayoutOptions = {}): Placement[] {
   const n = sheets.length
   if (n === 0) return []
-  const cols = Math.max(1, Math.min(n, opts.columns ?? Math.ceil(Math.sqrt(n))))
-  const rows = Math.ceil(n / cols)
-  const maxW = Math.max(...sheets.map((s) => s.sizePt.w))
-  const gapX = opts.gapX ?? Math.round(maxW * 0.12)
-  const gapY = opts.gapY ?? Math.round(maxW * 0.14)
-  const colW: number[] = new Array(cols).fill(0)
-  const rowH: number[] = new Array(rows).fill(0)
-  sheets.forEach((s, i) => {
-    colW[i % cols] = Math.max(colW[i % cols], s.sizePt.w)
-    rowH[Math.floor(i / cols)] = Math.max(rowH[Math.floor(i / cols)], s.sizePt.h)
-  })
-  const colX = colW.map((_, c) => colW.slice(0, c).reduce((a, b) => a + b + gapX, 0))
-  const rowY = rowH.map((_, r) => rowH.slice(0, r).reduce((a, b) => a + b + gapY, 0))
-  return sheets.map((s, i) => ({
-    sheetId: s.id,
-    pageIndex: s.pageIndex,
-    x: colX[i % cols],
-    y: rowY[Math.floor(i / cols)],
-    w: s.sizePt.w,
-    h: s.sizePt.h,
-  }))
+  const typW = median(sheets.map((s) => s.sizePt.w))
+  const gapX = opts.gapX ?? Math.round(typW * 0.12)
+  const gapY = opts.gapY ?? Math.round(typW * 0.14)
+  const cellW = Math.max(1, typW + gapX)
+  const spanOf = (w: number) => Math.max(1, Math.ceil((w + gapX) / cellW - 1e-9))
+  // Default: ceil(sqrt(n)) cells per row, widened when big sheets would otherwise stack into a tall strip, so the
+  // board stays roughly landscape (its area, gaps included, laid out about 3:2) and the widest sheet fits a row.
+  const area = sheets.reduce((a, s) => a + spanOf(s.sizePt.w) * cellW * (s.sizePt.h + gapY), 0)
+  const byArea = Math.ceil(Math.sqrt(area * 1.5) / cellW)
+  const widest = Math.max(...sheets.map((s) => spanOf(s.sizePt.w)))
+  const cols = Math.max(1, opts.columns ?? Math.max(Math.min(n, Math.ceil(Math.sqrt(n))), Math.min(byArea, n * widest), widest))
+
+  const out: Placement[] = []
+  let col = 0
+  let y = 0
+  let rowH = 0
+  for (const s of sheets) {
+    const span = spanOf(s.sizePt.w)
+    if (col > 0 && col + span > cols) {
+      y += rowH + gapY
+      col = 0
+      rowH = 0
+    }
+    out.push({ sheetId: s.id, pageIndex: s.pageIndex, x: col * cellW, y, w: s.sizePt.w, h: s.sizePt.h })
+    rowH = Math.max(rowH, s.sizePt.h)
+    col += span
+  }
+  return out
 }
 
 export function boardBounds(placements: readonly Placement[]): Rect {
