@@ -453,6 +453,26 @@ async function retype(sheetId: string, f: Frac, typeName: string): Promise<strin
 /** The host element highlighted on the sheets now: the one under the pointer (the card opens only on a click). */
 const inspected = () => document.querySelector<HTMLElement>('[data-testid="inspect-highlight"]')?.dataset.element || undefined
 
+/** Host elements selected on the sheets now (the selection outline every sheet draws). */
+const selectedOnSheets = (): string[] => [...document.querySelectorAll<HTMLElement>('[data-testid="selected-sheet"]')].flatMap((g) => (g.dataset.items ?? '').split(',').filter(Boolean))
+
+/**
+ * Open a side panel the way a person does, by its icon on the rail (src/app/ui/SidePanels.tsx): 'element' (the
+ * selected element's card), 'tool', 'reading', 'session', 'filters'. Already open: nothing to do.
+ */
+async function openPanel(id: string) {
+  const btn = await until(() => document.querySelector<HTMLButtonElement>(`[data-testid="rail-${id}"]`), 5000, `the ${id} panel's icon`)
+  if (btn.getAttribute('aria-pressed') === 'true') return
+  await press(btn)
+  await frame()
+}
+
+/** Close a side panel by its icon, if it is open. */
+async function closePanel(id: string) {
+  const btn = document.querySelector<HTMLButtonElement>(`[data-testid="rail-${id}"]`)
+  if (btn?.getAttribute('aria-pressed') === 'true') await press(btn)
+}
+
 /** A pointer event on the board at a screen point. */
 function pointer(type: string, at: { x: number; y: number }, buttons = 0) {
   getViewportEl()?.dispatchEvent(
@@ -535,8 +555,7 @@ async function selectElement(sheetId: string, elementId: string, near?: Frac) {
     await frame()
     penAt(again.x, again.y, false)
     // a click can pick what runs alongside (a grid line) where a hover found the wall: check what got selected
-    const card = document.querySelector<HTMLElement>('[data-testid="inspect-panel"]')
-    if (card?.dataset.element === elementId && card.dataset.pinned === 'true') return
+    if (selectedOnSheets().includes(elementId)) return
   }
   throw new Error(`demo: no point on element ${elementId} picks it`)
 }
@@ -687,6 +706,8 @@ async function sketchFromPhoto(spots: SketchPhotoSpots = KRO_SKETCH_SPOTS) {
 
 /** Make elements of the imported sketch: walls, doors and furniture, read as the brush reads a stroke. */
 async function makeSketchReal() {
+  // the import's row, with Make elements, is in the session panel
+  await openPanel('session')
   const btn = await until(() => [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Make elements'), 10000, 'Make elements')
   await press(btn)
   // reading: done when the button stops saying so (strokes it does not read as an element stay ink)
@@ -890,8 +911,9 @@ async function beat(name: Beat, opts: RunOptions = {}) {
     case 'inspect': {
       const s = sheetByNumber(spots.sheet)
       caption('3:15 · It reads the building', SAY.inspect)
-      // select (not just hover) the facade wall along the room, still zoomed in: its card stays open
+      // select (not just hover) the facade wall along the room, still zoomed in, and open its card
       await selectElement(s.id, spots.everywhere.element, spots.view.center)
+      await openPanel('element')
       penOff()
       await talk(6000)
       if (spots.alsoOpen.length && revitSnapshot().open.length > 1) {
@@ -1111,6 +1133,8 @@ export function presenterSteps(spots: DemoSpots = SNOWDON_SPOTS): Step[] {
         // Revit parameters, and the selection is what lights up on the other floors next
         await look(sheet().id, spots.view.center, spots.view.width, 600)
         await selectElement(sheet().id, spots.everywhere.element, spots.view.center)
+        // and open its card: the element panel, from the rail on the left
+        await openPanel('element')
       }),
     },
     {
@@ -1122,6 +1146,7 @@ export function presenterSteps(spots: DemoSpots = SNOWDON_SPOTS): Step[] {
       id: 'back',
       label: 'Back to the room',
       run: () => quietly(async () => {
+        await closePanel('element')
         await look(sheet().id, spots.view.center, spots.view.width, 1200)
         session.setTool('brush')
       }),

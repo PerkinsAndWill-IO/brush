@@ -75,7 +75,7 @@ right corner, saying what it will do next. Each click plays one step in the real
 |---|---|---|
 | 1 | Kickoff demo | Connects to Revit, ticks A102–A105 in the picker, opens them, **cleans the stage** (takes back anything an earlier run left in Live/Work Unit 205, or stops and says so), zooms into the room. |
 | 2 | Sketch a wall, a door and a table | Draws all three, waits for the table to be in Revit, then right-clicks it and picks the 60" round dining table. |
-| 3 | What is it? | Still zoomed in, **clicks** the north facade wall along the room: its card pins open with its Revit parameters. |
+| 3 | What is it? | Still zoomed in, **clicks** the north facade wall along the room to select it, then opens the **element panel** from the rail on the left (the ⓘ icon, with a dot once something is selected): its card, with its Revit parameters. |
 | 4 | Every floor | Zooms out: the selected wall is lit up on all four floors. |
 | 5 | Back to the room | Zooms back in. |
 | 6 | No Revit license? | Disconnects from Revit and drops `racbasicsampleproject.rvt` on Brush (a file chip flies in): the conversion server turns it into a `.drawing` in about 7 s, and it zooms to the kitchen. If you dragged the file in by hand, it only zooms. Clears that file's sketches from earlier runs first. |
@@ -120,7 +120,8 @@ right corner, saying what it will do next. Each click plays one step in the real
    `?timer` turns the round-trip timer on (it's also a switch in the Revit panel, and it's remembered).
 7. **Warm up:** open A102, draw and undo one wall. The first export after Revit opens a model is the slow one.
 8. **Close everything else** that talks to Revit (a second browser tab on the editor, PW Tools sessions).
-9. **Screen:** 1920×1080, browser zoom 100%, Brush full screen (F11). Hide the right sidebar if it crowds the sheet.
+9. **Screen:** 1920×1080, browser zoom 100%, Brush full screen (F11). The side panels are folded into icon rails on
+   the edges, so the sheet has the whole width; open one only when you need it.
 10. **Back-up video:** record one clean run (`Win+Alt+R`) and keep it on the desktop.
 11. **Start clean:** after the last rehearsal press **Start over** (or `await __brushDemo.ensureClean()`). Step 1 also
    checks the stage and cleans it, but cleaning a whole earlier run takes about a minute you don't want on stage.
@@ -178,7 +179,8 @@ them; after a reload `reset()` connects and opens the sheet itself. Don't edit t
   (`Table-Rectangular: 72" x 30"`), so a drawn rectangle picks the nearest real table. Families with no size in
   their name (`Banquette - Double`) are only picked when nothing else fits.
 - On A103 most furniture families are hidden in the view: a table lands in Revit but not on the sheet. Use A102.
-- Opening the inspector card widens the left sidebar and moves the board a little.
+- Hovering highlights an element on every sheet; its card (the element panel) is for a selected element only.
+- Rooms are hidden by the display filter by default (they got in the way of picking); Filters → Rooms shows them.
 - Walls take the type nearest the stroke's thickness: a thick stroke gives an exterior rainscreen wall.
 - Doors take the nearest width, preferring an ordinary door: a ~1 m opening becomes
   `Door-Passage-Single-Flush: 36" x 80"`. (Before, it picked the double-acting 42" door, whose plan symbol shows

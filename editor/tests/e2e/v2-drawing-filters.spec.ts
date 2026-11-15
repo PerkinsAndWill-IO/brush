@@ -6,7 +6,7 @@
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
-import { openApp, screenPath } from './helpers'
+import { openApp, screenPath, openPanel } from './helpers'
 
 const HOUSE = fileURLToPath(new URL('../../../schema/public/examples/house.drawing', import.meta.url))
 test.skip(!existsSync(HOUSE), 'needs schema/public/examples/house.drawing')
@@ -39,8 +39,12 @@ test('V2-01..03: filters list the categories, hide categories and kinds, and sur
   await openApp(page)
   await expect(page.getByTestId('section-filters')).toHaveCount(0) // nothing open: no filters
   await openHouse(page)
+  await openPanel(page, 'filters')
   const section = page.getByTestId('right-sidebar').getByTestId('section-filters')
   await expect(section).toBeVisible()
+  // Rooms are hidden by default (they lie under everything and get in the way of picking)
+  const rooms = section.locator('input[data-category="Rooms"]')
+  if (await rooms.count()) await expect(rooms).not.toBeChecked()
   const walls = section.locator('input[data-category="Walls"]')
   await expect(walls).toBeChecked()
   await expect(section.locator('input[data-category="Grids"]')).toBeVisible()
@@ -72,6 +76,7 @@ test('V2-01..03: filters list the categories, hide categories and kinds, and sur
   // remembered per browser
   await page.reload()
   await openHouse(page)
+  await openPanel(page, 'filters')
   await expect(page.getByTestId('section-filters').locator('input[data-category="Walls"]')).not.toBeChecked()
   await expect(page.getByTestId('section-filters').locator('[data-kind="fills"]')).toHaveAttribute('aria-pressed', 'false')
 
@@ -80,5 +85,6 @@ test('V2-01..03: filters list the categories, hide categories and kinds, and sur
   await page.getByTestId('filter-reset').click()
   await expect(page.getByTestId('section-filters').locator('input[data-category="Walls"]')).toBeChecked()
   await rerendered(page, v)
-  expect(await inked(page)).toBe(all)
+  // everything: what was shown at first, and the rooms hidden by default
+  expect(await inked(page)).toBeGreaterThanOrEqual(all)
 })

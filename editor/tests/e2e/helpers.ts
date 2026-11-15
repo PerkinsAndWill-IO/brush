@@ -35,3 +35,12 @@ export function p95(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b)
   return s[Math.min(s.length - 1, Math.ceil(0.95 * s.length) - 1)]
 }
+
+/**
+ * Open a side panel: the sidebars are collapsed to icon rails (src/app/ui/SidePanels.tsx). Left: 'tool' (the active
+ * tool's options), 'element' (the selected element, Select tool). Right: 'reading', 'session', 'filters', 'recordings'.
+ */
+export async function openPanel(page: Page, id: 'tool' | 'element' | 'reading' | 'session' | 'filters' | 'recordings') {
+  const btn = page.getByTestId(`rail-${id}`)
+  if ((await btn.getAttribute('aria-pressed')) !== 'true') await btn.click()
+}

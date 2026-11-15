@@ -5,7 +5,7 @@
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
-import { openApp, screenPath } from './helpers'
+import { openApp, screenPath, openPanel } from './helpers'
 
 const HOUSE = fileURLToPath(new URL('../../../schema/public/examples/house.drawing', import.meta.url))
 test.skip(!existsSync(HOUSE), 'needs schema/public/examples/house.drawing')
@@ -57,7 +57,8 @@ test('V3-01..03: hover highlights an element on every sheet; a click selects it 
   await openHouse(page)
   await page.keyboard.press('v')
   const card = page.getByTestId('left-sidebar').getByTestId('inspect-panel')
-  // nothing selected: no card (no "No element" placeholder), and the sidebar stays narrow
+  // the element panel: nothing selected, no card (no "No element" placeholder), and the panel stays narrow
+  await openPanel(page, 'element')
   await expect(card).toHaveCount(0)
   await expect(page.getByTestId('left-sidebar')).not.toHaveClass(/wide/)
 
@@ -76,9 +77,9 @@ test('V3-01..03: hover highlights an element on every sheet; a click selects it 
   await expect(page.locator(`[data-testid="inspect-highlight"][data-element="${FIREPLACE}"]`)).toHaveCount(3)
   await expect(card).toHaveCount(0)
 
-  // moving off the element clears the hover
+  // moving off the element (off the board, onto the top bar) clears the hover
   await page.mouse.move(pt!.x + 400, pt!.y + 400)
-  await page.mouse.move(5, 300)
+  await page.mouse.move(600, 8)
   await expect(page.getByTestId('inspect-highlight')).toHaveCount(0)
 
   // V3-02: a click selects (pins) it, and the panel shows the element's data

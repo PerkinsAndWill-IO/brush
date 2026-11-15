@@ -7,7 +7,7 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:chil
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test'
-import { openApp, screenPath } from './helpers'
+import { openApp, screenPath, openPanel } from './helpers'
 import { ROOT, line, settle } from './m1-helpers'
 
 const REVIT = resolve(ROOT, '..', 'revit')
@@ -372,9 +372,10 @@ test('M6-14: the inspector works on a linked Revit sheet: hovering a wall highli
   await page.mouse.move(target!.x, target!.y)
   await page.mouse.move(target!.x + 0.5, target!.y)
   await expect(page.getByTestId('inspect-highlight').first()).toHaveAttribute('data-element', target!.el)
-  // the card is for a selected element: click it
+  // the card is for a selected element: click it, and open the element panel
   await page.mouse.down()
   await page.mouse.up()
+  await openPanel(page, 'element')
   const card = page.getByTestId('left-sidebar').getByTestId('inspect-panel')
   await expect(card).toHaveAttribute('data-element', target!.el)
   await expect(card).toContainText('Walls')

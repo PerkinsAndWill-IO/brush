@@ -8,7 +8,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Stroke } from '../../src/core/types'
-import { screenPath } from './helpers'
+import { screenPath, openPanel } from './helpers'
 import { openWith } from './m1-helpers'
 
 const PDF = 'office-6-sheets.pdf'
@@ -254,6 +254,7 @@ test.describe('P1 photo import', () => {
     await page.getByTestId('photo-done').click()
 
     // P1-07: one row for the whole import, not one per stroke
+    await openPanel(page, 'session')
     const strokes = (await page.evaluate(() => window.__brush!.strokes())) as Stroke[]
     const row = page.getByTestId('photo-group')
     await expect(row).toHaveCount(1)

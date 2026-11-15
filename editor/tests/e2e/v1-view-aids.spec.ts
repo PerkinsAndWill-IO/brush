@@ -4,7 +4,7 @@
  * Screenshots: reports/screens/v1-*.png.
  */
 import { expect, test, type Page } from '@playwright/test'
-import { screenPath } from './helpers'
+import { screenPath, openPanel } from './helpers'
 import { boardCenter, camera, openWith, settle } from './m1-helpers'
 
 const ONE = 'office-1-sheet.pdf'
@@ -18,6 +18,7 @@ async function openScaled(page: Page) {
 }
 
 async function openView(page: Page) {
+  await openPanel(page, 'tool')
   const section = page.getByTestId('section-view')
   if ((await section.getAttribute('data-open')) !== 'true') await section.getByRole('button', { name: 'View' }).click()
 }
@@ -56,6 +57,7 @@ test('V1-02: the Measure tool measures in real units, drag or click-click; Backs
   await settle(page)
   await page.keyboard.press('m')
   await expect(page.getByTestId('tool-capsule').locator('[data-tool="measure"]')).toHaveAttribute('aria-pressed', 'true')
+  await openPanel(page, 'tool')
   await expect(page.getByTestId('section-measure')).toBeVisible()
 
   const { x, y } = await boardCenter(page)
@@ -94,7 +96,8 @@ test('V1-02: the Measure tool measures in real units, drag or click-click; Backs
 
 test('V1-03: a metric grid can be shown on scaled sheets; its spacing adapts to the zoom', async ({ page }) => {
   await openScaled(page)
-  await page.evaluate(() => window.__brushDev!.focusSheet(0, 1))
+  // zoomed out far enough that the grid is not at its finest yet (the board is full width: a fit can reach zoom 1)
+  await page.evaluate(() => window.__brushDev!.focusSheet(0, 0.4))
   await settle(page)
   await expect(page.getByTestId('sheet-grid')).toHaveCount(0)
   await openView(page)

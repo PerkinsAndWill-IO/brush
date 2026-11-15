@@ -78,3 +78,35 @@ export const MenuIcon = () => (
     <path d="M3.5 14.5h13" />
   </Icon>
 )
+
+/** Side panel rail (Reading your stroke, This session, Filters, Recordings, the selected element). */
+export const ReadingIcon = ({ size = 20 }: { size?: number }) => (
+  <Icon size={size}>
+    <path d="M2.5 10s2.8-5 7.5-5 7.5 5 7.5 5-2.8 5-7.5 5-7.5-5-7.5-5z" />
+    <circle cx="10" cy="10" r="2.3" />
+  </Icon>
+)
+export const SessionIcon = ({ size = 20 }: { size?: number }) => (
+  <Icon size={size}>
+    <path d="M10 3l7 3.5-7 3.5-7-3.5z" />
+    <path d="M3 10l7 3.5 7-3.5" />
+    <path d="M3 13.5l7 3.5 7-3.5" />
+  </Icon>
+)
+export const FilterIcon = ({ size = 20 }: { size?: number }) => (
+  <Icon size={size}>
+    <path d="M3 4.5h14l-5.5 6.2V16l-3-1.5v-3.8z" />
+  </Icon>
+)
+export const RecordIcon = ({ size = 20 }: { size?: number }) => (
+  <Icon size={size}>
+    <circle cx="10" cy="10" r="6.5" />
+    <circle cx="10" cy="10" r="2.5" fill="currentColor" />
+  </Icon>
+)
+export const InfoIcon = ({ size = 20 }: { size?: number }) => (
+  <Icon size={size}>
+    <circle cx="10" cy="10" r="7" />
+    <path d="M10 9v4.5M10 6.4v.1" />
+  </Icon>
+)
