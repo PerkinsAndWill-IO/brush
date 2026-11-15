@@ -15,13 +15,37 @@ const MIME: Record<string, string> = {
   '.txt': 'text/plain',
 }
 
+/** Send a file, honouring a single `Range: bytes=a-b` (206) like a static host does, so range loading can be tested. */
+function sendFile(req: { headers?: Record<string, string | string[] | undefined> }, res: import('node:http').ServerResponse, file: string) {
+  const size = statSync(file).size
+  res.setHeader('Accept-Ranges', 'bytes')
+  const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers?.range ?? ''))
+  if (!m || (!m[1] && !m[2])) {
+    res.setHeader('Content-Length', size)
+    createReadStream(file).pipe(res)
+    return
+  }
+  const start = m[1] ? Number(m[1]) : Math.max(0, size - Number(m[2]))
+  const end = m[1] && m[2] ? Math.min(Number(m[2]), size - 1) : size - 1
+  if (start > end) {
+    res.statusCode = 416
+    res.setHeader('Content-Range', `bytes */${size}`)
+    res.end()
+    return
+  }
+  res.statusCode = 206
+  res.setHeader('Content-Range', `bytes ${start}-${end}/${size}`)
+  res.setHeader('Content-Length', end - start + 1)
+  createReadStream(file, { start, end }).pipe(res)
+}
+
 /**
  * Serves ./fixtures at /fixtures/* in `vite dev` and `vite preview` only.
  * Tests call `window.__brush.loadPdf('/fixtures/pdfs/office-1-sheet.pdf')`.
  * Fixtures are never copied into a production build.
  */
 function serveFixtures(): Plugin {
-  const handler = (req: { url?: string }, res: import('node:http').ServerResponse, next: () => void) => {
+  const handler = (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse, next: () => void) => {
     const url = decodeURIComponent((req.url ?? '').split('?')[0])
     if (!url.startsWith('/fixtures/')) return next()
     const file = resolve(fixturesDir, '.' + url.slice('/fixtures'.length))
@@ -32,7 +56,7 @@ function serveFixtures(): Plugin {
     }
     res.setHeader('Content-Type', MIME[extname(file)] ?? 'application/octet-stream')
     res.setHeader('Cache-Control', 'no-store')
-    createReadStream(file).pipe(res)
+    sendFile(req, res, file)
   }
   return {
     name: 'brush-serve-fixtures',
@@ -97,14 +121,14 @@ function listRemoteSamples(): SampleEntry[] {
 function sampleDrawings(): Plugin {
   const VIRTUAL = 'virtual:brush-samples'
   const RESOLVED = '\0' + VIRTUAL
-  const handler = (req: { url?: string }, res: import('node:http').ServerResponse, next: () => void) => {
+  const handler = (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse, next: () => void) => {
     const url = decodeURIComponent((req.url ?? '').split('?')[0])
     if (!url.startsWith('/samples/')) return next()
     const sample = listSamples().find((s) => s.name === url.slice('/samples/'.length))
     if (!sample) return next()
     res.setHeader('Content-Type', 'application/octet-stream')
     res.setHeader('Cache-Control', 'no-store')
-    createReadStream(resolve(samplesDir, sample.name)).pipe(res)
+    sendFile(req, res, resolve(samplesDir, sample.name))
   }
   return {
     name: 'brush-sample-drawings',

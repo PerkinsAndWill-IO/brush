@@ -8,27 +8,9 @@ import { sheetToScreen } from '../board/layout'
 import { useSession } from '../session'
 import { useDocState } from '../store'
 import { anchorOf, entryFor, revit, useRevit } from './controller'
+import { ackExplainer, needsExplainer } from './lna'
 import { sheetLabel } from './protocol'
 
-const LNA_ACK_KEY = 'brush.revit.lnaExplained'
-
-/** A page served over https (the Vercel deployment) meets Chrome's local-network prompt and Revit's origin dialog. */
-function needsExplainer(): boolean {
-  if (typeof location === 'undefined' || location.protocol !== 'https:') return false
-  try {
-    return localStorage.getItem(LNA_ACK_KEY) !== '1'
-  } catch {
-    return true
-  }
-}
-
-function ackExplainer() {
-  try {
-    localStorage.setItem(LNA_ACK_KEY, '1')
-  } catch {
-    /* private mode: ask again next time */
-  }
-}
 
 const STATE_LABEL = { off: 'Revit', connecting: 'Connecting…', on: 'Revit', refused: 'Revit refused' } as const
 
@@ -120,6 +102,11 @@ function PanelBody({ close }: { close: () => void }) {
       <p className="revit-h">
         {document?.title ?? 'Revit'} <span className="secondary">{welcome?.server.host}</span>
       </p>
+      {rv.autoNote && (
+        <p className="revit-auto" data-testid="revit-auto-note">
+          {rv.autoNote}
+        </p>
+      )}
       {rv.stale && (
         <p className="revit-warn" data-testid="revit-stale">
           The model changed in Revit while you drew. Your edits went in; check the sheet.
@@ -214,9 +201,38 @@ function PanelBody({ close }: { close: () => void }) {
           )}
         </>
       )}
+      <button
+        type="button"
+        className="toggle-row revit-stream"
+        aria-pressed={rv.streaming}
+        data-testid="revit-stream-toggle"
+        onClick={() => revit.setStreaming(!rv.streaming)}
+      >
+        <span>
+          Stream edits to Revit
+          <span className="secondary revit-stream-sub">{rv.streaming ? 'Walls, doors and furniture go in as you draw.' : 'Paused: edits wait here until you send them.'}</span>
+        </span>
+        <span className={`switch${rv.streaming ? ' on' : ''}`} aria-hidden="true">
+          <span />
+        </span>
+      </button>
+      {!rv.streaming && rv.queued > 0 && (
+        <div className="revit-row revit-queued">
+          <span data-testid="revit-queued">{`${rv.queued} ${rv.queued === 1 ? 'edit' : 'edits'} waiting`}</span>
+          <button type="button" className="btn accent" data-testid="revit-send-now" disabled={state !== 'on'} onClick={() => revit.flush()}>
+            Send now
+          </button>
+        </div>
+      )}
       <div className="revit-row">
         <span className="secondary" data-testid="revit-inflight">
-          {rv.inFlight ? `Sending ${rv.inFlight} to Revit…` : rv.open.length ? 'Edits go to Revit as you draw.' : 'Pick sheets to sketch on.'}
+          {rv.inFlight
+            ? `Sending ${rv.inFlight} to Revit…`
+            : !rv.open.length
+              ? 'Pick sheets to sketch on.'
+              : rv.streaming
+                ? 'Edits go to Revit as you draw.'
+                : 'Streaming paused.'}
         </span>
         <button type="button" className="btn soft" data-testid="revit-disconnect" onClick={() => revit.disconnect()}>
           Disconnect
@@ -243,16 +259,18 @@ export function RevitButton() {
     <div className="menu-anchor" ref={ref}>
       <button
         type="button"
-        className={`btn soft revit-btn state-${st}${busy ? ' busy' : ''}`}
+        className={`btn soft revit-btn state-${st}${busy ? ' busy' : ''}${rv.streaming ? '' : ' paused'}`}
         aria-haspopup="dialog"
         aria-expanded={open}
         data-testid="revit-button"
         data-state={st}
-        title={rv.link.detail ?? 'Live link to Revit'}
+        data-streaming={rv.streaming}
+        title={rv.link.detail ?? (rv.streaming ? 'Live link to Revit' : `Live link to Revit: streaming paused${rv.queued ? `, ${rv.queued} waiting` : ''}`)}
         onClick={() => setOpen(!open)}
       >
         <span className="revit-dot" aria-hidden="true" />
         {st === 'on' && rv.open.length ? `Revit · ${rv.open.length === 1 ? (rv.link.sheets.find((s) => s.id === rv.open[0].id)?.number ?? '1 sheet') : `${rv.open.length} sheets`}` : STATE_LABEL[st]}
+        {st === 'on' && !rv.streaming && <span className="revit-paused-tag">{rv.queued ? `paused · ${rv.queued}` : 'paused'}</span>}
       </button>
       {open && (
         <div className="menu revit-panel" role="dialog" aria-label="Revit link" data-testid="revit-panel">

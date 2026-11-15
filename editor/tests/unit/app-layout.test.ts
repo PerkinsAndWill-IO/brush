@@ -110,6 +110,13 @@ describe('M1-04: camera', () => {
     expect(c.x).toBeCloseTo(500)
     expect(c.y).toBeCloseTo(400)
   })
+  it('fitCamera shows the top of a board too tall for the minimum zoom, where the first sheet is', () => {
+    // at zoom 0.05 this board is 10 000 px tall in an 800 px viewport; its width (200 px) fits
+    const cam = fitCamera({ x: 0, y: 0, w: 4000, h: 200_000 }, 1000, 800, 50)
+    expect(cam.z).toBeCloseTo(0.05)
+    expect((0 + cam.x) * cam.z).toBeCloseTo(400) // left edge: centered, (1000 - 200) / 2
+    expect((0 + cam.y) * cam.z).toBeCloseTo(50) // top edge: at the padding
+  })
 })
 
 describe('M1-05: render resolution', () => {

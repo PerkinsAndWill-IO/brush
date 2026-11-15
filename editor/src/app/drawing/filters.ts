@@ -6,7 +6,7 @@
  * sidecar or the command log. Choices are remembered per browser by category name, so they carry across files.
  */
 import { useSyncExternalStore } from 'react'
-import type { DrawingDocument, DrawingElement, DrawItem } from '@core/drawing'
+import type { DrawingDocument, DrawingElement, DrawingPage, DrawItem } from '@core/drawing'
 
 export type ItemKind = 'lines' | 'fills' | 'text' | 'images'
 
@@ -44,13 +44,25 @@ export interface CategoryCount {
   count: number
 }
 
-/** Categories present in a document with their item counts, most items first (ties by name). */
-export function categoriesOf(doc: Pick<DrawingDocument, 'elements' | 'pages'>): CategoryCount[] {
-  const counts = new Map<string, number>()
-  for (const p of doc.pages) for (const it of p.items) {
+const perPage = new WeakMap<DrawingPage, Map<string, number>>()
+
+/** Item count per category on one page; kept, so a page loaded in the background can be counted when it arrives. */
+export function pageCategories(doc: Pick<DrawingDocument, 'elements'>, page: DrawingPage): ReadonlyMap<string, number> {
+  let counts = perPage.get(page)
+  if (counts) return counts
+  counts = new Map()
+  for (const it of page.items) {
     const c = itemCategory(doc, it)
     counts.set(c, (counts.get(c) ?? 0) + 1)
   }
+  perPage.set(page, counts)
+  return counts
+}
+
+/** Categories present in a document with their item counts, most items first (ties by name). */
+export function categoriesOf(doc: Pick<DrawingDocument, 'elements' | 'pages'>): CategoryCount[] {
+  const counts = new Map<string, number>()
+  for (const p of doc.pages) for (const [c, n] of pageCategories(doc, p)) counts.set(c, (counts.get(c) ?? 0) + n)
   return [...counts].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
 }
 

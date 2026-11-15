@@ -15,7 +15,7 @@ import { boardView } from '../board/Board'
 import { getPlatform } from '../platform'
 import { recorder, recorderAvailable, useRecorder } from '../recording'
 import { getSession, session, sessionFileFor, useSession, type Tool } from '../session'
-import { getDocState, openFile, useDocState } from '../store'
+import { getDocState, openFile, useDocState, useSheetsLoading } from '../store'
 import { DrawingFileSource, buildCommandFile, commandFileName, serializeCommandFile, writeCommandFile } from '../source'
 import { ITEM_KINDS, categoriesOf, filters, isAnnotationCategory, useFilters } from '../drawing/filters'
 import { useContexts } from '../brain/contextStore'
@@ -261,6 +261,17 @@ function LatencyReadout() {
   )
 }
 
+/** "loading 12 of 149" while the sheets of a `.drawing` load in the background (re-renders alone). */
+function SheetsLoading() {
+  const loading = useSheetsLoading()
+  if (!loading) return null
+  return (
+    <span className="secondary" data-testid="sheets-loading" role="status">
+      loading {loading[0]} of {loading[1]}
+    </span>
+  )
+}
+
 export function TopBar() {
   const doc = useDocState()
   const { canUndo, canRedo, saved } = useSession()
@@ -275,6 +286,7 @@ export function TopBar() {
             {doc.sheets.length} {doc.sheets.length === 1 ? 'sheet' : 'sheets'}
           </span>
         )}
+        {ready && <SheetsLoading />}
         {ready && saved !== 'idle' && (
           <span className="secondary save-state" data-testid="save-state">
             {saved === 'pending' ? 'Saving…' : saved === 'saved' ? 'Saved' : 'Not saved'}
