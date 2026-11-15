@@ -3,8 +3,10 @@
  * so none of the work touches the main thread. Protocol in ./protocol.ts; use ./client.ts.
  */
 import './worker-shim'
-import { GlobalWorkerOptions, OPS, getDocument, type PDFDocumentLoadingTask, type PDFDocumentProxy } from 'pdfjs-dist'
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+import { GlobalWorkerOptions, OPS, getDocument, type PDFDocumentLoadingTask, type PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs'
+// the legacy build: pdf.js 6.5 relies on very new JavaScript (Map.prototype.getOrInsertComputed, missing before
+// Chrome 145); the legacy build carries polyfills for it, so PDFs open in older browsers too
+import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
 import { inferContext } from '@core/context'
 import { CONTEXT_DOC_PARAMS, extractPage, type PdfOps, type PdfPageLike } from './extract'
 import type { ContextRequest, ContextResponse } from './protocol'
