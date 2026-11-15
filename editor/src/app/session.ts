@@ -178,6 +178,19 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null
 let saving: Promise<void> = Promise.resolve()
 const SAVE_DEBOUNCE_MS = 300
 
+/**
+ * The commands a reloaded session keeps: those of the restored strokes, and the ones no stroke makes (S1 `set_type`,
+ * S2 `move` / `copy`) when the sheets they name are in the document.
+ */
+export function restoredCommands(commands: readonly Command[], strokeIds: ReadonlySet<string>, sheetIds: ReadonlySet<string>): Command[] {
+  return commands.filter((c) => {
+    if (strokeIds.has(c.strokeId)) return true
+    if (c.op === 'set_type' || c.op === 'move') return sheetIds.has(c.sheetId)
+    if (c.op === 'copy') return sheetIds.has(c.sheetId) && sheetIds.has(c.toSheetId)
+    return false
+  })
+}
+
 export function sessionFileFor(
   key: SidecarKey,
   strokes: readonly Stroke[],
@@ -238,8 +251,7 @@ export async function openSession(key: SidecarKey, sheetIds: readonly string[]):
       restored = file.strokes.filter((s) => ids.has(s.sheetId) && Array.isArray(s.points))
       const strokeIds = new Set(restored.map((s) => s.id))
       accepted = (file.accepted ?? []).filter((d) => strokeIds.has(d.strokeId))
-      // a type set on a sheet element (S1) has no stroke of its own
-      commands = (file.commands ?? []).filter((c) => strokeIds.has(c.strokeId) || (c.op === 'set_type' && ids.has(c.sheetId)))
+      commands = restoredCommands(file.commands ?? [], strokeIds, ids)
     }
   } catch (e) {
     console.warn('could not read sidecar', e)

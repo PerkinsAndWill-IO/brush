@@ -17,7 +17,7 @@ export interface CommandFile {
   exportedAt?: number
 }
 
-const OPS: readonly CommandOp[] = ['create_wall', 'place_door', 'place_instance', 'delete', 'set_type']
+const OPS: readonly CommandOp[] = ['create_wall', 'place_door', 'place_instance', 'delete', 'set_type', 'move', 'copy']
 
 export function buildCommandFile(args: {
   source: CommandFile['source']
