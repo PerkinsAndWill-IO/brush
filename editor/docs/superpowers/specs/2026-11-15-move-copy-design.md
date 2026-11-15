@@ -1,6 +1,6 @@
 # Move and copy/paste elements on the board
 
-Status: for approval · 2026-11-15 · branch `zcz-move-copy` (on top of PR #67)
+Status: approved · 2026-11-15 · branch `zcz-move-copy` (on top of PR #67)
 
 ## Intent
 
