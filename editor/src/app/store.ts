@@ -8,7 +8,7 @@ import { layoutSheets, type Placement } from './board/layout'
 import type { OpenedFile } from './platform'
 import { closeSession, openEphemeralSession, openSession } from './session'
 import { closeContexts, openContexts, refreshContexts, type ContextProvider } from './brain/contextStore'
-import { DrawingFileSource, openSource, type DrawingSource, type PageRenderer } from './source'
+import { DrawingFileSource, openSource, watchPages, type DrawingSource, type PageRenderer } from './source'
 import { resetLive } from './brain/live'
 
 export type DocStatus = 'empty' | 'loading' | 'ready' | 'error'
@@ -25,6 +25,8 @@ export interface DocState {
   sheets: Sheet[]
   placements: Placement[]
   error?: string
+  /** Bytes downloaded so far while a document opens by URL. */
+  openedBytes?: number
   /** Bumped per load so views can re-render pages. */
   loadId: number
 }
@@ -44,6 +46,26 @@ export function getDocState(): DocState {
 export function subscribeDoc(l: () => void): () => void {
   listeners.add(l)
   return () => listeners.delete(l)
+}
+
+/**
+ * Sheets of the open `.drawing` ready to show, of all, while the rest load in the background. Kept apart from DocState:
+ * a change per sheet must not re-render the board.
+ */
+let sheetsLoading: [number, number] | undefined
+const loadingListeners = new Set<() => void>()
+function setSheetsLoading(v: [number, number] | undefined) {
+  sheetsLoading = v
+  loadingListeners.forEach((l) => l())
+}
+export function useSheetsLoading(): [number, number] | undefined {
+  return useSyncExternalStore(
+    (l) => {
+      loadingListeners.add(l)
+      return () => loadingListeners.delete(l)
+    },
+    () => sheetsLoading,
+  )
 }
 
 export function useDocState(): DocState {
@@ -114,14 +136,19 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
   const loadId = state.loadId + 1
   const prev = state.source
   const size = opts.size ?? (typeof input === 'string' ? 0 : input.byteLength)
-  set({ status: 'loading', fileName, fileSize: size, loadId, error: undefined })
+  set({ status: 'loading', fileName, fileSize: size, loadId, error: undefined, openedBytes: undefined })
+  setSheetsLoading(undefined)
   let source: DrawingSource | undefined
+  // the download, shown on the start page; a set per 256 kB is enough
+  const onBytes = (n: number) => {
+    if (loadId === state.loadId && n - (state.openedBytes ?? 0) >= 1 << 18) set({ openedBytes: n })
+  }
   try {
     // copy: pdf.js may transfer (detach) the buffer it is given
     const bytes = typeof input === 'string' ? null : input instanceof Uint8Array ? input.slice() : new Uint8Array(input.slice(0))
     // own copy for the context worker: PdfDrawingSource hands the same buffer to pdf.js, which detaches it
     const ctxBytes = bytes?.slice()
-    source = await openSource(bytes ? { name: fileName, bytes } : (input as string))
+    source = await openSource(bytes ? { name: fileName, bytes } : (input as string), {}, onBytes)
     const { sheets, pages } = source instanceof DrawingFileSource ? source.loadFirst() : await source.load()
     if (sheets.length === 0) throw new Error(`“${fileName}” has no sheets.`)
     if (loadId !== state.loadId) {
@@ -140,6 +167,12 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
       placements: layoutSheets(sheets),
       destroy: () => source!.close(),
     })
+    if (source instanceof DrawingFileSource) {
+      const src = source
+      watchPages(src.doc, (done, total) => {
+        if (state.source === src) setSheetsLoading(done < total ? [done, total] : undefined)
+      })
+    }
     const ids = sheets.map((s) => s.id)
     if (source.kind === 'pdf') void openContexts(ctxBytes ?? (input as string), ids) // inferred in the context worker
     else {
@@ -152,6 +185,8 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
     return loadId
   } catch (e) {
     void source?.close()
+    // a later open took over while this one loaded: leave it be
+    if (loadId !== state.loadId) throw e
     void prev?.close()
     closeSession()
     closeContexts()

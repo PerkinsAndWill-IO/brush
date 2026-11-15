@@ -1,30 +1,48 @@
 /**
- * Decodes the later pages of a zstd `.drawing` off the main thread, in order, and posts each one back with its
- * coordinate buffers transferred (no copy). A page that fails to decode is posted without its content: the main thread
- * decodes it itself on first read and gets the same error there.
+ * Decodes page frames of a zstd `.drawing` off the main thread, in the order they are posted, and analyses each page
+ * (its sheet context and scales) while it is here. Posts each page back with its coordinate buffers transferred (no
+ * copy). A frame that fails to decode is posted back without a page: the main thread decodes it itself on first read
+ * and gets the same error there. Several of these run side by side, each on its own frames.
  */
-import { parseDrawingPayload, type DrawingPage } from '@core/drawing'
+import { analysePage, type PageAnalysis } from '@core/context/drawing'
+import { decodeElementsFrame, decodeLazyFrame, type DrawingElement, type DrawingPage, type LazyFrame } from '@core/drawing'
 
-export type DecodedPage = { index: number; page?: Pick<DrawingPage, 'items' | 'boxes' | 'views'> }
+/** First message: the compressed elements table, which the analysis reads. */
+export type ElementsToDecode = { elements: Uint8Array }
+export type FrameToDecode = { index: number; frame: Uint8Array } & Pick<LazyFrame, 'header' | 'name'>
+export type DecodedPage = { index: number; page?: Pick<DrawingPage, 'items' | 'boxes' | 'views'>; analysis?: PageAnalysis }
 
-self.onmessage = (e: MessageEvent<Uint8Array>) => {
-  const doc = parseDrawingPayload(e.data, { lazy: true })
-  for (let index = 1; index < doc.pages.length; index++) {
-    let page: NonNullable<DecodedPage['page']>
+let elements: Record<string, DrawingElement> | undefined
+
+self.onmessage = (e: MessageEvent<ElementsToDecode | FrameToDecode>) => {
+  if ('elements' in e.data) {
     try {
-      const p = doc.pages[index]
-      page = { items: p.items, boxes: p.boxes, views: p.views }
+      elements = decodeElementsFrame(e.data.elements)
     } catch {
-      self.postMessage({ index } satisfies DecodedPage)
-      continue
+      elements = undefined // the main thread reports a broken elements table; pages are analysed there then
     }
-    const buffers = new Set<ArrayBufferLike>()
-    for (const it of page.items) {
-      if ('xy' in it) buffers.add(it.xy.buffer)
-      if ('rings' in it) for (const r of it.rings) buffers.add(r.buffer)
-      if ('png' in it) buffers.add(it.png.buffer)
-    }
-    self.postMessage({ index, page } satisfies DecodedPage, { transfer: [...buffers] as ArrayBuffer[] })
+    return
   }
-  self.close()
+  const { index, frame } = e.data
+  let page: DrawingPage
+  try {
+    page = decodeLazyFrame(frame, e.data)
+  } catch {
+    self.postMessage({ index } satisfies DecodedPage)
+    return
+  }
+  let analysis: PageAnalysis | undefined
+  try {
+    if (elements) analysis = analysePage(elements, page)
+  } catch {
+    // analysed (and failing) on the main thread instead
+  }
+  const buffers = new Set<ArrayBufferLike>()
+  for (const it of page.items) {
+    if ('xy' in it) buffers.add(it.xy.buffer)
+    if ('rings' in it) for (const r of it.rings) buffers.add(r.buffer)
+    if ('png' in it) buffers.add(it.png.buffer)
+  }
+  const reply: DecodedPage = { index, page: { items: page.items, boxes: page.boxes, views: page.views }, analysis }
+  self.postMessage(reply, { transfer: [...buffers] as ArrayBuffer[] })
 }

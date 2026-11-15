@@ -12,7 +12,7 @@ import { InspectOverlay } from './drawing/InspectLayers'
 import { useView } from './view'
 import { getPlatform } from './platform'
 import { fileToOpened } from './platform/browser'
-import { getDocState, openFile, useDocState } from './store'
+import { getDocState, openDocument, openFile, useDocState } from './store'
 import brushLogoRed from './ui/assets/brush-logo-red.png'
 import { chooseFile, LeftSidebar, RightSidebar, ToolCapsule, TopBar } from './ui/Chrome'
 import { RevitHud, RevitStart } from './revit/RevitPanel'
@@ -36,40 +36,24 @@ async function openDropped(e: DragEvent) {
 const formatSize = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} kB`)
 
 /**
- * Sample `.drawing` files from `schema/public/examples` (served by the `sampleDrawings` plugin in vite.config.ts).
- * Picking one fetches it and opens it like a chosen file. Hidden when there are no samples.
+ * Sample `.drawing` files: those in `schema/public/examples` (served by the `sampleDrawings` plugin in vite.config.ts)
+ * and remote ones. Picking one opens it by URL (a zstd file on a server with range requests opens from its first
+ * sheet). Hidden when there are no samples.
  */
 function SamplePicker({ disabled }: { disabled: boolean }) {
-  const [fetching, setFetching] = useState<string>()
-  const [fetchError, setFetchError] = useState<string>()
   if (!samples.length) return null
 
-  async function open(name: string) {
+  function open(name: string) {
     const sample = samples.find((s) => s.name === name)
-    if (!sample) return
-    setFetching(sample.name)
-    setFetchError(undefined)
-    // a file opened while the sample downloads (picker, Ctrl O, drop) bumps loadId; it wins over the late sample
-    const loadIdAtStart = getDocState().loadId
-    try {
-      const res = await fetch(sample.url)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const bytes = await res.arrayBuffer()
-      setFetching(undefined)
-      if (getDocState().loadId !== loadIdAtStart) return
-      await openFile({ name: sample.name, size: bytes.byteLength, bytes })
-    } catch (e) {
-      setFetching(undefined)
-      if (getDocState().loadId !== loadIdAtStart) return
-      setFetchError(`Could not download the sample “${sample.name}”. (${(e as Error).message})`)
-    }
+    // a failure is shown inline by the start page (load-error)
+    if (sample) void openDocument(sample.url, sample.name, { size: sample.size }).catch(() => {})
   }
 
   return (
     <>
       <label className="samples">
-        <span className="secondary">{fetching ? `Downloading ${fetching}…` : 'or open a sample'}</span>
-        <select data-testid="sample-picker" aria-label="Open a sample drawing" value="" disabled={disabled || !!fetching} onChange={(e) => void open(e.target.value)}>
+        <span className="secondary">or open a sample</span>
+        <select data-testid="sample-picker" aria-label="Open a sample drawing" value="" disabled={disabled} onChange={(e) => open(e.target.value)}>
           <option value="" disabled>
             Choose a sample…
           </option>
@@ -80,16 +64,11 @@ function SamplePicker({ disabled }: { disabled: boolean }) {
           ))}
         </select>
       </label>
-      {fetchError && (
-        <p className="error" role="alert" data-testid="sample-error">
-          {fetchError}
-        </p>
-      )}
     </>
   )
 }
 
-function EmptyState({ error, loading }: { error?: string; loading?: string }) {
+function EmptyState({ error, loading, bytes }: { error?: string; loading?: string; bytes?: number }) {
   return (
     <div className="empty landing" data-testid="empty-state">
       <div className="landing-paper" aria-hidden="true" />
@@ -106,7 +85,7 @@ function EmptyState({ error, loading }: { error?: string; loading?: string }) {
           <h1>Drop a PDF to start</h1>
           <div className="cta">
             <button type="button" className="btn landing-cta" title="Choose file (Ctrl+O)" onClick={() => void chooseFile()} disabled={!!loading}>
-              {loading ? `Opening ${loading}…` : 'Choose file'}
+              {loading ? `Opening ${loading}…${bytes ? ` ${formatSize(bytes)}` : ''}` : 'Choose file'}
             </button>
           </div>
           <div className="landing-more">
@@ -177,7 +156,7 @@ export function App() {
           {ready ? (
             <Board pages={st.pages} loadId={st.loadId} sheets={st.sheets} placements={st.placements} fileName={st.fileName ?? ''} />
           ) : (
-            <EmptyState error={st.status === 'error' ? st.error : undefined} loading={st.status === 'loading' ? st.fileName : undefined} />
+            <EmptyState error={st.status === 'error' ? st.error : undefined} loading={st.status === 'loading' ? st.fileName : undefined} bytes={st.openedBytes} />
           )}
           {ready && <RevitHud />}
           <ToolCapsule disabled={!ready} />

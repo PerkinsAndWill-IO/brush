@@ -138,6 +138,11 @@ export function createTestApi(): BrushTestApi {
       const loadId = await openDocument(bytes, name, { size: bytes.byteLength })
       if (getDocState().sheets.length > 0) await waitForFirstPage(loadId)
     },
+    /** Open by URL as the sample picker does (a zstd `.drawing` by range requests when the server has them). */
+    async loadUrl(url: string) {
+      const loadId = await openDocument(url, decodeURIComponent(url.split(/[?#]/)[0].split('/').pop() ?? url))
+      if (getDocState().sheets.length > 0) await waitForFirstPage(loadId)
+    },
     sheets: () => getDocState().sheets.map((s) => ({ ...s, sizePt: { ...s.sizePt } })),
     replayStroke,
     strokes: () => structuredClone(getSession().strokes) as Stroke[],

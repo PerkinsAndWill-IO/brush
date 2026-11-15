@@ -335,6 +335,8 @@ export interface Metrics {
 
 export interface BrushTestApi {
   loadPdf(url: string): Promise<void>
+  /** Open by URL as the sample picker does; resolves once the first sheet is drawn. */
+  loadUrl(url: string): Promise<void>
   sheets(): Sheet[]
   replayStroke(recording: StrokeRecording, opts?: { realtime?: boolean }): Promise<void>
   strokes(): Stroke[]
