@@ -3,6 +3,7 @@
  * One worker per import; the client terminates it afterwards, which frees the WASM heap.
  */
 import './pipeline/cv-browser'
+import { decodeHeif, isHeif } from './heic'
 import { photoToMarkup, probe, type RgbImage } from './pipeline'
 import { rgbaToRgb } from './pipeline/raster'
 import type { PhotoRequest, PhotoResponse, RasterMessage } from './protocol'
@@ -25,7 +26,17 @@ async function decode(blob: Blob): Promise<RgbImage> {
   try {
     bmp = await createImageBitmap(blob, { imageOrientation: 'from-image' })
   } catch {
-    throw new Error('This browser cannot read that image. Use a JPEG or PNG (iPhone HEIC photos: export or share them as JPEG).')
+    // HEIC (iPhone photos): only Safari decodes it; elsewhere libheif does (decision 0010)
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    if (!isHeif(bytes.subarray(0, 64))) throw new Error('This browser cannot read that image. Use a JPEG, PNG or HEIC photo.')
+    let img: ImageData
+    try {
+      const d = await decodeHeif(bytes)
+      img = new ImageData(d.data, d.width, d.height)
+    } catch (e) {
+      throw new Error(`Could not read the HEIC photo (${(e as Error).message || e}). Export or share it as JPEG and try again.`, { cause: e })
+    }
+    bmp = await createImageBitmap(img)
   }
   const k = Math.min(1, MAX_PHOTO_SIDE / Math.max(bmp.width, bmp.height))
   const w = Math.max(1, Math.round(bmp.width * k))

@@ -40,6 +40,7 @@
     "@tauri-apps/plugin-fs": "2.7.1",
     "@techstark/opencv-js": "4.11.0-release.1",
     "fzstd": "0.1.1",
+    "libheif-js": "1.23.5",
     "pdfjs-dist": "6.5.438",
     "react": "19.3.1",
     "react-dom": "19.3.1",
