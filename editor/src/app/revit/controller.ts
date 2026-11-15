@@ -24,6 +24,7 @@ import { matchFile, type FileFacts } from './match'
 import { sheetLabel, type LinkSheetSummary, type ServerMessage, type SheetMessage } from './protocol'
 import { RevitSource } from './source'
 import { CommandSync, type SyncEntry } from './sync'
+import { elementAnchor } from '../select/selection'
 
 export const APPLY_DEBOUNCE_MS = 300
 
@@ -520,6 +521,8 @@ export function anchorOf(cmd: Command, strokes: readonly Stroke[]): Point | null
       const p = s?.points[s.points.length - 1]
       return p ? { x: p.x, y: p.y } : null
     }
+    case 'set_type':
+      return elementAnchor(cmd.sheetId, cmd.targets[0])
   }
 }
 

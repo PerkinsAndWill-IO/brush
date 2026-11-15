@@ -9,6 +9,7 @@ import { installBrain } from './brain'
 import { registerSheetOverlay } from './board/SheetView'
 import { MeasureOverlay } from './board/viewAidLayers'
 import { InspectOverlay } from './drawing/InspectLayers'
+import { SelectionOverlay, TypeMenu } from './select/SelectLayers'
 import { useView } from './view'
 import { getPlatform } from './platform'
 import { fileToOpened } from './platform/browser'
@@ -20,6 +21,7 @@ import { isPhotoFile, photoImport, PhotoImportDialog } from './photo/PhotoImport
 
 installBrain()
 registerSheetOverlay(MeasureOverlay) // above the brain overlays
+registerSheetOverlay(SelectionOverlay) // selection and type changes (S1)
 registerSheetOverlay(InspectOverlay) // element highlight (V3), on top
 
 const TldrawSmoke = lazy(() => import('./dev/TldrawSmoke'))
@@ -185,6 +187,7 @@ export function App() {
         {ready && <RightSidebar />}
       </div>
       <PhotoImportDialog />
+      <TypeMenu />
     </div>
   )
 }
