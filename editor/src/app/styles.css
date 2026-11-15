@@ -387,3 +387,22 @@ button.revit-sheet-name:hover { text-decoration: underline; }
 .prop-row.link { cursor: pointer; }
 .prop-row.link .k { color: var(--accent); }
 .prop-row.link:hover { background: var(--tool-selected); }
+
+/* S1 selection and the type menu */
+[data-layer='selection'] { pointer-events: none; }
+.select-drawn { fill: none; stroke: var(--accent-soft); stroke-opacity: 0.45; stroke-linecap: round; stroke-linejoin: round; }
+.select-hl .line { fill: none; stroke: var(--accent-soft); stroke-opacity: 0.55; stroke-linecap: round; stroke-linejoin: round; }
+.select-hl .fill { fill: var(--accent-soft); fill-opacity: 0.3; stroke: none; }
+.select-hl .box { fill: rgba(98, 161, 192, 0.18); stroke: var(--accent-soft); }
+.type-mark rect { fill: none; stroke: var(--accent); }
+.type-mark text { fill: var(--accent); font-family: var(--mono); font-weight: 600; paint-order: stroke; stroke: var(--paper); stroke-width: 3px; }
+.menu.type-menu { position: fixed; right: auto; min-width: 230px; max-width: min(320px, calc(100vw - 16px)); z-index: 60; }
+.type-menu-title { padding: 8px 10px 6px; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-bottom: 1px solid var(--line-soft); margin-bottom: 4px; }
+.type-menu-head { padding: 6px 10px 2px; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); }
+.type-menu-list { max-height: min(46vh, 360px); overflow-y: auto; display: flex; flex-direction: column; }
+.menu.type-menu button { min-height: 34px; }
+.menu.type-menu button .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu.type-menu button:focus-visible { outline: 2px solid var(--accent-soft); outline-offset: -2px; background: #fff; }
+.menu.type-menu button[aria-checked='true'] { font-weight: 600; }
+.menu.type-menu .check { color: var(--accent); }
+.type-menu-note { padding: 6px 10px 8px; font-size: 12px; color: var(--muted); }

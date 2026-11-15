@@ -296,6 +296,21 @@ export type Command =
       targets: string[] // context item ids / hostRefs / command ids
       strokeId: string
     }
+  | {
+      /**
+       * Change the type of host elements already on the sheet (decision 0011). Made from the board's type menu,
+       * not from a stroke: `strokeId` is `type:<element id>`, one command per element.
+       */
+      op: 'set_type'
+      id: string
+      sheetId: string
+      targets: string[] // host element ids (`.drawing` element keys / Revit element ids)
+      /** The new type name, as the element's `type` reads in the drawing. */
+      typeName: string
+      /** The new type's family, when the host has families (Revit). */
+      family?: string
+      strokeId: string
+    }
 
 export type CommandOp = Command['op']
 

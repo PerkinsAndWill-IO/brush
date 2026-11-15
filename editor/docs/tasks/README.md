@@ -19,6 +19,7 @@ signals, engine rules and budget table; a human may renumber them.
 | [P1-photo-import.md](P1-photo-import.md) | Import pen and marker markup from a photo of a printed sheet, as brush strokes |
 | [V3-inspect.md](V3-inspect.md) | Inspect elements: hover highlights on every sheet, click pins the data card |
 | [C1-compound-edits.md](C1-compound-edits.md) | Compound edits: a door in a wall sketched in the same session |
+| [S1-select-and-retype.md](S1-select-and-retype.md) | Select drawn and sheet elements, change their type from a right-click menu |
 | [eval-entry.md](eval-entry.md) | How a predictor plugs into `pnpm eval` |
 
 To change a test, budget or threshold: add a "Proposed change" section to the task file and wait for a human (rule 3).
