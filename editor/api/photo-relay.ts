@@ -13,8 +13,22 @@
  *
  * The slot id (128 random bits, only on the desktop's screen) is the only key. Narrow on purpose: image types only,
  * checked by their first bytes, and a size cap below the 4.5 MB request limit of Vercel Functions.
+ *
+ * Storage is a `PhotoStore`: Vercel Blob when deployed (the exported handlers), or a folder on disk when the dev
+ * server has no Blob token (`relayWith`, used by vite.config.ts; see scripts/photo-relay-local-store.ts).
  */
 import { del, get, list, put } from '@vercel/blob'
+
+/** Where the relay keeps photos between the phone's upload and the dialog's pickup. */
+export interface PhotoStore {
+  /** Is storage connected? Without it the relay answers 503 "not set up". */
+  configured(): boolean
+  put(path: string, bytes: Uint8Array, contentType: string): Promise<void>
+  /** The photo at `path`, or null when nothing is there. */
+  read(path: string): Promise<{ bytes: Uint8Array; contentType: string } | null>
+  del(paths: string[]): Promise<void>
+  list(prefix: string): Promise<{ pathname: string; uploadedAt: Date }[]>
+}
 
 const SLOT = /^[A-Za-z0-9_-]{22,64}$/
 const PREFIX = 'photo-relay/'
@@ -42,55 +56,77 @@ function slotOf(request: Request): string | null {
   return id && SLOT.test(id) ? id : null
 }
 
-const configured = () => !!(process.env.BLOB_READ_WRITE_TOKEN || (process.env.VERCEL_OIDC_TOKEN && process.env.BLOB_STORE_ID))
 const NOT_SET_UP = 'Phone upload is not set up on this deployment (no Vercel Blob store is connected).'
 
-/** Delete photos nobody collected. Best effort: a failure here does not fail the upload. */
-async function sweep(now: number): Promise<void> {
-  try {
-    const { blobs } = await list({ prefix: PREFIX, limit: 100 })
-    const old = blobs.filter((b) => now - new Date(b.uploadedAt).getTime() > MAX_AGE_MS).map((b) => b.pathname)
-    if (old.length) await del(old)
-  } catch {
-    // ignore
+/** A private Vercel Blob store (decision 0011). */
+export const blobStore: PhotoStore = {
+  configured: () => !!(process.env.BLOB_READ_WRITE_TOKEN || (process.env.VERCEL_OIDC_TOKEN && process.env.BLOB_STORE_ID)),
+  async put(path, bytes, contentType) {
+    await put(path, new Blob([bytes as Uint8Array<ArrayBuffer>], { type: contentType }), { access: 'private', contentType, addRandomSuffix: false, allowOverwrite: true })
+  },
+  async read(path) {
+    const found = await get(path, { access: 'private', useCache: false })
+    if (!found || !found.stream) return null
+    return { bytes: new Uint8Array(await new Response(found.stream).arrayBuffer()), contentType: found.blob.contentType ?? 'application/octet-stream' }
+  },
+  async del(paths) {
+    await del(paths)
+  },
+  async list(prefix) {
+    const { blobs } = await list({ prefix, limit: 100 })
+    return blobs.map((b) => ({ pathname: b.pathname, uploadedAt: new Date(b.uploadedAt) }))
+  },
+}
+
+/** The relay's handlers over `store`. */
+export function relayWith(store: PhotoStore) {
+  /** Delete photos nobody collected. Best effort: a failure here does not fail the upload. */
+  async function sweep(now: number): Promise<void> {
+    try {
+      const old = (await store.list(PREFIX)).filter((b) => now - b.uploadedAt.getTime() > MAX_AGE_MS).map((b) => b.pathname)
+      if (old.length) await store.del(old)
+    } catch {
+      // ignore
+    }
   }
-}
 
-async function post(request: Request): Promise<Response> {
-  const id = slotOf(request)
-  if (!id) return text(400, 'invalid upload link')
-  if (!configured()) return text(503, NOT_SET_UP)
-  const declared = Number(request.headers.get('content-length') ?? 0)
-  if (declared > MAX_PHOTO_BYTES) return text(413, 'the photo is too large')
-  const bytes = new Uint8Array(await request.arrayBuffer())
-  if (!bytes.length) return text(400, 'no photo')
-  if (bytes.length > MAX_PHOTO_BYTES) return text(413, 'the photo is too large')
-  const type = imageType(bytes)
-  if (!type) return text(415, 'only JPEG, PNG or HEIC photos')
-  await put(PREFIX + id, new Blob([bytes], { type }), { access: 'private', contentType: type, addRandomSuffix: false, allowOverwrite: true })
-  await sweep(Date.now())
-  return empty()
-}
+  async function post(request: Request): Promise<Response> {
+    const id = slotOf(request)
+    if (!id) return text(400, 'invalid upload link')
+    if (!store.configured()) return text(503, NOT_SET_UP)
+    const declared = Number(request.headers.get('content-length') ?? 0)
+    if (declared > MAX_PHOTO_BYTES) return text(413, 'the photo is too large')
+    const bytes = new Uint8Array(await request.arrayBuffer())
+    if (!bytes.length) return text(400, 'no photo')
+    if (bytes.length > MAX_PHOTO_BYTES) return text(413, 'the photo is too large')
+    const type = imageType(bytes)
+    if (!type) return text(415, 'only JPEG, PNG or HEIC photos')
+    await store.put(PREFIX + id, bytes, type)
+    await sweep(Date.now())
+    return empty()
+  }
 
-async function get_(request: Request): Promise<Response> {
-  const params = new URL(request.url).searchParams
-  if (!params.has('id')) return new Response(JSON.stringify({ available: configured() }), { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
-  const id = slotOf(request)
-  if (!id) return text(400, 'invalid slot')
-  if (!configured()) return text(503, NOT_SET_UP)
-  const found = await get(PREFIX + id, { access: 'private', useCache: false })
-  if (!found || !found.stream) return empty()
-  const body = new Uint8Array(await new Response(found.stream).arrayBuffer())
-  // collected: the photo leaves the store now
-  await del(PREFIX + id).catch(() => undefined)
-  return new Response(body, { headers: { 'content-type': found.blob.contentType ?? 'application/octet-stream', 'cache-control': 'no-store' } })
-}
+  async function get_(request: Request): Promise<Response> {
+    const params = new URL(request.url).searchParams
+    if (!params.has('id')) return new Response(JSON.stringify({ available: store.configured() }), { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
+    const id = slotOf(request)
+    if (!id) return text(400, 'invalid slot')
+    if (!store.configured()) return text(503, NOT_SET_UP)
+    const found = await store.read(PREFIX + id)
+    if (!found) return empty()
+    // collected: the photo leaves the store now
+    await store.del([PREFIX + id]).catch(() => undefined)
+    return new Response(found.bytes as Uint8Array<ArrayBuffer>, { headers: { 'content-type': found.contentType, 'cache-control': 'no-store' } })
+  }
 
-async function remove(request: Request): Promise<Response> {
-  const id = slotOf(request)
-  if (!id) return text(400, 'invalid slot')
-  if (configured()) await del(PREFIX + id).catch(() => undefined)
-  return empty()
+  async function remove(request: Request): Promise<Response> {
+    const id = slotOf(request)
+    if (!id) return text(400, 'invalid slot')
+    if (store.configured()) await store.del([PREFIX + id]).catch(() => undefined)
+    return empty()
+  }
+
+  return { POST: guarded(post), GET: guarded(get_), DELETE: guarded(remove) }
 }
 
 /** A storage failure answers 502 with the store's message (it names no secrets), not a bare 500. */
@@ -105,6 +141,7 @@ const guarded =
     }
   }
 
-export const POST = guarded(post)
-export const GET = guarded(get_)
-export const DELETE = guarded(remove)
+const relay = relayWith(blobStore)
+export const POST = relay.POST
+export const GET = relay.GET
+export const DELETE = relay.DELETE

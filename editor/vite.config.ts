@@ -1,4 +1,5 @@
 import { createReadStream, existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { basename, extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
@@ -162,16 +163,18 @@ function sampleDrawings(): Plugin {
 
 /**
  * P1-11 in dev: answer /api/photo-relay with the real function (api/photo-relay.ts), so sending a photo from a phone
- * can be tried locally. Only when editor/.env.local has BLOB_READ_WRITE_TOKEN (a private store; the token stays on
- * the dev server). Without it the dialog says sending from a phone is not set up, as before. A phone cannot open
- * `localhost`: start with `pnpm dev:phone` and open the app at the computer's network address (see AGENTS.md).
+ * can be tried locally. With BLOB_READ_WRITE_TOKEN in editor/.env.local it uses that Vercel Blob store (a private
+ * one; the token stays on the dev server). Without it, photos wait in a folder on this computer
+ * (scripts/photo-relay-local-store.ts, in the system temp folder). A phone cannot open `localhost`: start with
+ * `pnpm dev:phone` and open the app at the computer's network address (see AGENTS.md).
  */
 function photoRelayDev(token: string | undefined): Plugin {
   return {
     name: 'brush-photo-relay-dev',
     configureServer(server) {
-      if (!token) return
-      process.env.BLOB_READ_WRITE_TOKEN = token
+      if (token) process.env.BLOB_READ_WRITE_TOKEN = token
+      const localDir = resolve(tmpdir(), 'brush-photo-relay')
+      server.config.logger.info(token ? '  photo relay: Vercel Blob (BLOB_READ_WRITE_TOKEN)' : `  photo relay: local folder ${localDir}`)
       server.middlewares.use('/api/photo-relay', (req, res, next) => {
         const chunks: Buffer[] = []
         req.on('data', (c: Buffer) => chunks.push(c))
@@ -179,8 +182,14 @@ function photoRelayDev(token: string | undefined): Plugin {
         req.on('end', async () => {
           try {
             type Handler = (r: Request) => Promise<Response>
-            const fn = (await server.ssrLoadModule('/api/photo-relay.ts')) as Record<string, Handler | undefined>
-            const handler = fn[req.method ?? 'GET']
+            type Relay = Record<string, Handler | undefined>
+            const fn = (await server.ssrLoadModule('/api/photo-relay.ts')) as Relay & { relayWith: (store: unknown) => Relay }
+            let relay: Relay = fn
+            if (!token) {
+              const { localPhotoStore } = (await server.ssrLoadModule('/scripts/photo-relay-local-store.ts')) as { localPhotoStore: (dir: string) => unknown }
+              relay = fn.relayWith(localPhotoStore(localDir))
+            }
+            const handler = relay[req.method ?? 'GET']
             if (!handler) {
               res.statusCode = 405
               res.end()
