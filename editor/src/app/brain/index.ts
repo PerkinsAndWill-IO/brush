@@ -5,6 +5,7 @@
 import { registerSheetOverlay } from '../board/SheetView'
 import { ContextOverlay, ElementsOverlay, LiveOverlay } from './overlays'
 import { installPredictEngine } from './predictEngine'
+import { installErasedSync } from './erased'
 
 let done = false
 export function installBrain() {
@@ -14,4 +15,5 @@ export function installBrain() {
   registerSheetOverlay(ElementsOverlay)
   registerSheetOverlay(LiveOverlay)
   installPredictEngine()
+  installErasedSync()
 }

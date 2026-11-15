@@ -21,7 +21,7 @@ import {
 import { DrawingFormatError, type DrawingDocument, type DrawingElement, type DrawingPage } from '@core/drawing'
 import type { Sheet, SheetContext } from '@core/types'
 import type { LoadedPdf, PdfSource as PdfInput } from '../pdf/pdfjs'
-import { parseDrawingFile } from './drawing-file'
+import { pageDecoded, parseDrawingFile } from './drawing-file'
 import { PackageError, parsePackage, sniffBytes, type PackagePdfRef } from './package-file'
 
 /** Paints one page of a source into a canvas (pdf.js for PDFs, the vector renderer for `.drawing`). */
@@ -222,6 +222,7 @@ export class DrawingFileSource implements DrawingSource {
   }
 
   async load(): Promise<LoadedSource> {
+    await Promise.all(this.doc.pages.map((_, i) => pageDecoded(this.doc, i)))
     return { sheets: sheetsFromDrawing(this.doc), pdf: null, pages: (this.renderer ??= this.pageRenderer()) }
   }
 
@@ -237,12 +238,12 @@ export class DrawingFileSource implements DrawingSource {
     const pages = this.doc.pages
     return {
       render: async (i, canvas, pxPerPt, signal, gate) => {
-        const [m, f] = await Promise.all([import('../drawing/render'), import('../drawing/filters')])
+        const [m, f] = await Promise.all([import('../drawing/render'), import('../drawing/filters'), pageDecoded(this.doc, i)])
         const fs = f.getFilters()
         return m.renderDrawingPage(pages[i], canvas, pxPerPt, signal, gate, { key: fs.version, hide: f.hiddenPredicate(this.doc, fs) })
       },
       renderRegion: async (i, canvas, pxPerPt, region, signal, gate) => {
-        const [m, f] = await Promise.all([import('../drawing/render'), import('../drawing/filters')])
+        const [m, f] = await Promise.all([import('../drawing/render'), import('../drawing/filters'), pageDecoded(this.doc, i)])
         const fs = f.getFilters()
         return m.renderDrawingPage(pages[i], canvas, pxPerPt, signal, gate, { key: fs.version, hide: f.hiddenPredicate(this.doc, fs) }, region)
       },
@@ -250,6 +251,7 @@ export class DrawingFileSource implements DrawingSource {
   }
 
   async contextFor(sheetId: string): Promise<SheetContext> {
+    await pageDecoded(this.doc, this.doc.pages.findIndex((p) => p.id === sheetId))
     return contextFromDrawing(this.doc, sheetId)
   }
 

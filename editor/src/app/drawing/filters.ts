@@ -61,6 +61,11 @@ export const isAnnotationCategory = (name: string): boolean => ANNOTATION.test(n
 export interface FilterState {
   hiddenCategories: ReadonlySet<string>
   hiddenKinds: ReadonlySet<ItemKind>
+  /**
+   * Elements erased on the board (accepted deletes, see ./erased): hidden on every page. Kept out of the filters'
+   * storage and out of reset(): it follows the session, so undo brings the element back.
+   */
+  erased: ReadonlySet<string>
   /** Bumped on every change: pages re-render when it moves. */
   version: number
 }
@@ -87,10 +92,10 @@ function save() {
   }
 }
 
-let state: FilterState = { ...load(), version: 0 }
+let state: FilterState = { ...load(), erased: new Set(), version: 0 }
 const listeners = new Set<() => void>()
 
-function emit(next: Partial<Pick<FilterState, 'hiddenCategories' | 'hiddenKinds'>>) {
+function emit(next: Partial<Pick<FilterState, 'hiddenCategories' | 'hiddenKinds' | 'erased'>>) {
   state = { ...state, ...next, version: state.version + 1 }
   save()
   listeners.forEach((l) => l())
@@ -126,7 +131,12 @@ export const filters = {
     }
     emit({ hiddenCategories: next })
   },
-  /** Show everything again. */
+  /** Elements erased on the board; a no-op when the set is unchanged. */
+  setErased(ids: ReadonlySet<string>) {
+    if (ids.size === state.erased.size && [...ids].every((id) => state.erased.has(id))) return
+    emit({ erased: new Set(ids) })
+  },
+  /** Show everything again (erased elements stay erased). */
   reset() {
     if (state.hiddenCategories.size || state.hiddenKinds.size) emit({ hiddenCategories: new Set(), hiddenKinds: new Set() })
   },
@@ -134,6 +144,7 @@ export const filters = {
 
 /** Predicate for the renderer: true when the item is filtered out. Null when nothing is hidden. */
 export function hiddenPredicate(doc: Pick<DrawingDocument, 'elements'>, f: FilterState = state): ((it: DrawItem) => boolean) | null {
-  if (!f.hiddenCategories.size && !f.hiddenKinds.size) return null
-  return (it) => f.hiddenKinds.has(kindOf(it)) || (f.hiddenCategories.size > 0 && f.hiddenCategories.has(itemCategory(doc, it)))
+  if (!f.hiddenCategories.size && !f.hiddenKinds.size && !f.erased.size) return null
+  return (it) =>
+    (it.el !== null && f.erased.has(it.el)) || f.hiddenKinds.has(kindOf(it)) || (f.hiddenCategories.size > 0 && f.hiddenCategories.has(itemCategory(doc, it)))
 }
