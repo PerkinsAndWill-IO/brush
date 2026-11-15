@@ -82,6 +82,24 @@ function lanczosTaps(n: number, nn: number): { start: Int32Array; weights: Float
  * sheet margins.
  */
 function lanczosReduce(data: Uint8Array, w: number, h: number, ch: number, nw: number, nh: number): Uint8Array {
+  return lanczosReduceRows(data, 0, w, h, ch, nw, nh, 0, nh)
+}
+
+/** The source rows [y0, y1) that output rows [oy0, oy1) of a Lanczos reduction from `h` to `nh` rows read. */
+export function lanczosRowSpan(h: number, nh: number, oy0: number, oy1: number): [number, number] {
+  if (oy1 <= oy0) return [0, 0]
+  const ty = lanczosTaps(h, nh)
+  const clamp = (v: number) => (v < 0 ? 0 : v >= h ? h - 1 : v)
+  return [clamp(ty.start[oy0]), clamp(ty.start[oy1 - 1] + ty.count - 1) + 1]
+}
+
+/**
+ * Output rows [oy0, oy1) of lanczosReduce, from `band`: source rows bandY0.. (at least lanczosRowSpan). Each output
+ * row comes out exactly as in the whole reduction, so bands can be reduced side by side (the photo worker's helpers).
+ */
+export function lanczosReduceRows(band: Uint8Array, bandY0: number, w: number, h: number, ch: number, nw: number, nh: number, oy0: number, oy1: number): Uint8Array {
+  const data = band
+  const [y0, y1] = lanczosRowSpan(h, nh, oy0, oy1)
   // Sums are rounded to float32 after every tap (Math.fround), as they were when they were accumulated in a
   // Float32Array: the result stays bit-for-bit what it was, only quicker (no clamping inside the loop, channels
   // unrolled).
@@ -93,11 +111,12 @@ function lanczosReduce(data: Uint8Array, w: number, h: number, ch: number, nw: n
   const cols = new Int32Array(nw * cnt)
   for (let x = 0; x < nw; x++) for (let k = 0; k < cnt; k++) { const sx = tx.start[x] + k; cols[x * cnt + k] = (sx < 0 ? 0 : sx >= w ? w - 1 : sx) * ch }
   const tw = tx.weights
-  const mid = new Float32Array(nw * h * ch)
-  for (let y = 0; y < h; y++) {
-    const row = y * w * ch
+  const mid = new Float32Array(nw * Math.max(0, y1 - y0) * ch)
+  for (let y = y0; y < y1; y++) {
+    const row = (y - bandY0) * w * ch
+    const mo = (y - y0) * nw * ch
     if (ch === 3) {
-      for (let x = 0, o = y * nw * 3; x < nw; x++, o += 3) {
+      for (let x = 0, o = mo; x < nw; x++, o += 3) {
         let a0 = 0, a1 = 0, a2 = 0
         for (let k = 0, j = x * cnt; k < cnt; k++, j++) {
           const i = row + cols[j], wt = tw[j]
@@ -110,14 +129,14 @@ function lanczosReduce(data: Uint8Array, w: number, h: number, ch: number, nw: n
         mid[o + 2] = a2
       }
     } else if (ch === 1) {
-      for (let x = 0, o = y * nw; x < nw; x++, o++) {
+      for (let x = 0, o = mo; x < nw; x++, o++) {
         let a = 0
         for (let k = 0, j = x * cnt; k < cnt; k++, j++) a = f(a + data[row + cols[j]] * tw[j])
         mid[o] = a
       }
     } else {
       for (let x = 0; x < nw; x++) {
-        const o = (y * nw + x) * ch
+        const o = mo + x * ch
         for (let k = 0, j = x * cnt; k < cnt; k++, j++) {
           const i = row + cols[j], wt = tw[j]
           for (let c = 0; c < ch; c++) mid[o + c] += data[i + c] * wt
@@ -127,20 +146,20 @@ function lanczosReduce(data: Uint8Array, w: number, h: number, ch: number, nw: n
   }
   // vertical pass
   const ty = lanczosTaps(h, nh)
-  const out = new Uint8Array(nw * nh * ch)
+  const out = new Uint8Array(nw * Math.max(0, oy1 - oy0) * ch)
   const acc = new Float32Array(nw * ch)
   const n = acc.length
-  for (let y = 0; y < nh; y++) {
+  for (let y = oy0; y < oy1; y++) {
     acc.fill(0)
     const s0 = ty.start[y]
     const wo = y * ty.count
     for (let k = 0; k < ty.count; k++) {
       const sy = s0 + k
-      const row = (sy < 0 ? 0 : sy >= h ? h - 1 : sy) * n
+      const row = ((sy < 0 ? 0 : sy >= h ? h - 1 : sy) - y0) * n
       const wt = ty.weights[wo + k]
       for (let i = 0; i < n; i++) acc[i] += mid[row + i] * wt
     }
-    const o = y * n
+    const o = (y - oy0) * n
     for (let i = 0; i < n; i++) {
       const v = acc[i]
       out[o + i] = v <= 0 ? 0 : v >= 255 ? 255 : v + 0.5
