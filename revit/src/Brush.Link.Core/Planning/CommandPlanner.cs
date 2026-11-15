@@ -34,6 +34,15 @@ public sealed record DeleteOp(string CommandId, IReadOnlyList<string> HostIds, I
 /// </summary>
 public sealed record SetTypeOp(string CommandId, IReadOnlyList<string> HostIds, IReadOnlyList<string> Unresolved, string TypeName, string? Family) : ModelOp(CommandId);
 
+/// <summary>S2: move the elements by a model vector (feet), through the plan viewport under the grab point.</summary>
+public sealed record MoveOp(string CommandId, IReadOnlyList<string> HostIds, Vec3 Translation) : ModelOp(CommandId);
+
+/// <summary>
+/// S2: copy the elements by a model vector. <see cref="TargetLevelId"/>: the level the copies take when pasted on another
+/// level's plan (null on the same level); the vector's Z is then the difference between the two levels.
+/// </summary>
+public sealed record CopyOp(string CommandId, IReadOnlyList<string> HostIds, Vec3 Translation, string? TargetLevelId) : ModelOp(CommandId);
+
 /// <summary>A command the planner could not translate; the reason goes back to the editor.</summary>
 public sealed record RejectedOp(string CommandId, string Reason) : ModelOp(CommandId);
 
@@ -49,12 +58,15 @@ public static partial class CommandPlanner
     [GeneratedRegex(@"^(?:wall|opening|grid|label|fixture|unknown)-(\d+)$")]
     private static partial Regex ContextItemPattern();
 
-    public static ModelOp Plan(Command command, SheetGeometry sheet, Func<string, bool> isKnownCommand)
+    /// <param name="geometryOf">S2: another sheet's geometry, for a copy pasted on another sheet; null when unknown.</param>
+    public static ModelOp Plan(Command command, SheetGeometry sheet, Func<string, bool> isKnownCommand, Func<string, SheetGeometry?>? geometryOf = null)
     {
         try
         {
             return command switch
             {
+                MoveElements c => PlanMove(c, sheet),
+                CopyElements c => PlanCopy(c, sheet, geometryOf),
                 CreateWall c => PlanWall(c, sheet),
                 PlaceDoor c => PlanDoor(c, sheet, isKnownCommand),
                 PlaceInstance c => PlanInstance(c, sheet),
@@ -136,6 +148,32 @@ public static partial class CommandPlanner
         }
         if (host.Count == 0 && cmds.Count == 0) return new RejectedOp(c.Id, $"no target names a Revit element or an earlier command: {string.Join(", ", c.Targets)}");
         return new DeleteOp(c.Id, host, cmds, unresolved);
+    }
+
+    private static List<string> HostIdsOf(IReadOnlyList<string> targets) =>
+        targets.Select(HostId).OfType<string>().Distinct(StringComparer.Ordinal).ToList();
+
+    private static ModelOp PlanMove(MoveElements c, SheetGeometry sheet)
+    {
+        var host = HostIdsOf(c.Targets);
+        if (host.Count == 0) return new RejectedOp(c.Id, $"no target names a Revit element: {string.Join(", ", c.Targets)}");
+        var from = sheet.Frame.ToSheetFeet(c.At);
+        var vp = ViewportFor(sheet, from, c.Id);
+        var to = sheet.Frame.ToSheetFeet(new SheetPoint(c.At.X + c.Dx, c.At.Y + c.Dy));
+        return new MoveOp(c.Id, host, vp.ToModel(to) - vp.ToModel(from));
+    }
+
+    private static ModelOp PlanCopy(CopyElements c, SheetGeometry sheet, Func<string, SheetGeometry?>? geometryOf)
+    {
+        var host = HostIdsOf(c.Targets);
+        if (host.Count == 0) return new RejectedOp(c.Id, $"no target names a Revit element: {string.Join(", ", c.Targets)}");
+        var from = sheet.Frame.ToSheetFeet(c.At);
+        var vp = ViewportFor(sheet, from, c.Id);
+        var target = c.ToSheetId == c.SheetId ? sheet : geometryOf?.Invoke(c.ToSheetId);
+        if (target is null) return new RejectedOp(c.Id, $"{c.Id}: no sheet '{c.ToSheetId}' to paste on");
+        var tvp = ViewportFor(target, target.Frame.ToSheetFeet(c.To), c.Id);
+        var level = tvp.LevelId is { } l && l != vp.LevelId ? l : null;
+        return new CopyOp(c.Id, host, tvp.ToModel(target.Frame.ToSheetFeet(c.To)) - vp.ToModel(from), level);
     }
 
     private static ModelOp PlanSetType(SetType c)
