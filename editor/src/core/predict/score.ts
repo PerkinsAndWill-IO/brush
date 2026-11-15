@@ -85,8 +85,9 @@ export function scribbleness(ev: Evidence): number {
   const byReversals = zigzag * Math.max(ramp(f.reversalDensity, RULES.scribbleRev[0], RULES.scribbleRev[1]), ramp(reversals, 2.5, 5))
   const byHairpins = ramp(ev.hairpins, RULES.hairpins[0], RULES.hairpins[1]) * (1 - ramp(ev.straightness, 0.5, 0.8))
   const byLoops = ramp(ev.loopsPerM, RULES.loopsPerM[0], RULES.loopsPerM[1]) * ramp(ev.inkDensity, RULES.inkDensity[0], RULES.inkDensity[1])
-  // ink on a ring around its centre encloses (circle, revision cloud) rather than covers
-  return clamp01(Math.max(byReversals, byHairpins, byLoops) * (1 - ev.ringness))
+  // ink on a ring around its centre encloses (circle, revision cloud) rather than covers;
+  // the cusp where a double door's two swings meet is a hairpin, not a zig-zag
+  return clamp01(Math.max(byReversals, byHairpins, byLoops) * (1 - ev.ringness) * (1 - ev.doubleSwing))
 }
 
 export interface RuleResult {
@@ -161,6 +162,8 @@ export function scoreKinds(ev: Evidence): RuleResult {
   const sector =
     ramp(ev.aspect, 0.6, 0.75) * bump(S, 0.5, 0.6, 1.3, 1.5) * (1 - ramp(ev.straightness, 0.55, 0.7)) * bump(cl, 0.15, 0.25, 0.55, 0.7) * (1 - scribble) * 0.85
   const swingShape = Math.max(arcOnly, sector)
+  // double door: two swings meeting in the middle, hinged at both ends (ev.doubleSwing)
+  const pairShape = ev.doubleSwing * 0.9
   let door: number
   if (ctx) {
     const c = ev.doorCross
@@ -169,8 +172,16 @@ export function scoreKinds(ev: Evidence): RuleResult {
     const snapHinge = ev.startWall.kind !== 'none' ? ev.startWall.itemIds[0] : ev.endWall.kind !== 'none' ? ev.endWall.itemIds[0] : undefined
     const hingeId = ev.touchWall?.itemId ?? snapHinge
     const swing = swingShape * (hingeId ? 1 : c ? 0.7 : 0)
-    door = Math.max(tick, swing)
-    if (tick >= swing && c && tick > 0.2) {
+    const startW = ev.startWall.kind !== 'none' ? ev.startWall.itemIds[0] : undefined
+    const endW = ev.endWall.kind !== 'none' ? ev.endWall.itemIds[0] : undefined
+    const pairHost = startW ?? endW ?? ev.touchWall?.itemId
+    const pair = pairShape * (startW && endW ? 1 : pairHost ? 0.7 : c ? 0.5 : 0)
+    door = Math.max(tick, swing, pair)
+    if (pair > 0.2 && pair >= tick && pair >= swing) {
+      const host = pairHost ?? c?.itemId
+      if (host) targets.door = [host]
+      evidence.push(`double swing beside ${host ?? 'a wall'}`)
+    } else if (tick >= swing && c && tick > 0.2) {
       targets.door = [c.itemId]
       evidence.push(`${S.toFixed(2)} m across ${c.gapPt > 0 ? 'the opening at ' : 'wall '}${c.itemId} at ${Math.round(c.incidence / DEG)}°`)
     } else if (swing > 0.2) {
@@ -178,7 +189,7 @@ export function scoreKinds(ev: Evidence): RuleResult {
       if (host) targets.door = [host]
       evidence.push(`swing beside ${host ?? 'a wall'}`)
     }
-  } else door = Math.max(tickShape * line * 0.35, swingShape * 0.75)
+  } else door = Math.max(tickShape * line * 0.35, swingShape * 0.75, pairShape * 0.75)
 
   // ── furniture: a compact, closed or nearly closed shape (any outline) inside a room ──
   const closedness = 1 - ramp(cl, 0.12, 0.3)

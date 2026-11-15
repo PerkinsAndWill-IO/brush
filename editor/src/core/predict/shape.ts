@@ -150,10 +150,13 @@ function shapeDoor(ev: Evidence, _s: BrushSettings, palette: TypePalette, hostId
   const pts = ev.stroke.points
   const a: Point = pts[0]
   const b: Point = pts[pts.length - 1]
-  const isArc = (ev.fit.arc?.score ?? 0) > (ev.fit.line?.score ?? 0) && ev.straightness < 0.97
+  // a double door's two swings hinge at both ends: the opening is the whole chord, centred on it
+  const isPair = ev.doubleSwing >= 0.5
+  const isArc = !isPair && (ev.fit.arc?.score ?? 0) > (ev.fit.line?.score ?? 0) && ev.straightness < 0.97
   const host = hostIds?.length && ev.hasContext ? ev.pc.lines.getItem(hostIds[0]) : undefined
-  // width: tick length, or the swing radius (chord / sqrt 2 for a quarter arc)
+  // width: tick length or the pair's hinge-to-hinge chord, or the swing radius (chord / sqrt 2 for a quarter arc)
   const widthPt = isArc ? dist(a, b) / Math.SQRT2 : dist(a, b)
+  if (isPair) evidence.push('double door: hinges at both ends')
   const fam = nearestDoorFamily(palette, widthPt / ev.ptPerM)
   const famPt = fam ? (fam.widthMm / 1000) * ev.ptPerM : widthPt
   if (!host) {
@@ -161,7 +164,13 @@ function shapeDoor(ev: Evidence, _s: BrushSettings, palette: TypePalette, hostId
   }
   // host wall segment nearest to the stroke
   const gp = host.geometry.points
-  const ref = isArc ? (dist(a, closestOn(gp, a)) < dist(b, closestOn(gp, b)) ? a : b) : crossingPoint(ev, host.id) ?? a
+  const ref = isPair
+    ? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+    : isArc
+      ? dist(a, closestOn(gp, a)) < dist(b, closestOn(gp, b))
+        ? a
+        : b
+      : crossingPoint(ev, host.id) ?? a
   let bestSeg = 0
   let bestD = Infinity
   for (let i = 0; i + 1 < gp.length; i++) {

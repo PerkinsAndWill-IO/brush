@@ -87,6 +87,12 @@ export interface Evidence {
    * scribbles that cover an area.
    */
   ringness: number
+  /**
+   * 0..1, how much the ink reads as a double door's pair of swings: open ends a double-door width
+   * apart, ink rising about half that width on one side of their chord in two humps, and coming
+   * back to the chord near its middle (where the two leaves meet). Shape only, any drawing order.
+   */
+  doubleSwing: number
   /** Door-sized stroke's span crossing a wall line (through the wall, or through a gap / opening in it). */
   doorCross?: DoorHost
   /** Wall touched by an endpoint or a corner of the ink's box (door swing hinge). */
@@ -132,6 +138,59 @@ function rectOverlapFrac(a: Rect, b: Rect): number {
   if (x1 <= x0 || y1 <= y0) return 0
   const area = Math.max(1e-6, a.w * a.h)
   return ((x1 - x0) * (y1 - y0)) / area
+}
+
+const trap = (x: number, a: number, b: number, c: number, d: number): number => {
+  const r = (lo: number, hi: number) => Math.max(0, Math.min(1, (x - lo) / (hi - lo)))
+  return Math.min(r(a, b), 1 - r(c, d))
+}
+
+/** See `Evidence.doubleSwing`. Two quarter swings of radius S/2 hinged at the chord ends: height S/2, ink 1.6..2.6 S. */
+function doubleSwingness(pts: readonly Point[], lengthPt: number, ptPerM: number): number {
+  if (pts.length < 8) return 0
+  const a = pts[0]
+  const b = pts[pts.length - 1]
+  const S = dist(a, b)
+  if (S < 1e-6) return 0
+  const ux = (b.x - a.x) / S
+  const uy = (b.y - a.y) / S
+  const t = pts.map((p) => ((p.x - a.x) * ux + (p.y - a.y) * uy) / S)
+  const d = pts.map((p) => (-(p.x - a.x) * uy + (p.y - a.y) * ux) / S)
+  let iMax = 0
+  for (let i = 1; i < d.length; i++) if (Math.abs(d[i]) > Math.abs(d[iMax])) iMax = i
+  const side = Math.sign(d[iMax]) || 1
+  const h = Math.abs(d[iMax])
+  if (h < 1e-6) return 0
+  // the return to the chord: the lowest point of the middle half of the ink (by arc length)
+  let acc = 0
+  let iMid = -1
+  for (let i = 1; i < pts.length - 1; i++) {
+    acc += dist(pts[i - 1], pts[i])
+    const s = acc / lengthPt
+    if (s < 0.25 || s > 0.75) continue
+    if (iMid < 0 || side * d[i] < side * d[iMid]) iMid = i
+  }
+  if (iMid < 0) return 0
+  const tm = t[iMid]
+  // both humps rise: highest point on each side of the meeting point
+  let hl = 0
+  let hr = 0
+  let opp = 0
+  for (let i = 0; i < pts.length; i++) {
+    const v = side * d[i]
+    if (t[i] < tm) hl = Math.max(hl, v)
+    else hr = Math.max(hr, v)
+    opp = Math.max(opp, -v)
+  }
+  return (
+    trap(S / ptPerM, 1.0, 1.2, 2.4, 2.8) *
+    trap(h, 0.3, 0.38, 0.62, 0.75) *
+    trap(tm, 0.25, 0.35, 0.65, 0.75) *
+    (1 - Math.max(0, Math.min(1, (side * d[iMid] / h - 0.15) / 0.15))) *
+    Math.max(0, Math.min(1, (Math.min(hl, hr) / h - 0.5) / 0.2)) *
+    (1 - Math.max(0, Math.min(1, (opp / h - 0.1) / 0.15))) *
+    trap(lengthPt / S, 1.3, 1.5, 3.0, 3.4)
+  )
 }
 
 const HAIRPIN = (120 * Math.PI) / 180
@@ -257,6 +316,7 @@ export function gatherEvidence(stroke: Stroke, ctx: SheetContext, opts: { snapRa
     minSegPt: 0,
     endTicks: 0,
     ringness: 0,
+    doubleSwing: 0,
     ptPerM,
     scaleKnown,
     lengthM: f.lengthPt / ptPerM,
@@ -314,6 +374,10 @@ export function gatherEvidence(stroke: Stroke, ctx: SheetContext, opts: { snapRa
     const sd = Math.sqrt(ds.reduce((x, y) => x + (y - mean) * (y - mean), 0) / ds.length)
     ev.ringness = mean > 1e-9 ? 1 - Math.max(0, Math.min(1, (sd / mean - 0.12) / 0.15)) : 0
   }
+
+  // a pair of swings turns back on itself once or twice (the cusp where the leaves meet); a zig-zag scribble many times
+  const reversals = (f.reversalDensity * f.lengthPt) / 100
+  ev.doubleSwing = doubleSwingness(pts, f.lengthPt, ptPerM) * (1 - Math.max(0, Math.min(1, (ev.hairpins - 3) / 2))) * (1 - Math.max(0, Math.min(1, (reversals - 4) / 2)))
 
   if (pc.shapeOnly || pts.length === 0) return ev
 
