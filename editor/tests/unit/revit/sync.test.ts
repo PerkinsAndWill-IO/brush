@@ -114,3 +114,16 @@ describe('M6-03 / M6-04 / M6-06 CommandSync', () => {
     expect([...sync.landedStrokes([stroke('s1'), stroke('markup')], log)]).toEqual(['s1'])
   })
 })
+
+describe('M6-12 CommandSync.pendingCount (streaming paused)', () => {
+  it('M6-12 counts what plan would send: new commands on linked sheets and applied commands that left the log', () => {
+    const sync = new CommandSync()
+    const log = [wall('c1'), wall('c2'), wall('c3', 's3', 'OTHER')]
+    expect(sync.pendingCount(log, linked)).toBe(2)
+    sync.plan(log, linked)
+    expect(sync.pendingCount(log, linked)).toBe(0) // in flight is not waiting
+    sync.onApplied([{ id: 'c1', status: 'applied' }, { id: 'c2', status: 'applied' }])
+    expect(sync.pendingCount([log[0]], linked)).toBe(1) // c2 undone: one revert waits
+    expect(sync.pendingCount([log[0], wall('c4')], linked)).toBe(2)
+  })
+})

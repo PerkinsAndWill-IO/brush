@@ -9,6 +9,7 @@ import { getDocState, useDocState } from '../store'
 import { makeElements } from './groupActions'
 import { PhotoImportError, importPhotoMarkup, type PhotoImportSummary } from './import'
 import type { InkChoice } from './pipeline'
+import { PhoneQr } from './PhoneQr'
 import { MAX_AUTO_SHEETS, knownSheetId, sheetLabel } from './plan'
 
 type Phase = 'pick' | 'running' | 'done'
@@ -26,12 +27,14 @@ interface DialogState {
   /** The last import matched no open sheet: offer to match the printed file instead (P1-09). */
   askPrinted: boolean
   ink: InkChoice
+  /** P1-11: the QR code for sending the photo from a phone is shown. */
+  phone: boolean
   lines: string[]
   summary?: PhotoImportSummary
   error?: string
 }
 
-const CLOSED: DialogState = { open: false, phase: 'pick', file: null, sheetId: '', sheetDoc: 0, printed: null, askPrinted: false, ink: 'both', lines: [] }
+const CLOSED: DialogState = { open: false, phase: 'pick', file: null, sheetId: '', sheetDoc: 0, printed: null, askPrinted: false, ink: 'both', phone: false, lines: [] }
 let state: DialogState = CLOSED
 let abort: AbortController | null = null
 const listeners = new Set<() => void>()
@@ -191,9 +194,21 @@ export function PhotoImportDialog() {
             </p>
             <div className="field">
               <span>Photo</span>
-              <button type="button" className="btn soft" data-testid="photo-choose" onClick={() => input.current?.click()}>
-                {st.file ? st.file.name : 'Choose photo…'}
-              </button>
+              <span className="field-pair">
+                <button type="button" className="btn soft" data-testid="photo-choose" onClick={() => input.current?.click()}>
+                  {st.file ? st.file.name : 'Choose photo…'}
+                </button>
+                <button
+                  type="button"
+                  className={`btn soft phone-toggle${st.phone ? ' on' : ''}`}
+                  aria-pressed={st.phone}
+                  data-testid="photo-phone"
+                  title="Send the photo from your phone: scan a QR code"
+                  onClick={() => set({ phone: !st.phone })}
+                >
+                  From phone
+                </button>
+              </span>
               <input
                 ref={input}
                 type="file"
@@ -207,6 +222,7 @@ export function PhotoImportDialog() {
                 }}
               />
             </div>
+            {st.phone && <PhoneQr onPhoto={(f) => set({ file: f, phone: false, error: undefined })} />}
             {/* P1-09: asked for only after the photo matched none of the open sheets */}
             <input
               ref={printedInput}
