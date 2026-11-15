@@ -16,6 +16,9 @@ import { getDocState, openFile, useDocState } from './store'
 import brushLogoRed from './ui/assets/brush-logo-red.png'
 import { chooseFile, LeftSidebar, RightSidebar, ToolCapsule, TopBar } from './ui/Chrome'
 import { HandLoader } from './ui/HandLoader'
+import sampleSmallIcon from './ui/assets/sample-small.png'
+import sampleMediumIcon from './ui/assets/sample-medium.png'
+import sampleLargeIcon from './ui/assets/sample-large.png'
 import { RevitHud, RevitStart } from './revit/RevitPanel'
 import { isPhotoFile, photoImport, PhotoImportDialog } from './photo/PhotoImport'
 
@@ -35,6 +38,14 @@ async function openDropped(e: DragEvent) {
 }
 
 const formatSize = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} kB`)
+
+/** Sample cards are named by how big the drawing is, each with a hand-drawn building of that size. */
+const SAMPLE_TIERS = [
+  { below: 1e6, name: 'Small', icon: sampleSmallIcon },
+  { below: 50e6, name: 'Medium', icon: sampleMediumIcon },
+  { below: Infinity, name: 'Large', icon: sampleLargeIcon },
+]
+const sampleTier = (size: number) => SAMPLE_TIERS.find((t) => size < t.below)!
 
 /**
  * Sample `.drawing` files from `schema/public/examples` (served by the `sampleDrawings` plugin in vite.config.ts).
@@ -73,30 +84,28 @@ function SamplePicker({ disabled }: { disabled: boolean }) {
           or open a sample
         </span>
         <div className="sample-cards">
-          {samples.map((s) => (
-            <button
-              key={s.name}
-              type="button"
-              className="sample-card"
-              data-sample={s.name}
-              title={s.name}
-              aria-busy={fetching === s.name}
-              disabled={disabled || !!fetching}
-              onClick={() => void open(s.name)}
-            >
-              {fetching === s.name ? (
-                <HandLoader size={26} />
-              ) : (
-                <svg className="sample-icon" aria-hidden="true" width="26" height="22" viewBox="0 0 26 22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="1.5" y="3.5" width="19" height="16" rx="1.5" opacity="0.45" />
-                  <rect x="5.5" y="1" width="19" height="16" rx="1.5" fill="#fff" />
-                  <path d="M9 4.5h8v8H9zM13 4.5v4.5M9 9h6M19.5 4.5v10" />
-                </svg>
-              )}
-              <span className="sample-name">{s.label}</span>
-              <span className="sample-meta">{fetching === s.name ? 'Downloading…' : formatSize(s.size)}</span>
-            </button>
-          ))}
+          {samples.map((s) => {
+            const tier = sampleTier(s.size)
+            return (
+              <button
+                key={s.name}
+                type="button"
+                className="sample-card"
+                data-sample={s.name}
+                title={`${s.label} (${s.name})`}
+                aria-label={`${tier.name} sample: ${s.label}, ${formatSize(s.size)}`}
+                aria-busy={fetching === s.name}
+                disabled={disabled || !!fetching}
+                onClick={() => void open(s.name)}
+              >
+                <span className="sample-art" aria-hidden="true">
+                  {fetching === s.name ? <HandLoader size={44} /> : <img className="sample-icon" src={tier.icon} alt="" />}
+                </span>
+                <span className="sample-name">{tier.name}</span>
+                <span className="sample-meta">{fetching === s.name ? 'Downloading…' : formatSize(s.size)}</span>
+              </button>
+            )
+          })}
         </div>
         <span className="sr-only" role="status">
           {fetching ? `Downloading the sample ${fetching}…` : ''}
