@@ -145,7 +145,49 @@ function shapeWall(ev: Evidence, s: BrushSettings, palette: TypePalette): Shaped
   return { geometry: { points: verts, closed: false }, type, evidence }
 }
 
+/**
+ * Elevation / section door: the opening face on, as an upright rectangle at the palette family's width and height
+ * (sheet of known scale), centred on the sketch and standing on its bottom edge (the floor line).
+ * Points: bottom-left, bottom-right, top-right, top-left (closed); points[0] -> points[1] is the opening's width.
+ */
+function shapeElevationDoor(ev: Evidence, palette: TypePalette): Shaped {
+  const b = ev.f.bbox
+  const wM = b.w / ev.ptPerM
+  const hM = b.h / ev.ptPerM
+  let fam = palette.doors[0]
+  let bd = Infinity
+  for (const d of palette.doors) {
+    const dd = Math.hypot(d.widthMm / 1000 - wM, d.heightMm !== undefined ? 0.5 * (d.heightMm / 1000 - hM) : 0)
+    if (dd < bd) {
+      bd = dd
+      fam = d
+    }
+  }
+  const evidence: string[] = []
+  let w = b.w
+  let h = b.h
+  if (fam && ev.scaleKnown) {
+    w = (fam.widthMm / 1000) * ev.ptPerM
+    if (fam.heightMm !== undefined) h = (fam.heightMm / 1000) * ev.ptPerM
+    evidence.push(`elevation door ${fam.name}, standing on the drawn sill line`)
+  }
+  const cx = b.x + b.w / 2
+  const y0 = b.y + b.h
+  const geometry: Path = {
+    points: [
+      { x: cx - w / 2, y: y0 },
+      { x: cx + w / 2, y: y0 },
+      { x: cx + w / 2, y: y0 - h },
+      { x: cx - w / 2, y: y0 - h },
+    ],
+    closed: true,
+  }
+  return { geometry, type: fam?.name, evidence }
+}
+
 function shapeDoor(ev: Evidence, _s: BrushSettings, palette: TypePalette, hostIds: string[] | undefined): Shaped {
+  // face on (elevation / section), unless the ink is a flat line (Door mode forced on a tick)
+  if (ev.view === 'elevation' && ev.f.bbox.h >= 0.5 * ev.f.bbox.w && ev.f.bbox.h > 0) return shapeElevationDoor(ev, palette)
   const evidence: string[] = []
   const pts = ev.stroke.points
   const a: Point = pts[0]

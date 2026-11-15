@@ -16,7 +16,7 @@ import {
 } from '../geometry'
 import { extractFeatures } from '../stroke'
 import { roomAt, type RoomResult } from '../context'
-import { prepareContext, ptPerMetre, type PreparedContext } from './context-cache'
+import { prepareContext, ptPerMetre, type PreparedContext, type ViewMode } from './context-cache'
 
 /** Scale assumed when the sheet has none (most plans in the fixtures are 1:100). */
 export const ASSUMED_SCALE = 100
@@ -103,6 +103,18 @@ export interface Evidence {
   bboxM: { w: number; h: number }
   /** Context present (not a scanned / shape-only sheet). */
   hasContext: boolean
+  /** Drawing convention of the sheet (from its sheet type): plan, or elevation / section. */
+  view: ViewMode
+  /**
+   * 0..1, how square to the sheet the ink's oriented box sits (its area / the axis-aligned box's area):
+   * elevation openings are drawn upright, with level sills and heads.
+   */
+  upright: number
+  /**
+   * 0..1, how much an open stroke reads as an outline open at the bottom (an elevation door drawn as an
+   * inverted U): both ends near the bottom of the box, about its width apart.
+   */
+  openBottom: number
   pc: PreparedContext
   /** Fraction of samples lying on a wall (resp. grid) line, and the dominant item. */
   alongWall: number
@@ -322,6 +334,9 @@ export function gatherEvidence(stroke: Stroke, ctx: SheetContext, opts: { snapRa
     lengthM: f.lengthPt / ptPerM,
     bboxM: { w: f.bbox.w / ptPerM, h: f.bbox.h / ptPerM },
     hasContext: !pc.shapeOnly,
+    view: pc.view,
+    upright: 0,
+    openBottom: 0,
     pc,
     alongWall: 0,
     alongGrid: 0,
@@ -351,6 +366,14 @@ export function gatherEvidence(stroke: Stroke, ctx: SheetContext, opts: { snapRa
     ev.spanPt = dist(pts[0], pts[1])
     ev.obbCenter = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 }
     ev.obbAngle = angle(sub(pts[1], pts[0]))
+  }
+  const boxArea = f.bbox.w * f.bbox.h
+  ev.upright = boxArea > 1e-9 && pts.length >= 3 ? Math.min(1, (ev.spanPt * ev.thinPt) / boxArea) : 0
+  if (pts.length >= 3 && f.bbox.w > 1e-9 && f.bbox.h > 1e-9) {
+    const bottom = f.bbox.y + f.bbox.h
+    const low = (p: Point) => 1 - Math.max(0, Math.min(1, ((bottom - p.y) / f.bbox.h - 0.1) / 0.15))
+    const apart = Math.abs(last.x - first.x) / f.bbox.w
+    ev.openBottom = low(first) * low(last) * Math.max(0, Math.min(1, (apart - 0.6) / 0.25))
   }
   ev.inkDensity = f.bbox.w + f.bbox.h > 1e-9 ? f.lengthPt / (f.bbox.w + f.bbox.h) : 0
   ev.loopsPerM = ev.lengthM > 1e-9 ? f.selfIntersections / ev.lengthM : 0

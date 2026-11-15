@@ -1,5 +1,21 @@
 import type { ContextItem, Rect, SheetContext } from '../types'
 import { SpatialIndex, bbox } from '../geometry'
+import { sheetInfo, type SheetType } from '../context'
+
+/**
+ * Drawing convention the brush reads strokes in, from the sheet type:
+ * - 'plan' (plans, and sheets of unknown type): walls, door ticks and swings, furniture.
+ * - 'elevation' (elevations and sections): openings are upright outlines seen face on.
+ * - 'detail' (details, axonometrics, schedules / legends / covers): no element reading at all; plan walls, doors and
+ *   furniture make no sense at a detail's scale or in a 3D view, so the sketch stays ink (markup) or erases.
+ */
+export type ViewMode = 'plan' | 'elevation' | 'detail'
+
+export function viewModeOf(t: SheetType | undefined): ViewMode {
+  if (t === 'elevation' || t === 'section') return 'elevation'
+  if (t === 'detail' || t === 'axonometric' || t === 'other') return 'detail'
+  return 'plan'
+}
 
 /**
  * Per-SheetContext precomputation (spatial indexes, rooms, labels), cached by
@@ -21,6 +37,9 @@ export interface PreparedContext {
   shapeOnly: boolean
   /** Sheet points per real metre; undefined when the scale is unknown. */
   ptPerM?: number
+  /** Sheet type from the context's sheet-info item ('unknown' when it has none). */
+  sheetType: SheetType
+  view: ViewMode
 }
 
 const cache = new WeakMap<SheetContext, PreparedContext>()
@@ -41,7 +60,11 @@ export function prepareContext(ctx: SheetContext): PreparedContext {
     fixtures: items.filter((i) => i.kind === 'fixture').map((item) => ({ item, box: bbox(item.geometry.points) })),
     labels: items.filter((i) => i.kind === 'label' && !!i.text).map((item) => ({ item, box: bbox(item.geometry.points) })),
     shapeOnly: !!ctx.shapeOnly || items.length === 0,
+    sheetType: 'unknown',
+    view: 'plan',
   }
+  p.sheetType = sheetInfo(ctx)?.sheetType ?? 'unknown'
+  p.view = viewModeOf(p.sheetType)
   if (ctx.scale && ctx.scale > 0) p.ptPerM = ptPerMetre(ctx.scale)
   cache.set(ctx, p)
   return p
