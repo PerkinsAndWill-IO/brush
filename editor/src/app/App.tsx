@@ -92,6 +92,7 @@ function SamplePicker({ disabled }: { disabled: boolean }) {
 function EmptyState({ error, loading }: { error?: string; loading?: string }) {
   return (
     <div className="empty landing" data-testid="empty-state">
+      <div className="landing-paper" aria-hidden="true" />
       <div className="landing-stack">
         <img className="landing-logo" src={brushLogoRed} alt="Brush" />
         <div className="dropzone">

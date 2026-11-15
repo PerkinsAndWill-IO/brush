@@ -162,7 +162,9 @@ input[type='range'] { width: 100%; margin: 0; accent-color: var(--accent); heigh
 .empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 32px 24px 96px; }
 /* Landing page (design canvas "Editor — no drawing open (palette + logo) copy"): blue paper texture behind the
    whole page, the top bar see-through with only its actions, the big red logo over a see-through drop box. */
-.app.landing-app { background: var(--accent-soft) url('./ui/assets/landing-paper.jpg') center / cover no-repeat; }
+/* The paper is its own fixed, composited layer inside the landing page: it leaves with the landing page without
+   repainting the app under the board that replaces it. */
+.landing-paper { position: fixed; inset: 0; z-index: -1; pointer-events: none; will-change: transform; background: var(--accent-soft) url('./ui/assets/landing-paper.jpg') center / cover no-repeat; }
 .app.landing-app .topbar { background: transparent; border-bottom-color: transparent; }
 .app.landing-app .topbar .title { visibility: hidden; }
 .landing-stack { position: relative; width: min(100%, 680px); display: flex; flex-direction: column; align-items: center; gap: 22px; }
