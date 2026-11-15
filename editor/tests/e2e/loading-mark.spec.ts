@@ -14,7 +14,7 @@ test('M5-08: downloading a sample shows the dispersing logo on the start page, t
   })
   await openApp(page)
   await expect(page.getByTestId('brush-loader')).toHaveCount(0)
-  await page.getByTestId('sample-picker').selectOption('house.drawing')
+  await page.getByTestId('sample-picker').locator('[data-sample="house.drawing"]').click()
   const loader = page.getByTestId('empty-state').getByTestId('brush-loader')
   await expect(loader).toBeVisible()
   await expect(loader).toHaveAttribute('aria-label', /house\.drawing/)

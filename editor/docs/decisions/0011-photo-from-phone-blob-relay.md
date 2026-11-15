@@ -40,6 +40,8 @@ own deployment (decision 0007). Vercel Functions keep no state between requests,
   that sets `BLOB_READ_WRITE_TOKEN`). Until then the dialog says that sending from a phone is not set up.
 - **Access:** production is public, so anyone who sees a QR code can send a photo to that slot for 15 minutes.
   Previews are behind Vercel Deployment Protection, so a phone has to sign in to Vercel there.
-- **Local development:** `pnpm dev` runs no functions, and a phone cannot open the computer's `localhost`; the dialog
-  explains this instead of showing a code.
+- **Local development:** the dev server runs the same function at `/api/photo-relay` when `.env.local` has
+  `BLOB_READ_WRITE_TOKEN` (a private store). A phone cannot open the computer's `localhost`, so `pnpm dev:phone`
+  serves on the network and the app is opened at the computer's network address; on `localhost` the dialog explains
+  this instead of showing a code. Office Wi-Fi may keep devices apart; a phone hotspot works.
 - The photo passes through Vercel's storage for the seconds between upload and pickup.

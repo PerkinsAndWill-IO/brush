@@ -106,6 +106,7 @@ public sealed class PackageHost : ILinkHost
                 {
                     RejectedOp r => CommandResult.Failed(c.Id, r.Reason),
                     DeleteOp d => Delete(sheet, d),
+                    SetTypeOp t => SetTypes(sheet, t),
                     _ => Add(sheet, c),
                 });
             }
@@ -140,6 +141,62 @@ public sealed class PackageHost : ILinkHost
         return CommandResult.Applied(d.CommandId, removed, notes);
     }
 
+    /// <summary>
+    /// The DevHost's model has no type table: an element can take any type its category uses on any sheet, or that the
+    /// palette lists for it. Matched like Revit (<see cref="TypeMatch"/>).
+    /// </summary>
+    private CommandResult SetTypes(MutableSheet sheet, SetTypeOp op)
+    {
+        var notes = new List<string>();
+        var errors = new List<string>();
+        var changes = new List<TypeChange>();
+        var touched = new List<string>();
+        if (op.Unresolved.Count > 0) notes.Add($"ignored targets that name no element: {string.Join(", ", op.Unresolved)}");
+        foreach (var id in op.HostIds)
+        {
+            var i = sheet.Elements.FindIndex(e => e.Id == id);
+            if (i < 0)
+            {
+                errors.Add($"no element {id} on this sheet");
+                continue;
+            }
+            var e = sheet.Elements[i];
+            var m = TypeMatch.Find(TypesFor(e.Category), op.TypeName, op.Family, e.Category);
+            if (m.Hit is null)
+            {
+                errors.Add($"{id}: {m.Error}");
+                continue;
+            }
+            if (m.Note is not null && !notes.Contains(m.Note)) notes.Add(m.Note);
+            touched.Add(id);
+            var to = m.Hit.Key;
+            if (e.TypeName == to)
+            {
+                notes.Add($"{id} is already '{to}'");
+                continue;
+            }
+            changes.Add(new TypeChange(id, e.TypeName ?? "", to));
+            sheet.Elements[i] = e with { TypeName = to };
+        }
+        if (touched.Count == 0) return CommandResult.Failed(op.CommandId, string.Join("; ", errors));
+        notes.AddRange(errors);
+        ledger.RecordTypeChanges(op.CommandId, changes);
+        return CommandResult.Applied(op.CommandId, touched, notes);
+    }
+
+    private List<TypeCandidate<string>> TypesFor(string category)
+    {
+        var names = sheets.SelectMany(s => s.Elements).Where(e => e.Category == category && e.TypeName is { Length: > 0 }).Select(e => e.TypeName!);
+        var palette = category switch
+        {
+            "Walls" => this.palette?.Walls?.Select(w => w.Name),
+            "Doors" => this.palette?.Doors?.Select(d => d.Name),
+            "Furniture" => this.palette?.Furniture?.Select(f => f.Name),
+            _ => null,
+        };
+        return names.Concat(palette ?? []).Distinct(StringComparer.Ordinal).Select(n => new TypeCandidate<string>(n, n, null)).ToList();
+    }
+
     public Task<IReadOnlyList<CommandResult>> RevertAsync(IReadOnlyList<string> commandIds, CancellationToken ct)
     {
         lock (gate)
@@ -152,6 +209,11 @@ public sealed class PackageHost : ILinkHost
                     results.Add(CommandResult.Skipped(id, "not a command of this link"));
                     continue;
                 }
+                if (ledger.TypeChangesOf(id) is { } changes)
+                {
+                    results.Add(RestoreTypes(id, changes));
+                    continue;
+                }
                 var els = ledger.ElementsOf(id).ToHashSet(StringComparer.Ordinal);
                 foreach (var s in sheets) s.Elements.RemoveAll(e => els.Contains(e.Id));
                 ledger.Forget(id);
@@ -159,6 +221,29 @@ public sealed class PackageHost : ILinkHost
             }
             return Task.FromResult<IReadOnlyList<CommandResult>>(results);
         }
+    }
+
+    /// <summary>Put back the types a set_type replaced, on the elements that still have the type it gave them.</summary>
+    private CommandResult RestoreTypes(string commandId, IReadOnlyList<TypeChange> changes)
+    {
+        var restored = new List<string>();
+        var notes = new List<string>();
+        foreach (var c in changes)
+        {
+            var s = sheets.FirstOrDefault(x => x.Elements.Any(e => e.Id == c.ElementId));
+            var i = s?.Elements.FindIndex(e => e.Id == c.ElementId) ?? -1;
+            if (s is null || i < 0) notes.Add($"{c.ElementId} is gone");
+            else if (s.Elements[i].TypeName != c.To) notes.Add($"{c.ElementId} was changed since, to '{s.Elements[i].TypeName}': left as it is");
+            else
+            {
+                s.Elements[i] = s.Elements[i] with { TypeName = c.From.Length == 0 ? null : c.From };
+                restored.Add(c.ElementId);
+            }
+        }
+        ledger.Forget(commandId);
+        return restored.Count == 0
+            ? CommandResult.Skipped(commandId, notes.Count == 0 ? "no type to put back" : string.Join("; ", notes))
+            : CommandResult.Applied(commandId, restored, notes);
     }
 
     /// <summary>The sheet last shown with <see cref="ShowSheetAsync"/> (the DevHost has no views; tests read this).</summary>

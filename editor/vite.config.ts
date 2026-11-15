@@ -160,12 +160,56 @@ function sampleDrawings(): Plugin {
   }
 }
 
+/**
+ * P1-11 in dev: answer /api/photo-relay with the real function (api/photo-relay.ts), so sending a photo from a phone
+ * can be tried locally. Only when editor/.env.local has BLOB_READ_WRITE_TOKEN (a private store; the token stays on
+ * the dev server). Without it the dialog says sending from a phone is not set up, as before. A phone cannot open
+ * `localhost`: start with `pnpm dev:phone` and open the app at the computer's network address (see AGENTS.md).
+ */
+function photoRelayDev(token: string | undefined): Plugin {
+  return {
+    name: 'brush-photo-relay-dev',
+    configureServer(server) {
+      if (!token) return
+      process.env.BLOB_READ_WRITE_TOKEN = token
+      server.middlewares.use('/api/photo-relay', (req, res, next) => {
+        const chunks: Buffer[] = []
+        req.on('data', (c: Buffer) => chunks.push(c))
+        req.on('error', next)
+        req.on('end', async () => {
+          try {
+            type Handler = (r: Request) => Promise<Response>
+            const fn = (await server.ssrLoadModule('/api/photo-relay.ts')) as Record<string, Handler | undefined>
+            const handler = fn[req.method ?? 'GET']
+            if (!handler) {
+              res.statusCode = 405
+              res.end()
+              return
+            }
+            const headers = new Headers()
+            for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string') headers.set(k, v)
+            const body = chunks.length && req.method !== 'GET' && req.method !== 'HEAD' ? Buffer.concat(chunks) : undefined
+            // mounted at /api/photo-relay, so req.url is only the rest ("?id=...")
+            const r = await handler(new Request(`http://${req.headers.host}/api/photo-relay${req.url === '/' ? '' : req.url}`, { method: req.method, headers, body }))
+            res.statusCode = r.status
+            r.headers.forEach((v, k) => res.setHeader(k, v))
+            res.end(Buffer.from(await r.arrayBuffer()))
+          } catch (e) {
+            next(e)
+          }
+        })
+      })
+    },
+  }
+}
+
 // Tauri expects a fixed port; tests override with --port.
 export default defineConfig(({ mode }) => {
   // The AI Gateway key stays on the dev server (no VITE_ prefix => never in the bundle).
   // The app's hosted second pass targets /api/ai-gateway; in dev this proxy adds the key,
   // in production the Vercel Function api/ai-gateway.ts does.
-  const gatewayKey = loadEnv(mode, root, '').VERCEL_AI_GATEWAY_API_KEY
+  const env = loadEnv(mode, root, '')
+  const gatewayKey = env.VERCEL_AI_GATEWAY_API_KEY
   const proxy = gatewayKey
     ? {
         '/api/ai-gateway': {
@@ -177,7 +221,7 @@ export default defineConfig(({ mode }) => {
       }
     : undefined
   return {
-  plugins: [react(), serveFixtures(), sampleDrawings()],
+  plugins: [react(), serveFixtures(), sampleDrawings(), photoRelayDev(env.BLOB_READ_WRITE_TOKEN)],
   resolve: {
     alias: {
       '@core': resolve(root, 'src/core'),

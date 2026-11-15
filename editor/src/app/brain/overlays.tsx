@@ -27,7 +27,27 @@ const d = (pts: readonly Point[], closed = false) => (pts.length ? `M${pts.map((
 
 // ───────────── element / ghost geometry ─────────────
 
+/** Elevation door face on: the outline, and the dashed swing chevron pointing at the hinge side. */
+function ElevationDoor({ path, dash, opacity }: { path: Path; dash?: string; opacity: number }) {
+  const [bl, br, tr, tl] = path.points
+  const w = Math.hypot(br.x - bl.x, br.y - bl.y)
+  if (w <= 0) return null
+  const double = w / Math.max(1e-6, Math.hypot(tl.x - bl.x, tl.y - bl.y)) > 0.7
+  const mid = (p: Point, q: Point): Point => ({ x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 })
+  const chevron = double
+    ? `${d([mid(bl, br), mid(bl, tl), mid(tl, tr)])}${d([mid(bl, br), mid(br, tr), mid(tl, tr)])}`
+    : d([br, mid(bl, tl), tr])
+  return (
+    <g opacity={opacity} strokeDasharray={dash}>
+      <path d={d(path.points, true)} fill={ACCENT} fillOpacity={0.08} stroke={ACCENT} style={{ strokeWidth: px(1.6) }} />
+      {double && <path d={d([mid(bl, br), mid(tl, tr)])} stroke={ACCENT} style={{ strokeWidth: px(1.2) }} />}
+      <path d={chevron} fill="none" stroke={ACCENT} strokeDasharray="4 3" style={{ strokeWidth: px(1) }} />
+    </g>
+  )
+}
+
 function DoorSymbol({ path, dash, opacity }: { path: Path; dash?: string; opacity: number }) {
+  if (path.closed && path.points.length >= 4) return <ElevationDoor path={path} dash={dash} opacity={opacity} />
   const [a, b] = [path.points[0], path.points[path.points.length - 1]]
   const w = Math.hypot(b.x - a.x, b.y - a.y)
   if (w <= 0) return null

@@ -23,6 +23,8 @@ internal sealed class RevitHost : ILinkHost, IDisposable
     // dictionaries live in the shim's reload-proof state (BCL types only), so an editor can still revert commands
     // that an earlier copy of the plugin applied.
     private readonly Dictionary<string, Dictionary<string, List<string>>> ledgers;
+    // Per document, likewise: the types each set_type command replaced, so revert can put them back.
+    private readonly Dictionary<string, Dictionary<string, List<string>>> typeChanges;
     // Origins the user allowed "this time": also kept across reloads so a rebuild does not ask again.
     private readonly HashSet<string> sessionOrigins;
     private bool applying;
@@ -34,6 +36,7 @@ internal sealed class RevitHost : ILinkHost, IDisposable
         this.log = log;
         this.settingsPath = settingsPath;
         ledgers = (Dictionary<string, Dictionary<string, List<string>>>)state.GetOrAdd(StateKeys.Ledgers, _ => new Dictionary<string, Dictionary<string, List<string>>>(StringComparer.OrdinalIgnoreCase));
+        typeChanges = (Dictionary<string, Dictionary<string, List<string>>>)state.GetOrAdd(StateKeys.TypeChanges, _ => new Dictionary<string, Dictionary<string, List<string>>>(StringComparer.OrdinalIgnoreCase));
         sessionOrigins = (HashSet<string>)state.GetOrAdd(StateKeys.SessionOrigins, _ => new HashSet<string>(StringComparer.Ordinal));
         ui.ControlledApplication.DocumentChanged += OnDocumentChanged;
         ui.ViewActivated += OnViewActivated;
@@ -52,7 +55,8 @@ internal sealed class RevitHost : ILinkHost, IDisposable
         lock (ledgers)
         {
             if (!ledgers.TryGetValue(key, out var l)) ledgers[key] = l = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-            return new CommandLedger(l);
+            if (!typeChanges.TryGetValue(key, out var t)) typeChanges[key] = t = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            return new CommandLedger(l, t);
         }
     }
 

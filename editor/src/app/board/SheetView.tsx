@@ -16,6 +16,8 @@ import { SheetGrid } from './viewAidLayers'
 import { cancelRender, enqueueRender } from './renderQueue'
 import { useFilters } from '../drawing/filters'
 import { BrushLoader } from '../ui/BrushLoader'
+import { TraceLayer } from '../photo/TracePaper'
+import { useSheetTrace } from '../photo/trace'
 
 // ───────────── layer registry (board input writes wet ink here) ─────────────
 
@@ -132,6 +134,8 @@ export const SheetView = memo(function SheetView({ sheet, placement, pages, load
   const filterVersion = useFilters().version
   const [renderedFilter, setRenderedFilter] = useState(-1)
   const overlayComponents = useOverlays()
+  // P1-12: trace paper over the sheet after a photo import; the ink is revealed as it unrolls
+  const trace = useSheetTrace(sheet.id)
 
   useLayoutEffect(() => {
     if (!inkRef.current || !wetRef.current || !overlayRef.current || !gridRef.current) return
@@ -280,7 +284,7 @@ export const SheetView = memo(function SheetView({ sheet, placement, pages, load
         {sheet.name !== sheet.number && <span className="name">{sheet.name}</span>}
         <ContextBadge sheetId={sheet.id} />
       </div>
-      <div className="paper">
+      <div className="paper" data-trace={trace?.phase} data-trace-run={trace?.run}>
         <div className="page" ref={pageRef} />
         <div className="page-detail" ref={detailRef} data-layer="page-detail" />
         {renderScale === 0 && (
@@ -291,6 +295,7 @@ export const SheetView = memo(function SheetView({ sheet, placement, pages, load
         <svg className="grid" ref={gridRef} viewBox={`0 0 ${w} ${h}`} width={w} height={h} data-layer="grid" aria-hidden="true">
           <SheetGrid sheet={sheet} />
         </svg>
+        <TraceLayer sheetId={sheet.id} />
         <canvas className="ink-canvas" ref={inkCanvasRef} data-layer="ink" data-ink-count={strokes.filter((s) => s.tool !== 'eraser').length} data-ink-scale={inkScale} />
         <svg className="ink" ref={inkRef} viewBox={`0 0 ${w} ${h}`} width={w} height={h} data-layer="wet-ink">
           <path ref={wetRef} className="wet" data-layer="wet" />
