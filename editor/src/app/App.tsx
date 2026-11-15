@@ -15,6 +15,7 @@ import { fileToOpened } from './platform/browser'
 import { getDocState, openFile, useDocState } from './store'
 import brushLogoRed from './ui/assets/brush-logo-red.png'
 import { chooseFile, LeftSidebar, RightSidebar, ToolCapsule, TopBar } from './ui/Chrome'
+import { HandLoader } from './ui/HandLoader'
 import { RevitHud, RevitStart } from './revit/RevitPanel'
 import { isPhotoFile, photoImport, PhotoImportDialog } from './photo/PhotoImport'
 
@@ -83,16 +84,23 @@ function SamplePicker({ disabled }: { disabled: boolean }) {
               disabled={disabled || !!fetching}
               onClick={() => void open(s.name)}
             >
-              <svg className="sample-icon" aria-hidden="true" width="26" height="22" viewBox="0 0 26 22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="1.5" y="3.5" width="19" height="16" rx="1.5" opacity="0.45" />
-                <rect x="5.5" y="1" width="19" height="16" rx="1.5" fill="#fff" />
-                <path d="M9 4.5h8v8H9zM13 4.5v4.5M9 9h6M19.5 4.5v10" />
-              </svg>
+              {fetching === s.name ? (
+                <HandLoader size={26} />
+              ) : (
+                <svg className="sample-icon" aria-hidden="true" width="26" height="22" viewBox="0 0 26 22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="1.5" y="3.5" width="19" height="16" rx="1.5" opacity="0.45" />
+                  <rect x="5.5" y="1" width="19" height="16" rx="1.5" fill="#fff" />
+                  <path d="M9 4.5h8v8H9zM13 4.5v4.5M9 9h6M19.5 4.5v10" />
+                </svg>
+              )}
               <span className="sample-name">{s.label}</span>
               <span className="sample-meta">{fetching === s.name ? 'Downloading…' : formatSize(s.size)}</span>
             </button>
           ))}
         </div>
+        <span className="sr-only" role="status">
+          {fetching ? `Downloading the sample ${fetching}…` : ''}
+        </span>
       </div>
       {fetchError && (
         <p className="error" role="alert" data-testid="sample-error">
@@ -117,11 +125,20 @@ function EmptyState({ error, loading }: { error?: string; loading?: string }) {
               vectorEffect="non-scaling-stroke"
             />
           </svg>
-          <h1>Drop a PDF to start</h1>
+          <h1>
+            Drop a PDF, <span className="ext">.rvt</span> or <span className="ext">.drawing</span> to start
+          </h1>
           <div className="cta">
-            <button type="button" className="btn landing-cta" title="Choose file (Ctrl+O)" onClick={() => void chooseFile()} disabled={!!loading}>
-              {loading ? `Opening ${loading}…` : 'Choose file'}
-            </button>
+            {loading ? (
+              <div className="landing-loading" role="status" data-testid="landing-loading">
+                <HandLoader />
+                <span>Opening {loading}…</span>
+              </div>
+            ) : (
+              <button type="button" className="btn landing-cta" title="Choose file (Ctrl+O)" onClick={() => void chooseFile()}>
+                Choose file
+              </button>
+            )}
           </div>
           <div className="landing-more">
             <SamplePicker disabled={!!loading} />
