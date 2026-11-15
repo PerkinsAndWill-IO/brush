@@ -1,9 +1,10 @@
 // Performance probe for large `.drawing` files in real Chrome (GPU canvas): load to first paint, all sheets painted,
 // per-page render cost at several scales, zoom frame times and the re-render after a zoom settles, memory.
 // Usage (from editor/, with `vite --port 5310` running): node scripts/perf-drawing.mjs /fixtures/perf/kro-test-lean.drawing ...
-// LOAD_ONLY=1 skips the zoom and detail checks.
+// LOAD_ONLY=1 skips the zoom and detail checks, NO_PHASES=1 the per-phase numbers (with LOAD_ONLY: a load test).
 // (Git Bash rewrites a leading-slash argument into a Windows path: prefix the command with MSYS_NO_PATHCONV=1.)
-// Files are served by the dev server's /fixtures route. Prints one JSON object per file.
+// Files are served by the dev server's /fixtures route (with range requests), or pass full URLs. Prints one JSON object
+// per file. LOAD_URL=1 opens by URL like the sample picker (range loading).
 /* global window, document, requestAnimationFrame */
 import { mkdirSync } from 'node:fs'
 import { chromium } from '@playwright/test'
@@ -38,10 +39,13 @@ for (const file of files) {
   })
 
   const out = { file }
-  out.load = await page.evaluate(async (url) => {
+  out.load = await page.evaluate(async ([url, byUrl]) => {
     const t0 = performance.now()
-    await window.__brush.loadPdf(url)
+    await (byUrl ? window.__brush.loadUrl(url) : window.__brush.loadPdf(url))
     const tFirst = performance.now() - t0
+    // every sheet loaded (range loading shows "loading n of m" until then)
+    while (document.querySelector('[data-testid=sheets-loading]')) await new Promise((r) => setTimeout(r, 20))
+    const tLoaded = performance.now() - t0
     // all sheets painted
     await new Promise((res) => {
       const check = () => ([...document.querySelectorAll('[data-testid=sheet]')].every((s) => s.dataset.rendered === 'true') ? res() : setTimeout(check, 20))
@@ -49,11 +53,11 @@ for (const file of files) {
     })
     const tAll = performance.now() - t0
     const long = window.__perf.long.filter(([s]) => s >= t0).map(([, d]) => Math.round(d))
-    return { firstPageMs: Math.round(tFirst), allPagesMs: Math.round(tAll), longTasksMs: long }
-  }, file)
+    return { firstPageMs: Math.round(tFirst), allLoadedMs: Math.round(tLoaded), allPagesMs: Math.round(tAll), longTasksMs: long }
+  }, [file, !!process.env.LOAD_URL])
 
   // phases in isolation: fetch, gunzip+parse, sheets/analysis, per-page compile+render at several scales (GPU flush by readback)
-  out.phases = await page.evaluate(async (url) => {
+  if (!process.env.NO_PHASES) out.phases = await page.evaluate(async (url) => {
     const r = {}
     let t = performance.now()
     const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer())
@@ -110,7 +114,13 @@ for (const file of files) {
     return r
   }, file)
 
+  const memory = () =>
+    page.evaluate(() => ({
+      jsHeapMB: Math.round(performance.memory.usedJSHeapSize / 1e6),
+      canvasMpx: +([...document.querySelectorAll('canvas')].reduce((s, c) => s + c.width * c.height, 0) / 1e6).toFixed(1),
+    }))
   if (process.env.LOAD_ONLY) {
+    out.memory = await memory()
     // LOAD_ONLY=1: stop after loading and the per-phase numbers
     console.log(JSON.stringify(out))
     await ctx.close()
@@ -208,10 +218,7 @@ for (const file of files) {
   }
 
   const m = Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map((x) => [x.name, x.value]))
-  out.memory = await page.evaluate(() => ({
-    jsHeapMB: Math.round(performance.memory.usedJSHeapSize / 1e6),
-    canvasMpx: +([...document.querySelectorAll('canvas')].reduce((s, c) => s + c.width * c.height, 0) / 1e6).toFixed(1),
-  }))
+  out.memory = await memory()
   out.memory.cdpHeapMB = Math.round(m.JSHeapUsedSize / 1e6)
   await page.screenshot({ path: `reports/perf-${file.split('/').pop()}.png` })
   console.log(JSON.stringify(out))
