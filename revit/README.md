@@ -105,8 +105,9 @@ Log: `%LOCALAPPDATA%\Brush\revit-link.log`.
 Verified here: the core (36 tests, including socket round trips and origin and host checks), a real Chromium page on
 `localhost:5173` talking to the DevHost, and the add-in compiling against the Revit 2025, 2026 and 2027 APIs.
 
-**Type switching (S1) verified inside Revit 2026** on 2026-11-15 with `tests/live/type-switcher.live.mjs` (list types,
-change type, revert, a change addressed to a 3D view). **The rest is not yet run inside Revit.** The Revit layer compiles against the real API but has not met a model. Check these
+**`set_type` (S1-06) verified inside Revit 2026** on 2026-11-15 with `tests/live/type-switcher.live.mjs` on a cloud
+model (list types, `set_type` sent as the editor sends it, revert, a change addressed to a 3D view; the test wall is
+deleted at the end). **The rest is not yet run inside Revit.** The Revit layer compiles against the real API but has not met a model. Check these
 first on a real project:
 
 - The PDF page matches the title-block extent, so the manifest overlays the PDF. If they disagree,
