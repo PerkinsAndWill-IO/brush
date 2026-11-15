@@ -15,6 +15,7 @@ import {
   sniffBytes,
   writeCommandFile,
   PackageError,
+  PackageDrawingSource,
   SourceError,
 } from '../../../src/app/source'
 
@@ -188,5 +189,25 @@ describe('M5 command file', () => {
     const name = await writeCommandFile(async (n, t) => void saved.push([n, t]), f)
     expect(name).toBe('p.commands.json')
     expect(parseCommandFile(saved[0][1]).commands).toHaveLength(2)
+  })
+})
+
+describe('PackageDrawingSource.vectorPage', () => {
+  it('shares one element map across sheets, so an element on any sheet is found from the first', () => {
+    const wall = (id: string) => ({ id, category: 'Walls' as const, footprint: [{ x: 0, y: 0 }, { x: 10, y: 0 }], typeName: `T-${id}` })
+    const src = new PackageDrawingSource('p', {
+      schemaVersion: 1,
+      sheets: [
+        { id: 'A', name: 'A', sizePt: { w: 100, h: 100 }, elements: [wall('1')] },
+        { id: 'B', name: 'B', sizePt: { w: 100, h: 100 }, elements: [wall('2')] },
+      ],
+    })
+    const a = src.vectorPage('A')!
+    const b = src.vectorPage('B')!
+    expect(a.elements).toBe(b.elements)
+    expect(a.elements['2']?.type).toBe('T-2')
+    expect(a.page.items.every((it) => it.el === '1')).toBe(true)
+    expect(src.vectorPage('A')).toBe(a)
+    expect(src.vectorPage('nope')).toBeNull()
   })
 })
