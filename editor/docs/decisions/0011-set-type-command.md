@@ -29,8 +29,8 @@ sidecar keeps `set_type` commands although they have no stroke (`app/session.ts`
 the element (`anchorOf`), and the board marks each pending change on the sheet (`app/select/SelectLayers.tsx`).
 
 The Revit plugin (`revit/`) applies the op since S1-06 (`ChangeTypeId` on the element, the type found among its valid
-types by family and name, `"Family: Type"` or `"Family Type"`; revert sets the previous type back). An older plugin
-reports it as failed without breaking the batch, as the protocol says for unknown ops.
+types by family and name or the sheet's "Family: Type" key; revert puts the old type back). An older plugin reports it
+as failed without breaking the batch, as the protocol says for unknown ops.
 
 ## Alternatives considered
 
