@@ -6,6 +6,7 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 import type { Sheet } from '@core/types'
 import { getDocState, useDocState } from '../store'
+import { BrushLoader } from '../ui/BrushLoader'
 import { makeElements } from './groupActions'
 import { PhotoImportError, importPhotoMarkup, type PhotoImportSummary } from './import'
 import type { InkChoice } from './pipeline'
@@ -271,6 +272,7 @@ export function PhotoImportDialog() {
             <p>
               Reading <b>{st.file?.name}</b>. This takes from a few seconds to a minute, depending on the photo and the sheet.
             </p>
+            <BrushLoader label="Reading the photo" />
             <ol className="progress" aria-live="polite" data-testid="photo-progress">
               {st.lines.slice(-6).map((l, i) => (
                 <li key={`${st.lines.length}-${i}`}>{l}</li>

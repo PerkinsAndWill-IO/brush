@@ -15,6 +15,7 @@ import { penGate } from './penGate'
 import { SheetGrid } from './viewAidLayers'
 import { cancelRender, enqueueRender } from './renderQueue'
 import { useFilters } from '../drawing/filters'
+import { BrushLoader } from '../ui/BrushLoader'
 
 // ───────────── layer registry (board input writes wet ink here) ─────────────
 
@@ -282,7 +283,11 @@ export const SheetView = memo(function SheetView({ sheet, placement, pages, load
       <div className="paper">
         <div className="page" ref={pageRef} />
         <div className="page-detail" ref={detailRef} data-layer="page-detail" />
-        {renderScale === 0 && <div className="placeholder" aria-label="Loading sheet" />}
+        {renderScale === 0 && (
+          <div className="placeholder" aria-label="Loading sheet">
+            <BrushLoader label="Loading sheet" />
+          </div>
+        )}
         <svg className="grid" ref={gridRef} viewBox={`0 0 ${w} ${h}`} width={w} height={h} data-layer="grid" aria-hidden="true">
           <SheetGrid sheet={sheet} />
         </svg>

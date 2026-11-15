@@ -14,6 +14,7 @@ import { getPlatform } from './platform'
 import { fileToOpened } from './platform/browser'
 import { getDocState, openFile, useDocState } from './store'
 import brushLogoRed from './ui/assets/brush-logo-red.png'
+import { BrushLoader } from './ui/BrushLoader'
 import { chooseFile, LeftSidebar, RightSidebar, ToolCapsule, TopBar } from './ui/Chrome'
 import { RevitHud, RevitStart } from './revit/RevitPanel'
 import { isPhotoFile, photoImport, PhotoImportDialog } from './photo/PhotoImport'
@@ -39,8 +40,12 @@ const formatSize = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${
  * Sample `.drawing` files from `schema/public/examples` (served by the `sampleDrawings` plugin in vite.config.ts).
  * Picking one fetches it and opens it like a chosen file. Hidden when there are no samples.
  */
-function SamplePicker({ disabled }: { disabled: boolean }) {
-  const [fetching, setFetching] = useState<string>()
+function SamplePicker({ disabled, onFetching }: { disabled: boolean; onFetching: (name: string | undefined) => void }) {
+  const [fetching, setFetchingState] = useState<string>()
+  const setFetching = (name: string | undefined) => {
+    setFetchingState(name)
+    onFetching(name)
+  }
   const [fetchError, setFetchError] = useState<string>()
   if (!samples.length) return null
 
@@ -90,11 +95,17 @@ function SamplePicker({ disabled }: { disabled: boolean }) {
 }
 
 function EmptyState({ error, loading }: { error?: string; loading?: string }) {
+  const [fetching, setFetching] = useState<string>()
+  const busy = loading ?? fetching
   return (
     <div className="empty landing" data-testid="empty-state">
       <div className="landing-paper" aria-hidden="true" />
       <div className="landing-stack">
-        <img className="landing-logo" src={brushLogoRed} alt="Brush" />
+        {busy ? (
+          <BrushLoader tone="red" className="landing-logo" label={loading ? `Opening ${loading}` : `Downloading ${busy}`} />
+        ) : (
+          <img className="landing-logo" src={brushLogoRed} alt="Brush" />
+        )}
         <div className="dropzone">
           {/* hand-drawn outline instead of a dashed border; stretched to the box, the stroke keeps its width */}
           <svg className="dropzone-outline" viewBox="0 0 1000 400" preserveAspectRatio="none" aria-hidden="true">
@@ -110,7 +121,7 @@ function EmptyState({ error, loading }: { error?: string; loading?: string }) {
             </button>
           </div>
           <div className="landing-more">
-            <SamplePicker disabled={!!loading} />
+            <SamplePicker disabled={!!loading} onFetching={setFetching} />
             <RevitStart />
           </div>
           {error && (
