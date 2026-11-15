@@ -7,7 +7,7 @@ import { useEffect, useRef, useSyncExternalStore } from 'react'
 import type { Sheet } from '@core/types'
 import { getDocState, useDocState } from '../store'
 import { makeElements } from './groupActions'
-import { importPhotoMarkup, type PhotoImportSummary } from './import'
+import { PhotoImportError, importPhotoMarkup, type PhotoImportSummary } from './import'
 import type { InkChoice } from './pipeline'
 import { MAX_AUTO_SHEETS, knownSheetId, sheetLabel } from './plan'
 
@@ -21,13 +21,17 @@ interface DialogState {
   sheetId: string
   /** The document load (`DocState.loadId`) the sheet choice was made for; it is not carried to another document. */
   sheetDoc: number
+  /** P1-09: the file the paper in the photo was printed from, when not the open one. Kept like the sheet choice. */
+  printed: File | null
+  /** The last import matched no open sheet: offer to match the printed file instead (P1-09). */
+  askPrinted: boolean
   ink: InkChoice
   lines: string[]
   summary?: PhotoImportSummary
   error?: string
 }
 
-const CLOSED: DialogState = { open: false, phase: 'pick', file: null, sheetId: '', sheetDoc: 0, ink: 'both', lines: [] }
+const CLOSED: DialogState = { open: false, phase: 'pick', file: null, sheetId: '', sheetDoc: 0, printed: null, askPrinted: false, ink: 'both', lines: [] }
 let state: DialogState = CLOSED
 let abort: AbortController | null = null
 const listeners = new Set<() => void>()
@@ -52,48 +56,54 @@ export const photoImport = {
     // a sheet chosen for another document is forgotten: sheet ids repeat across PDFs ("sheet-2"), so a stale
     // choice would otherwise force the photo onto the wrong sheet, or fail on a sheet that is gone
     const doc = getDocState()
-    const sheetId = state.sheetDoc === doc.loadId ? (knownSheetId(doc.sheets, state.sheetId) ?? '') : ''
-    set({ ...CLOSED, open: true, file: file ?? null, sheetId, sheetDoc: doc.loadId, ink: state.ink })
+    const same = state.sheetDoc === doc.loadId
+    const sheetId = same ? (knownSheetId(doc.sheets, state.sheetId) ?? '') : ''
+    set({ ...CLOSED, open: true, file: file ?? null, sheetId, sheetDoc: doc.loadId, printed: same ? state.printed : null, ink: state.ink })
   },
   close() {
     abort?.abort()
     abort = null
-    set({ ...CLOSED, sheetId: state.sheetId, sheetDoc: state.sheetDoc, ink: state.ink })
+    set({ ...CLOSED, sheetId: state.sheetId, sheetDoc: state.sheetDoc, printed: state.printed, ink: state.ink })
   },
   async run() {
     const { file, ink } = state
     if (!file || state.phase === 'running') return
     // submit what the dialog shows: a choice that does not belong to the open document means "find it"
     const doc = getDocState()
-    const sheetId = state.sheetDoc === doc.loadId ? knownSheetId(doc.sheets, state.sheetId) : undefined
-    if ((sheetId ?? '') !== state.sheetId || state.sheetDoc !== doc.loadId) set({ sheetId: sheetId ?? '', sheetDoc: doc.loadId })
+    const same = state.sheetDoc === doc.loadId
+    const sheetId = same ? knownSheetId(doc.sheets, state.sheetId) : undefined
+    const printed = same ? state.printed : null
+    if ((sheetId ?? '') !== state.sheetId || !same) set({ sheetId: sheetId ?? '', sheetDoc: doc.loadId, printed })
     const ac = new AbortController()
     abort = ac
     set({ phase: 'running', lines: [], error: undefined, summary: undefined })
     try {
       const summary = await importPhotoMarkup(file, {
         sheetId,
+        printed: printed ?? undefined,
         ink,
         signal: ac.signal,
         onProgress: (line) => !ac.signal.aborted && set({ lines: [...state.lines, line].slice(-200) }),
       })
-      if (!ac.signal.aborted) set({ phase: 'done', summary })
+      if (!ac.signal.aborted) set({ phase: 'done', summary, askPrinted: false })
     } catch (e) {
       if (ac.signal.aborted) return
       console.warn('photo import failed', e)
-      set({ phase: 'pick', error: (e as Error).message || String(e) })
+      // matched none of the open sheets: only now is the printed file asked for (P1-09)
+      const askPrinted = !printed && e instanceof PhotoImportError && e.code === 'no-match'
+      set({ phase: 'pick', error: (e as Error).message || String(e), askPrinted: askPrinted || (!!printed && state.askPrinted) })
     } finally {
       if (abort === ac) abort = null
     }
   },
 }
 
-function SheetSelect({ sheets, value }: { sheets: Sheet[]; value: string }) {
+function SheetSelect({ sheets, value, printed }: { sheets: Sheet[]; value: string; printed: boolean }) {
   // a sheet that is gone (another file was opened) falls back to automatic
   const known = value === '' || sheets.some((s) => s.id === value)
   return (
     <label className="field">
-      <span>Sheet in the photo</span>
+      <span>{printed ? 'Strokes go on' : 'Sheet in the photo'}</span>
       <select data-testid="photo-sheet" value={known ? value : ''} onChange={(e) => set({ sheetId: e.target.value })}>
         <option value="">{sheets.length > MAX_AUTO_SHEETS ? `Find it (first ${MAX_AUTO_SHEETS} sheets)` : 'Find it automatically'}</option>
         {sheets.map((s) => (
@@ -117,7 +127,14 @@ function Summary({ s }: { s: PhotoImportSummary }) {
   return (
     <>
       <p data-testid="photo-summary">
-        Added <b>{s.strokes}</b> {s.strokes === 1 ? 'stroke' : 'strokes'} to <b>{s.sheetLabel}</b>. They are grouped under This session, where they can be removed or made into elements together.
+        Added <b>{s.strokes}</b> {s.strokes === 1 ? 'stroke' : 'strokes'} to <b>{s.sheetLabel}</b>
+        {s.printedFrom && (
+          <>
+            {' '}
+            (traced against <b>{s.printedFrom}</b>)
+          </>
+        )}
+        . They are grouped under This session, where they can be removed or made into elements together.
       </p>
       <ul className="ink-list">
         {s.layers.map((l) => (
@@ -140,6 +157,7 @@ export function PhotoImportDialog() {
   const st = useSyncExternalStore(subscribe, () => state)
   const doc = useDocState()
   const input = useRef<HTMLInputElement>(null)
+  const printedInput = useRef<HTMLInputElement>(null)
   const ready = doc.status === 'ready'
 
   useEffect(() => {
@@ -189,7 +207,36 @@ export function PhotoImportDialog() {
                 }}
               />
             </div>
-            <SheetSelect sheets={doc.sheets} value={st.sheetId} />
+            {/* P1-09: asked for only after the photo matched none of the open sheets */}
+            <input
+              ref={printedInput}
+              type="file"
+              accept=".pdf,.drawing,application/pdf"
+              hidden
+              data-testid="photo-printed-file"
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                e.target.value = ''
+                if (!f) return
+                set({ printed: f, sheetDoc: getDocState().loadId, error: undefined })
+                // the photo is chosen already: try again, now against the printed file
+                if (state.file) void photoImport.run()
+              }}
+            />
+            {st.printed && (
+              <div className="field" title="The photo is matched to this file; the strokes go on the open sheet with the same layout.">
+                <span>Printed from</span>
+                <span className="field-pair">
+                  <button type="button" className="btn soft" data-testid="photo-printed-choose" onClick={() => printedInput.current?.click()}>
+                    {st.printed.name}
+                  </button>
+                  <button type="button" className="btn soft clear" aria-label="Match the open drawing instead" data-testid="photo-printed-clear" onClick={() => set({ printed: null, error: undefined })}>
+                    ×
+                  </button>
+                </span>
+              </div>
+            )}
+            <SheetSelect sheets={doc.sheets} value={st.sheetId} printed={!!st.printed} />
             <label className="field">
               <span>Pens to pick up</span>
               <select data-testid="photo-ink" value={st.ink} onChange={(e) => set({ ink: e.target.value as InkChoice })}>
@@ -199,9 +246,14 @@ export function PhotoImportDialog() {
               </select>
             </label>
             {st.error && (
-              <p className="error" role="alert" data-testid="photo-error">
-                {st.error}
-              </p>
+              <div className="error" role="alert" data-testid="photo-error">
+                <p>{st.error}</p>
+                {st.askPrinted && !st.printed && (
+                  <button type="button" className="btn accent" data-testid="photo-ask-printed" onClick={() => printedInput.current?.click()}>
+                    Choose the printed PDF…
+                  </button>
+                )}
+              </div>
             )}
             <div className="modal-actions">
               <button type="button" className="btn soft" onClick={() => photoImport.close()}>

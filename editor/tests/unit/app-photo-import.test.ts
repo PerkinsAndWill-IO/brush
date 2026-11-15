@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import type { Sheet, Stroke } from '@core/types'
 import { StrokeHistory } from '../../src/app/board/history'
 import { inkRender } from '../../src/app/board/ink'
-import { MAX_AUTO_SHEETS, MAX_WORK_SIDE, MIN_INLIERS, candidateSheets, knownSheetId, pickSheet, sheetLabel, workingDpi } from '../../src/app/photo/plan'
+import { MAX_AUTO_SHEETS, MAX_WORK_SIDE, MIN_TILES, candidateSheets, knownSheetId, matchPrintedSheet, pickSheet, printedCandidates, printedScale, sheetLabel, workingDpi } from '../../src/app/photo/plan'
 import { markupToStrokes, resampleCentreline, rgbToHex } from '../../src/app/photo/toStrokes'
 import type { MarkupLayer } from '../../src/app/photo/pipeline'
 
@@ -119,22 +119,22 @@ describe('P1-02: which sheets to try, and at what resolution', () => {
     expect(candidateSheets(many, undefined, 's30')[0].id).toBe('s30')
   })
 
-  it('picks the sheet with the most matches, however well an earlier look-alike matched', () => {
+  it('picks the sheet that locks onto the photo in the most tiles, however well an earlier look-alike matched', () => {
     const probes = [
-      { sheet: sheets[0], probe: { inliers: 180, seenDpi: 70 } }, // same title block and grid: a strong match too
+      { sheet: sheets[0], probe: { tiles: 180, seenDpi: 70 } }, // same title block and grid: a strong match too
       { sheet: sheets[1], probe: null },
-      { sheet: sheets[2], probe: { inliers: 420, seenDpi: 72 } }, // the sheet in the photo
-      { sheet: sheets[3], probe: { inliers: 175, seenDpi: 70 } },
+      { sheet: sheets[2], probe: { tiles: 420, seenDpi: 72 } }, // the sheet in the photo
+      { sheet: sheets[3], probe: { tiles: 175, seenDpi: 70 } },
     ]
     expect(pickSheet(probes)?.sheet.id).toBe('sheet-2')
     expect(pickSheet(probes)?.probe.seenDpi).toBe(72)
   })
 
   it('refuses when no sheet reaches the bar, and breaks a tie towards the earlier candidate', () => {
-    expect(pickSheet([{ sheet: sheets[0], probe: { inliers: MIN_INLIERS - 1 } }, { sheet: sheets[1], probe: null }])).toBeNull()
+    expect(pickSheet([{ sheet: sheets[0], probe: { tiles: MIN_TILES - 1 } }, { sheet: sheets[1], probe: null }])).toBeNull()
     expect(pickSheet([])).toBeNull()
-    expect(pickSheet([{ sheet: sheets[4], probe: { inliers: 50 } }, { sheet: sheets[1], probe: { inliers: 50 } }])?.sheet.id).toBe('sheet-4')
-    expect(pickSheet([{ sheet: sheets[0], probe: { inliers: MIN_INLIERS } }])?.sheet.id).toBe('sheet-0')
+    expect(pickSheet([{ sheet: sheets[4], probe: { tiles: 50 } }, { sheet: sheets[1], probe: { tiles: 50 } }])?.sheet.id).toBe('sheet-4')
+    expect(pickSheet([{ sheet: sheets[0], probe: { tiles: MIN_TILES } }])?.sheet.id).toBe('sheet-0')
   })
 
   it('a remembered sheet choice only counts if that sheet is in the open document', () => {
@@ -161,5 +161,66 @@ describe('P1-02: which sheets to try, and at what resolution', () => {
   it('labels a sheet by number and name', () => {
     expect(sheetLabel(sheets[0])).toBe('A-101 LEVEL 1')
     expect(sheetLabel({ id: 'v', name: '{3D}', pageIndex: 0, sizePt: A3 })).toBe('{3D}')
+  })
+})
+
+describe('P1-09: the photo matched to the printed file, the strokes on the open sheet', () => {
+  // the KRO case: the open .drawing names its sheets "0001" / "KRO-...-0001", the printed PDF "KRO-...-0001-007"
+  const KRO = { w: 3370, h: 2384 }
+  const drawing: Sheet[] = [
+    { id: '7213266', number: '0001', name: 'KRO-APD-ARC-PLN-A1A-N01-0001', pageIndex: 0, sizePt: KRO },
+    { id: '7674853', number: '0032', name: 'KRO-APD-ARC-ELE-A1A-TTN-0032', pageIndex: 1, sizePt: KRO },
+    { id: '17307526', number: '0061', name: 'KRO-APD-ARC-SYN-A1A-TTN-0061', pageIndex: 2, sizePt: KRO },
+  ]
+  const pdfPage = (i: number, number: string, name: string): Sheet => ({ id: `sheet-${i}`, number, name, pageIndex: i, sizePt: { w: 3371, h: 2384 } })
+
+  it('P1-09: finds the open sheet by the number or name in the printed page title, wherever the page is', () => {
+    expect(matchPrintedSheet(pdfPage(4, 'KRO-APD-ARC-ELE-A1A-TTN-0032-005', 'ÉLÉVATION GÉNÉRAL · LOT A1A'), 9, drawing)?.id).toBe('7674853')
+    expect(matchPrintedSheet(pdfPage(0, 'KRO-APD-ARC-PLN-A1A-N01-0001-007', 'PLAN GENERAL · LOT A1A · PLAN N01'), 3, drawing)?.id).toBe('7213266')
+  })
+
+  it('P1-09: the sheet chosen in the dialog wins; same page position when the titles say nothing; else none', () => {
+    const page = pdfPage(2, 'X-9', 'Untitled')
+    expect(matchPrintedSheet(page, 3, drawing, '7674853')?.id).toBe('7674853')
+    expect(matchPrintedSheet(page, 3, drawing)?.id).toBe('17307526') // both files have three pages
+    expect(matchPrintedSheet(page, 5, drawing)).toBeNull()
+    expect(matchPrintedSheet(page, 5, drawing.slice(0, 1))?.id).toBe('7213266') // the only sheet
+  })
+
+  it('P1-09: a title that fits two sheets equally settles nothing', () => {
+    const twins: Sheet[] = [
+      { id: 'a', number: 'A-101', name: 'LEVEL 1', pageIndex: 0, sizePt: A3 },
+      { id: 'b', number: 'A-102', name: 'LEVEL 1', pageIndex: 1, sizePt: A3 },
+    ]
+    expect(matchPrintedSheet({ id: 'p', name: 'LEVEL 1', pageIndex: 0, sizePt: A3 }, 4, twins)).toBeNull()
+    expect(matchPrintedSheet({ id: 'p', number: 'A-102', name: 'LEVEL 1', pageIndex: 0, sizePt: A3 }, 4, twins)?.id).toBe('b')
+  })
+
+  it('P1-09: short sheet numbers count too: reordered pages with one name go on the sheet with their number', () => {
+    const open: Sheet[] = [
+      { id: 'a', number: 'A01', name: 'FLOOR PLAN', pageIndex: 0, sizePt: A3 },
+      { id: 'b', number: 'A02', name: 'FLOOR PLAN', pageIndex: 1, sizePt: A3 },
+    ]
+    // the printed file has the pages the other way round
+    expect(matchPrintedSheet({ id: 'p0', number: 'A02', name: 'FLOOR PLAN', pageIndex: 0, sizePt: A3 }, 2, open)?.id).toBe('b')
+    expect(matchPrintedSheet({ id: 'p1', number: 'A01', name: 'FLOOR PLAN', pageIndex: 1, sizePt: A3 }, 2, open)?.id).toBe('a')
+  })
+
+  it('P1-09: with the open sheet chosen, its printed page is compared first, however far into a long file it is', () => {
+    const pages: Sheet[] = Array.from({ length: 40 }, (_, i) => ({ id: `p${i}`, number: `A-${String(i + 1).padStart(3, '0')}`, name: 'PLAN', pageIndex: i, sizePt: A3 }))
+    const target: Sheet = { id: 't', number: 'A-031', name: 'PLAN', pageIndex: 0, sizePt: A3 }
+    const tried = printedCandidates(pages, target, MAX_AUTO_SHEETS)
+    expect(tried).toHaveLength(MAX_AUTO_SHEETS)
+    expect(tried[0].id).toBe('p30')
+    // without a chosen sheet: the first pages, in order
+    expect(printedCandidates(pages, undefined, MAX_AUTO_SHEETS).map((p) => p.id)).toEqual(pages.slice(0, MAX_AUTO_SHEETS).map((p) => p.id))
+  })
+
+  it('P1-09: strokes scale from the printed page to the open sheet; other proportions are refused', () => {
+    const s = printedScale({ w: 3371, h: 2384 }, KRO)!
+    expect(s.sx).toBeCloseTo(3370 / 3371, 6)
+    expect(s.sy).toBe(1)
+    expect(printedScale({ w: 842, h: 595 }, { w: 1191, h: 842 })?.sx).toBeCloseTo(1191 / 842, 6) // A4 print of an A3 sheet
+    expect(printedScale({ w: 842, h: 595 }, { w: 595, h: 842 })).toBeNull() // portrait vs landscape
   })
 })

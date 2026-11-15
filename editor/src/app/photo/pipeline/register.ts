@@ -1,5 +1,7 @@
 // Stage 1: register the photo to the rendered drawing.
-//   a) AKAZE features + RANSAC  -> global homography (photo -> sheet)
+//   a) AKAZE features + RANSAC  -> global homography (photo -> sheet). The print in the photo may be drawn in
+//      another style than the app renders the sheet (another export: line weights, fills, colours, text), so
+//      features are also matched on line maps of both, and every candidate is checked tile by tile.
 //   b) tile-by-tile template matching against the drawing -> better homography,
 //      then a smooth residual field that absorbs paper wrinkle / lens distortion
 //   c) one resample of the original photo into sheet space
@@ -14,6 +16,8 @@ interface FieldStats { nodes: number; partial: number; total: number; median: nu
 /** A grey raster in sheet space with its coverage mask. */
 interface Warped { data: Uint8Array; valid: Uint8Array }
 interface FeatureMatch { H: Mat3; inliers: number; matches: number }
+/** A global homography that passed the tile check. */
+interface CoarseMatch extends FeatureMatch { /** Tiles of the drawing that lock onto the photo under H. */ tiles: number; via: string }
 
 export interface RegistrationReport {
   featureMatches: number
@@ -49,13 +53,18 @@ export interface Registered {
 
 const toMat = (cv: Cv, data: Uint8Array, w: number, h: number): Mat => { const m = new cv.Mat(h, w, cv.CV_8UC1); m.data.set(data); return m; };
 
-/** Feature-based homography between two grey images. Returns H (a -> b) in the given pixel frames. */
-function featureHomography(cv: Cv, a: GrayImage, b: GrayImage, log: Log): FeatureMatch | null {
+/**
+ * Feature-based homographies between two grey images, H (a -> b) in the given pixel frames, the most consistent
+ * first. Up to `rounds` per detector threshold: after each RANSAC fit its inliers are set aside and the rest fitted
+ * again, because when the two images are drawn differently a wrong but larger consensus (repeated symbols, a
+ * regular grid) can hide the right one. The caller checks which one is right.
+ */
+function featureCandidates(cv: Cv, a: GrayImage, b: GrayImage, log: Log, { thresholds = [0.001, 0.0003], ratio = 0.8, rounds = 3, enough = 40, label = "features" }: { thresholds?: number[]; ratio?: number; rounds?: number; enough?: number; label?: string } = {}): FeatureMatch[] {
   const A = toMat(cv, a.data, a.w, a.h), B = toMat(cv, b.data, b.w, b.h);
   const clahe = new cv.CLAHE(3.0, new cv.Size(8, 8));
   clahe.apply(A, A); // the drawing is faint through trace; lift local contrast
-  let best: FeatureMatch | null = null;
-  for (const threshold of [0.001, 0.0003]) {
+  const out: FeatureMatch[] = [];
+  for (const threshold of thresholds) {
     const det = new cv.AKAZE();
     det.setThreshold(threshold);
     const kA = new cv.KeyPointVector(), kB = new cv.KeyPointVector(), dA = new cv.Mat(), dB = new cv.Mat(), none = new cv.Mat();
@@ -67,25 +76,94 @@ function featureHomography(cv: Cv, a: GrayImage, b: GrayImage, log: Log): Featur
       bf.knnMatch(dA, dB, knn, 2);
       for (let i = 0; i < knn.size(); i++) {
         const pair = knn.get(i);
-        if (pair.size() >= 2) { const m = pair.get(0), n = pair.get(1); if (m.distance < 0.8 * n.distance) good.push([m.queryIdx, m.trainIdx]); }
+        if (pair.size() >= 2) { const m = pair.get(0), n = pair.get(1); if (m.distance < ratio * n.distance) good.push([m.queryIdx, m.trainIdx]); }
         pair.delete();
       }
       bf.delete(); knn.delete();
     }
-    let H: Mat3 | null = null, inliers = 0;
-    if (good.length >= 12) {
-      const src = new cv.Mat(good.length, 1, cv.CV_32FC2), dst = new cv.Mat(good.length, 1, cv.CV_32FC2), mask = new cv.Mat();
-      good.forEach(([q, t], i) => { const p = kA.get(q).pt, r = kB.get(t).pt; src.data32F[i * 2] = p.x; src.data32F[i * 2 + 1] = p.y; dst.data32F[i * 2] = r.x; dst.data32F[i * 2 + 1] = r.y; });
+    const pts = good.map(([q, t]) => { const p = kA.get(q).pt, r = kB.get(t).pt; return [p.x, p.y, r.x, r.y]; });
+    const found: number[] = [];
+    for (let round = 0; round < rounds && pts.length >= 12; round++) {
+      const src = new cv.Mat(pts.length, 1, cv.CV_32FC2), dst = new cv.Mat(pts.length, 1, cv.CV_32FC2), mask = new cv.Mat();
+      pts.forEach((p, i) => { src.data32F[i * 2] = p[0]; src.data32F[i * 2 + 1] = p[1]; dst.data32F[i * 2] = p[2]; dst.data32F[i * 2 + 1] = p[3]; });
       const Hm = cv.findHomography(src, dst, cv.RANSAC, 3.0, mask);
-      if (!Hm.empty()) { H = Array.from(Hm.data64F); for (let i = 0; i < mask.rows; i++) inliers += mask.data[i] ? 1 : 0; }
+      let inliers = 0;
+      if (!Hm.empty()) {
+        for (let i = 0; i < mask.rows; i++) inliers += mask.data[i] ? 1 : 0;
+        if (inliers >= 8) out.push({ H: Array.from(Hm.data64F as Float64Array), inliers, matches: good.length });
+        for (let i = mask.rows - 1; i >= 0; i--) if (mask.data[i]) pts.splice(i, 1);
+      }
       src.delete(); dst.delete(); mask.delete(); Hm.delete();
+      found.push(inliers);
+      if (inliers < 8) break;
     }
-    log(`features (threshold ${threshold}): photo ${kA.size()}, drawing ${kB.size()}, matches ${good.length}, inliers ${inliers}`);
+    log(`${label} (threshold ${threshold}): photo ${kA.size()}, drawing ${kB.size()}, matches ${good.length}, inliers ${found.join(" / ") || 0}`);
     kA.delete(); kB.delete(); dA.delete(); dB.delete(); none.delete(); det.delete();
-    if (H && (!best || inliers > best.inliers)) best = { H, inliers, matches: good.length };
-    if (best && (best as FeatureMatch).inliers >= 40) break;
+    if (out.some((m) => m.inliers >= enough)) break;
   }
   A.delete(); B.delete(); clahe.delete();
+  return out.sort((p, q) => q.inliers - p.inliers);
+}
+
+/** Side of the raster the tile check runs at. */
+const CHECK_SIDE = 1400;
+
+/**
+ * Does H (photo px -> ref px) put the drawing's linework onto the photo's? The photo is warped into the sheet and
+ * tiles of the drawing are matched in a small window: under a wrong H nothing locks, under a right one tiles lock
+ * wherever both show linework, even when the two are drawn differently.
+ */
+async function checkHomography(cv: Cv, photo: GrayImage, ref: GrayImage, H: Mat3): Promise<{ tiles: number; usable: number }> {
+  const r = Math.min(1, CHECK_SIDE / Math.max(ref.w, ref.h)), w = Math.round(ref.w * r), h = Math.round(ref.h * r);
+  const refSmall = await blurRaw(cv, await resizeRaw(cv, ref.data, ref.w, ref.h, 1, w, h), w, h, 1, 1.0);
+  const warped = warpGray(photo, matInv3(matMul3(scaleMat(r, r), H)), null, w, h);
+  const f = measureField(cv, refSmall, warped, w, h, { step: 48, tile: 64, search: 10 });
+  const st = fieldStats(f);
+  return { tiles: st.nodes + (st.partial >> 1), usable: Math.max(0, st.total - f.why.outside - f.why.blank - f.why.slides) };
+}
+
+/** Do two homographies (photo -> ref) put the ref's corners within a few px of the same photo points? */
+function sameHomography(A: Mat3, B: Mat3, w: number, h: number): boolean {
+  const ia = matInv3(A), ib = matInv3(B);
+  return [[0, 0], [w, 0], [0, h], [w, h]].every(([x, y]) => { const p = applyH(ia, x, y), q = applyH(ib, x, y); return Math.hypot(p[0] - q[0], p[1] - q[1]) < 4; });
+}
+
+/** Fewest tiles that must lock for a global homography to count, and the share of the usable tiles. */
+const MIN_TILES = 12, MIN_TILE_SHARE = 0.08;
+
+/**
+ * Global homography photo -> ref (both full-size grey). Candidates come from feature matches; when those are few
+ * (the print may be drawn in another style than the app draws the sheet: other line weights, fills, colours,
+ * text), a looser match adds more. Each candidate is checked tile by tile, and the one that locks most tiles wins:
+ * a handful of right matches is enough, and a large wrong consensus is turned down.
+ */
+async function coarseHomography(cv: Cv, photo: GrayImage, ref: GrayImage, log: Log): Promise<CoarseMatch | null> {
+  const sp = Math.min(1, 2000 / Math.max(photo.w, photo.h)), sr = Math.min(1, 2000 / Math.max(ref.w, ref.h));
+  const pw = Math.round(photo.w * sp), ph = Math.round(photo.h * sp), rw = Math.round(ref.w * sr), rh = Math.round(ref.h * sr);
+  const a: GrayImage = { data: await resizeRaw(cv, photo.data, photo.w, photo.h, 1, pw, ph), w: pw, h: ph };
+  const b: GrayImage = { data: await resizeRaw(cv, ref.data, ref.w, ref.h, 1, rw, rh), w: rw, h: rh };
+  // lift to full-resolution frames: photo px -> ref px
+  const lift = (H: Mat3) => matMul3(scaleMat(ref.w / rw, ref.h / rh), matMul3(H, scaleMat(pw / photo.w, ph / photo.h)));
+  let best: CoarseMatch | null = null;
+  const tried: Mat3[] = [];
+  const consider = async (ms: FeatureMatch[], via: string) => {
+    for (const m of ms.slice(0, 6)) {
+      const H = lift(m.H);
+      // the same alignment found twice (another threshold or pass): check it once
+      if (tried.some((T) => sameHomography(T, H, ref.w, ref.h))) continue;
+      tried.push(H);
+      const c = await checkHomography(cv, photo, ref, H);
+      const ok = c.tiles >= MIN_TILES && c.tiles >= MIN_TILE_SHARE * c.usable;
+      log(`  ${via}: ${m.inliers} inliers, ${c.tiles} of ${c.usable} tiles lock${ok ? "" : " (rejected)"}`);
+      if (ok && (!best || c.tiles > best.tiles)) best = { ...m, H, tiles: c.tiles, via };
+    }
+  };
+  const strict = featureCandidates(cv, a, b, log);
+  await consider(strict, "features");
+  if (best) return best;
+  // nothing locked on: the print may be drawn differently from the app's sheet. A looser ratio test keeps more of
+  // the right matches (and more wrong ones, which the tile check turns down)
+  await consider(featureCandidates(cv, a, b, log, { thresholds: [0.001], ratio: 0.9, rounds: 4, label: "loose features" }), "loose features");
   return best;
 }
 
@@ -299,15 +377,10 @@ export async function registerPhoto(photo: RgbImage, ref: RgbImage, { log = cons
   const photoGray = new Uint8Array(photo.w * photo.h);
   for (let i = 0, j = 0; i < photoGray.length; i++, j += 3) photoGray[i] = Math.max(photo.rgb[j], photo.rgb[j + 1], photo.rgb[j + 2]);
 
-  // a) global homography from features, at a working size of ~2000 px
-  const sp = Math.min(1, 2000 / Math.max(photo.w, photo.h)), sr = Math.min(1, 2000 / Math.max(ref.w, ref.h));
-  const pw = Math.round(photo.w * sp), ph = Math.round(photo.h * sp), rw = Math.round(ref.w * sr), rh = Math.round(ref.h * sr);
-  const feat = featureHomography(cv,
-    { data: await resizeRaw(cv, photoGray, photo.w, photo.h, 1, pw, ph), w: pw, h: ph },
-    { data: await resizeRaw(cv, refGray, ref.w, ref.h, 1, rw, rh), w: rw, h: rh }, log);
-  if (!feat || feat.inliers < 12) throw new Error(`Could not register the photo to the drawing (only ${feat ? feat.inliers : 0} consistent feature matches). Check that the PDF page is the sheet in the photo.`);
-  // lift to full-resolution frames: photo px -> sheet px
-  let H = matMul3(scaleMat(ref.w / rw, ref.h / rh), matMul3(feat.H, scaleMat(pw / photo.w, ph / photo.h)));
+  // a) global homography from features, at a working size of ~2000 px, checked tile by tile
+  const feat = await coarseHomography(cv, { data: photoGray, w: photo.w, h: photo.h }, { data: refGray, w: ref.w, h: ref.h }, log);
+  if (!feat) throw new Error("Could not register the photo to the drawing: no alignment puts the drawing's lines onto the photo's. Check that the page is the sheet in the photo.");
+  let H = feat.H;
   const report: RegistrationReport = { featureMatches: feat.matches, featureInliers: feat.inliers, scale: 1 };
 
   // how many photo pixels land on one sheet pixel near the sheet centre
@@ -383,22 +456,26 @@ export async function registerPhoto(photo: RgbImage, ref: RgbImage, { log = cons
   return { rgb, valid, w, h, refGray, refRgb: ref.rgb, report, mapToPhoto, field, fieldScale: r };
 }
 
-/** Rough feature-only registration to learn how many dpi (on the sheet) the photo actually resolves. */
-/** Result of a quick feature-only registration. */
-export interface Probe { /** dpi (on the sheet) the photo resolves where it looks. */ seenDpi: number; inliers: number }
+/** Result of a quick coarse registration (which sheet, and how many dpi on it the photo actually resolves). */
+export interface Probe {
+  /** dpi (on the sheet) the photo resolves where it looks. */
+  seenDpi: number
+  /** Consistent feature matches. */
+  inliers: number
+  /** Tiles of the drawing that lock onto the photo: how well the sheet fits it, whatever style it is drawn in. */
+  tiles: number
+}
 
 export async function probePhoto(photo: RgbImage, ref: RgbImage, refDpi: number, log: Log = () => {}): Promise<Probe | null> {
   const cv = await loadCv();
   const refGray = rgbToGray(ref.rgb, ref.w, ref.h), photoGray = new Uint8Array(photo.w * photo.h);
   for (let i = 0, j = 0; i < photoGray.length; i++, j += 3) photoGray[i] = Math.max(photo.rgb[j], photo.rgb[j + 1], photo.rgb[j + 2]);
-  const sp = Math.min(1, 2000 / Math.max(photo.w, photo.h)), sr = Math.min(1, 2000 / Math.max(ref.w, ref.h));
-  const pw = Math.round(photo.w * sp), ph = Math.round(photo.h * sp), rw = Math.round(ref.w * sr), rh = Math.round(ref.h * sr);
-  const feat = featureHomography(cv, { data: await resizeRaw(cv, photoGray, photo.w, photo.h, 1, pw, ph), w: pw, h: ph }, { data: await resizeRaw(cv, refGray, ref.w, ref.h, 1, rw, rh), w: rw, h: rh }, log);
-  if (!feat || feat.inliers < 12) return null;
-  const H = matMul3(scaleMat(ref.w / rw, ref.h / rh), matMul3(feat.H, scaleMat(pw / photo.w, ph / photo.h))), inv = matInv3(H);
+  const feat = await coarseHomography(cv, { data: photoGray, w: photo.w, h: photo.h }, { data: refGray, w: ref.w, h: ref.h }, log);
+  if (!feat) return null;
+  const H = feat.H, inv = matInv3(H);
   // measure where the photo actually looks: around the sheet position of the photo centre
   const c = applyH(H, photo.w / 2, photo.h / 2);
   const x = Math.max(0, Math.min(ref.w, c[0])), y = Math.max(0, Math.min(ref.h, c[1]));
   const p0 = applyH(inv, x, y), p1 = applyH(inv, x + 1, y), p2 = applyH(inv, x, y + 1);
-  return { seenDpi: refDpi * Math.sqrt(Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) * Math.hypot(p2[0] - p0[0], p2[1] - p0[1])), inliers: feat.inliers };
+  return { seenDpi: refDpi * Math.sqrt(Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) * Math.hypot(p2[0] - p0[0], p2[1] - p0[1])), inliers: feat.inliers, tiles: feat.tiles };
 }

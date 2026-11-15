@@ -8,20 +8,26 @@
  *
  * The sheets are rendered on the main thread with the document's own `PageRenderer` (pdf.js or the `.drawing`
  * vector renderer); everything else happens in the photo worker, which is the only place OpenCV is loaded.
+ *
+ * P1-09: the paper in the photo may be a print of another file than the one open (the PDF of a sheet whose
+ * `.drawing` is open): drawn in another style, it hardly matches the open sheet. Given that file, the photo is
+ * matched to its pages instead, and the strokes are moved onto the open sheet that page is (same layout).
  */
 import type { Sheet } from '@core/types'
 import { boardView } from '../board/Board'
 import { session, getSession } from '../session'
-import type { PageRenderer } from '../source'
+import { openSource, type DrawingSource, type PageRenderer, type SourceInput } from '../source'
 import { getDocState } from '../store'
-import type { InkChoice, MarkupResult, Probe } from './pipeline'
-import { PROBE_DPI, candidateSheets, pickSheet, sheetLabel, workingDpi } from './plan'
+import type { InkChoice, MarkupLayer, MarkupResult, Probe } from './pipeline'
+import { MAX_AUTO_SHEETS, PROBE_DPI, candidateSheets, matchPrintedSheet, pickSheet, printedCandidates, printedScale, sheetLabel, workingDpi } from './plan'
 import type { PhotoRequest, PhotoResponse, RasterMessage } from './protocol'
 import { markupToStrokes, rgbToHex } from './toStrokes'
 
 export interface PhotoImportOptions {
-  /** Sheet the photo shows. Leave out to find it among the open sheets. */
+  /** Sheet the photo shows (with `printed`: the open sheet the strokes go on). Leave out to find it. */
   sheetId?: string
+  /** The file the paper in the photo was printed from, when it is not the open one (P1-09). */
+  printed?: SourceInput
   /** Which pens to pick up (default: all). */
   ink?: InkChoice
   onProgress?: (line: string) => void
@@ -36,6 +42,8 @@ export interface PhotoImportSummary {
   groupId: string
   /** "A102 Plans" */
   sheetLabel: string
+  /** P1-09: the printed file's page the photo was matched to ("plans.pdf, page 3"). */
+  printedFrom?: string
   /** Strokes added to the session. */
   strokes: number
   layers: { name: string; color: string; strokes: number }[]
@@ -49,7 +57,11 @@ export interface PhotoImportSummary {
 }
 
 export class PhotoImportError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    /** 'no-match': the photo matched none of the open sheets; the printed file may help (P1-09). */
+    readonly code?: 'no-match',
+  ) {
     super(message)
     this.name = 'PhotoImportError'
   }
@@ -128,11 +140,19 @@ export async function importPhotoMarkup(photo: Blob, opts: PhotoImportOptions = 
   if (!pages) throw new PhotoImportError('This document has no drawing to match the photo against.')
   const loadId = doc.loadId
   const say = opts.onProgress ?? (() => {})
-  const candidates = candidateSheets(doc.sheets, opts.sheetId, getSession().activeSheetId)
-  if (!candidates.length) throw new PhotoImportError('That sheet is not in the open document.')
+  if (opts.sheetId && !doc.sheets.some((s) => s.id === opts.sheetId)) throw new PhotoImportError('That sheet is not in the open document.')
 
   const client = createWorkerClient(say, opts.signal)
+  let printed: { source: DrawingSource; name: string; sheets: Sheet[]; pages: PageRenderer } | null = null
   try {
+    if (opts.printed) printed = await openPrinted(opts.printed)
+    // the drawing the photo is matched against: the printed file, else the open document
+    const refPages = printed?.pages ?? pages
+    // with the open sheet chosen, the printed pages titled like it are compared first, wherever they are in the file
+    const target = doc.sheets.find((s) => s.id === opts.sheetId)
+    const candidates = printed ? printedCandidates(printed.sheets, target, MAX_AUTO_SHEETS) : candidateSheets(doc.sheets, opts.sheetId, getSession().activeSheetId)
+    if (!candidates.length) throw new PhotoImportError(printed ? `${printed.name} has no pages to match the photo against.` : 'That sheet is not in the open document.')
+
     say('Reading the photo…')
     const size = await client.call({ type: 'decode', blob: photo })
     say(`Photo ${size.w} × ${size.h} px`)
@@ -140,50 +160,92 @@ export async function importPhotoMarkup(photo: Blob, opts: PhotoImportOptions = 
     // 1. which sheet is in the photo? Every candidate is compared: look-alike sheets can each match well
     const probes: { sheet: Sheet; probe: Probe | null }[] = []
     for (const sheet of candidates) {
-      say(candidates.length > 1 ? `Looking for the sheet: ${sheetLabel(sheet)}…` : `Matching the photo to ${sheetLabel(sheet)}…`)
-      const ref = await renderSheetRaster(pages, sheet.pageIndex, PROBE_DPI, opts.signal)
+      const label = printed ? `${printed.name}, page ${sheet.pageIndex + 1}` : sheetLabel(sheet)
+      say(candidates.length > 1 ? `Looking for the sheet: ${label}…` : `Matching the photo to ${label}…`)
+      const ref = await renderSheetRaster(refPages, sheet.pageIndex, PROBE_DPI, opts.signal)
       const { probe } = await client.call({ type: 'probe', ref, refDpi: PROBE_DPI }, [ref.rgba])
       probes.push({ sheet, probe })
     }
     const best = pickSheet(probes)
     if (!best) {
+      if (printed) {
+        const some = printed.sheets.length > candidates.length ? ` (compared the first ${candidates.length} of its ${printed.sheets.length} pages${target ? ', those titled like the chosen sheet first' : '; choose the sheet the strokes go on to compare its page first'})` : ''
+        throw new PhotoImportError(`The photo does not match ${printed.sheets.length === 1 ? 'the page' : 'any page'} of ${printed.name}${some}. Check that the paper in the photo was printed from this file, and that the photo is flat and in focus.`)
+      }
       const tried = doc.sheets.length > candidates.length && !opts.sheetId ? ` (tried the first ${candidates.length} of ${doc.sheets.length} sheets; choose the sheet to try another)` : ''
       throw new PhotoImportError(
-        opts.sheetId
+        (opts.sheetId
           ? `The photo does not match ${sheetLabel(candidates[0])}. Check that it shows this sheet, flat and in focus.`
-          : `The photo does not match any open sheet${tried}. Check that it shows a sheet of this drawing, flat and in focus.`,
+          : `The photo does not match any open sheet${tried}. Check that it shows a sheet of this drawing, flat and in focus.`) +
+          ' If the paper was printed from another file (the PDF of this sheet, say), its drawing may look too different: choose that file and the photo is matched to it instead.',
+        'no-match',
       )
     }
-    const { sheet } = best
 
-    // 2. trace the markup against the sheet at the working resolution
-    const dpi = workingDpi(best.probe.seenDpi, sheet.sizePt)
-    say(`${sheetLabel(sheet)}: the photo resolves about ${Math.round(best.probe.seenDpi)} dpi on the sheet; tracing at ${dpi} dpi…`)
-    const ref = await renderSheetRaster(pages, sheet.pageIndex, dpi, opts.signal)
+    // P1-09: the open sheet the strokes go on, and the scale from the printed page to it
+    const sheet = printed ? matchPrintedSheet(best.sheet, printed.sheets.length, doc.sheets, opts.sheetId) : best.sheet
+    const printedFrom = printed ? `${printed.name}, page ${best.sheet.pageIndex + 1}` : undefined
+    if (!sheet) throw new PhotoImportError(`The photo matches ${printedFrom}, but it is not clear which open sheet that page is. Choose the sheet under "Sheet in the photo" and import again.`)
+    const scale = printed ? printedScale(best.sheet.sizePt, sheet.sizePt) : { sx: 1, sy: 1 }
+    if (!scale) throw new PhotoImportError(`${printedFrom} and ${sheetLabel(sheet)} have different page proportions, so they are not the same sheet layout. Choose the sheet the page was printed from.`)
+    if (printed) say(`The photo shows ${printedFrom}; the strokes go on ${sheetLabel(sheet)}.`)
+
+    // 2. trace the markup against the matched page at the working resolution
+    const refSheet = best.sheet
+    const dpi = workingDpi(best.probe.seenDpi, refSheet.sizePt)
+    say(`${printedFrom ?? sheetLabel(refSheet)}: the photo resolves about ${Math.round(best.probe.seenDpi)} dpi on the sheet; tracing at ${dpi} dpi…`)
+    const ref = await renderSheetRaster(refPages, refSheet.pageIndex, dpi, opts.signal)
     const { result } = await client.call({ type: 'run', ref, dpi, options: { ink: opts.ink ?? 'both' } }, [ref.rgba])
 
     // 3. into the session, unless the document changed meanwhile
     if (getDocState().loadId !== loadId) throw new PhotoImportError('Another file was opened while the photo was being read; nothing was imported.')
     // the id prefix is the import's group (./groups.ts): p<time><seq>-
     const groupId = `p${Date.now().toString(36)}${(importSeq++).toString(36)}-`
-    const strokes = markupToStrokes(result.layers, { sheetId: sheet.id, idPrefix: groupId, startedAt: Date.now() })
+    const layers = scale.sx === 1 && scale.sy === 1 ? result.layers : scaleLayers(result.layers, scale.sx, scale.sy)
+    const strokes = markupToStrokes(layers, { sheetId: sheet.id, idPrefix: groupId, startedAt: Date.now() })
     if (strokes.length) {
       session.addStrokes(strokes)
       session.setActiveSheet(sheet.id)
       if (!opts.keepCamera) boardView.focusSheet(sheet.pageIndex)
     }
-    return summarize(sheet, groupId, result, strokes.length, dpi, performance.now() - t0)
+    return summarize(sheet, groupId, result, strokes.length, dpi, performance.now() - t0, printedFrom)
   } finally {
     client.close()
+    void printed?.source.close()
   }
 }
 
-function summarize(sheet: Sheet, groupId: string, result: MarkupResult, strokes: number, dpi: number, ms: number): PhotoImportSummary {
+/** Open the printed file (P1-09) for matching only: it is not shown and not kept. */
+async function openPrinted(input: SourceInput): Promise<{ source: DrawingSource; name: string; sheets: Sheet[]; pages: PageRenderer }> {
+  let source: DrawingSource
+  try {
+    source = await openSource(input)
+  } catch (e) {
+    throw new PhotoImportError(`Could not open the printed file: ${(e as Error).message || e}`)
+  }
+  try {
+    const loaded = await source.load()
+    if (!loaded.pages || !loaded.sheets.length) throw new PhotoImportError(`${source.name} has no pages to match the photo against.`)
+    return { source, name: source.name, sheets: loaded.sheets, pages: loaded.pages }
+  } catch (e) {
+    void source.close()
+    throw e instanceof PhotoImportError ? e : new PhotoImportError(`Could not open the printed file: ${(e as Error).message || e}`)
+  }
+}
+
+/** Strokes traced on the printed page, in the open sheet's points. */
+function scaleLayers(layers: readonly MarkupLayer[], sx: number, sy: number): MarkupLayer[] {
+  const sw = Math.sqrt(sx * sy)
+  return layers.map((l) => ({ ...l, strokes: l.strokes.map((s) => ({ ...s, width: s.width * sw, points: s.points.map(([x, y]) => [x * sx, y * sy] as [number, number]) })) }))
+}
+
+function summarize(sheet: Sheet, groupId: string, result: MarkupResult, strokes: number, dpi: number, ms: number, printedFrom?: string): PhotoImportSummary {
   const r = result.report
   return {
     sheetId: sheet.id,
     groupId,
     sheetLabel: sheetLabel(sheet),
+    printedFrom,
     strokes,
     layers: result.layers.map((l) => ({ name: l.name, color: rgbToHex(l.color), strokes: l.strokes.length })),
     residualMm: r.offsetFinal === undefined ? undefined : (r.offsetFinal / dpi) * 25.4,
