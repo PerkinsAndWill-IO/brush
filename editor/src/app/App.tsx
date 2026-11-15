@@ -13,7 +13,7 @@ import { useView } from './view'
 import { getPlatform } from './platform'
 import { fileToOpened } from './platform/browser'
 import { getDocState, openFile, useDocState } from './store'
-import { EmptyIllustration } from './ui/icons'
+import brushLogoRed from './ui/assets/brush-logo-red.png'
 import { chooseFile, LeftSidebar, RightSidebar, ToolCapsule, TopBar } from './ui/Chrome'
 import { RevitHud, RevitStart } from './revit/RevitPanel'
 import { isPhotoFile, photoImport, PhotoImportDialog } from './photo/PhotoImport'
@@ -91,32 +91,34 @@ function SamplePicker({ disabled }: { disabled: boolean }) {
 
 function EmptyState({ error, loading }: { error?: string; loading?: string }) {
   return (
-    <div className="empty" data-testid="empty-state">
-      <div className="dropzone">
-        <EmptyIllustration />
-        <div className="copy">
-          <h1>
-            Drop a <span className="mono">PDF</span> to start
-          </h1>
-          <p>
-            Each page opens here as a sheet, side by side, ready to sketch on. Exported <span className="mono">.drawing</span> packages open too, and a Revit <span className="mono">.rvt</span> is converted to one first.
-          </p>
+    <div className="empty landing" data-testid="empty-state">
+      <div className="landing-paper" aria-hidden="true" />
+      <div className="landing-stack">
+        <img className="landing-logo" src={brushLogoRed} alt="Brush" />
+        <div className="dropzone">
+          {/* hand-drawn outline instead of a dashed border; stretched to the box, the stroke keeps its width */}
+          <svg className="dropzone-outline" viewBox="0 0 1000 400" preserveAspectRatio="none" aria-hidden="true">
+            <path
+              d="M58 14 C 260 4, 610 20, 942 9 C 978 8, 993 30, 990 62 C 984 150, 997 262, 987 342 C 984 379, 963 393, 926 390 C 648 383, 302 398, 62 387 C 24 386, 9 368, 11 334 C 15 250, 5 138, 13 52 C 16 21, 36 9, 74 12 C 98 13, 118 15, 140 17"
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+          <h1>Drop a PDF to start</h1>
+          <div className="cta">
+            <button type="button" className="btn landing-cta" title="Choose file (Ctrl+O)" onClick={() => void chooseFile()} disabled={!!loading}>
+              {loading ? `Opening ${loading}…` : 'Choose file'}
+            </button>
+          </div>
+          <div className="landing-more">
+            <SamplePicker disabled={!!loading} />
+            <RevitStart />
+          </div>
+          {error && (
+            <p className="error" role="alert" data-testid="load-error">
+              {error}
+            </p>
+          )}
         </div>
-        <div className="cta">
-          <button type="button" className="btn accent" onClick={() => void chooseFile()} disabled={!!loading}>
-            {loading ? `Opening ${loading}…` : 'Choose file'}
-          </button>
-          <span className="secondary">
-            or press <kbd>Ctrl O</kbd>
-          </span>
-        </div>
-        <SamplePicker disabled={!!loading} />
-        <RevitStart />
-        {error && (
-          <p className="error" role="alert" data-testid="load-error">
-            {error}
-          </p>
-        )}
       </div>
     </div>
   )
@@ -156,7 +158,7 @@ export function App() {
   const ready = st.status === 'ready'
   return (
     <div
-      className={`app${dragOver ? ' drag-over' : ''}`}
+      className={`app${dragOver ? ' drag-over' : ''}${ready ? '' : ' landing-app'}`}
       style={{ '--label-scale': labelScale } as CSSProperties}
       onDragOver={(e) => {
         e.preventDefault()
