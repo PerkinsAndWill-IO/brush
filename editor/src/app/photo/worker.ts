@@ -5,8 +5,9 @@
 import './pipeline/cv-browser'
 import { createModelPool } from './modelPool'
 import { useModelWorkers } from './pipeline/fit'
+import { loadCv } from './pipeline/cv'
 import { decodeHeif, isHeif } from './heic'
-import { photoToMarkup, preparePhoto, probe, releasePhoto, type RgbImage } from './pipeline'
+import { SheetProbe, photoToMarkup, preparePhoto, releasePhoto, type RgbImage } from './pipeline'
 import { rgbaToRgb } from './pipeline/raster'
 import type { PhotoRequest, PhotoResponse, RasterMessage } from './protocol'
 
@@ -14,6 +15,9 @@ const scope = self as unknown as {
   postMessage(message: PhotoResponse): void
   onmessage: ((e: MessageEvent<PhotoRequest>) => void) | null
 }
+
+// get OpenCV's WebAssembly going at once: the worker may be started before there is a photo (the dialog is open)
+void loadCv().catch(() => {})
 
 // the ink is read on a few helper workers at once (one core is left for the page)
 const cores = navigator.hardwareConcurrency || 2
@@ -23,6 +27,12 @@ if (typeof Worker !== 'undefined' && cores > 2) useModelWorkers(createModelPool(
 const MAX_PHOTO_SIDE = 6000
 
 let photo: RgbImage | null = null
+/** Matches started with `firstOnly`, by key, waiting for a 'probe-rest' (or for the trace, which drops them). */
+const pending = new Map<number, SheetProbe>()
+const dropPending = () => {
+  for (const p of pending.values()) p.dispose()
+  pending.clear()
+}
 
 const post = (msg: PhotoResponse) => scope.postMessage(msg)
 const toRgb = (r: RasterMessage): RgbImage => ({ rgb: rgbaToRgb(new Uint8ClampedArray(r.rgba), r.w, r.h), w: r.w, h: r.h })
@@ -64,6 +74,7 @@ scope.onmessage = async (e) => {
   const log = (line: string) => post({ id: req.id, type: 'log', line })
   try {
     if (req.type === 'decode') {
+      dropPending()
       if (photo) releasePhoto(photo)
       photo = await decode(req.blob)
       post({ id: req.id, ok: true, type: 'decode', w: photo.w, h: photo.h })
@@ -74,8 +85,39 @@ scope.onmessage = async (e) => {
     }
     if (!photo) throw new Error('no photo decoded yet')
     if (req.type === 'probe') {
-      post({ id: req.id, ok: true, type: 'probe', probe: await probe(photo, toRgb(req.ref), req.refDpi) })
+      const p = await SheetProbe.start(photo, toRgb(req.ref), req.refDpi)
+      let first: ReturnType<SheetProbe['first']>
+      try {
+        first = p.first()
+      } catch (e) {
+        p.dispose()
+        throw e
+      }
+      if (first.final) {
+        p.dispose()
+        post({ id: req.id, ok: true, type: 'probe', probe: first.probe, final: true })
+      } else if (req.firstOnly && req.key !== undefined) {
+        pending.get(req.key)?.dispose()
+        pending.set(req.key, p)
+        post({ id: req.id, ok: true, type: 'probe', probe: null, final: false })
+      } else {
+        try {
+          post({ id: req.id, ok: true, type: 'probe', probe: p.finish(), final: true })
+        } finally {
+          p.dispose()
+        }
+      }
+    } else if (req.type === 'probe-rest') {
+      const p = pending.get(req.key)
+      if (!p) throw new Error('no match to finish')
+      pending.delete(req.key)
+      try {
+        post({ id: req.id, ok: true, type: 'probe-rest', probe: p.finish() })
+      } finally {
+        p.dispose()
+      }
     } else {
+      dropPending()
       const result = await photoToMarkup(photo, toRgb(req.ref), req.dpi, { ...req.options, log })
       post({ id: req.id, ok: true, type: 'run', result })
     }

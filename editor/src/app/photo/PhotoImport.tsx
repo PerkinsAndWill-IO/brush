@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import type { Sheet } from '@core/types'
 import { getDocState, useDocState } from '../store'
 import { makeElements } from './groupActions'
-import { PhotoImportError, importPhotoMarkup, type PhotoImportSummary } from './import'
+import { PhotoImportError, coolDownPhotoImport, importPhotoMarkup, warmUpPhotoImport, type PhotoImportSummary } from './import'
 import type { InkChoice } from './pipeline'
 import { PhoneQr } from './PhoneQr'
 import { MAX_AUTO_SHEETS, knownSheetId, sheetLabel } from './plan'
@@ -204,6 +204,17 @@ export function PhotoImportDialog() {
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [st.open])
+
+  // get the import going while the photo is being chosen: the workers start (OpenCV takes a second to load), they
+  // read the photo as soon as it is picked, and the sheets to compare it with are rendered
+  const picking = st.open && ready && st.phase === 'pick'
+  useEffect(() => {
+    if (picking) warmUpPhotoImport({ file: st.file, sheetId: st.sheetId })
+  }, [picking, st.file, st.sheetId])
+  useEffect(() => {
+    if (!st.open) coolDownPhotoImport()
+  }, [st.open])
+  useEffect(() => () => coolDownPhotoImport(), [])
 
   // the document went away under the dialog
   useEffect(() => {

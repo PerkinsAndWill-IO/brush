@@ -212,45 +212,92 @@ function sameHomography(A: Mat3, B: Mat3, w: number, h: number): boolean {
 /** Fewest tiles that must lock for a global homography to count, and the share of the usable tiles. */
 const MIN_TILES = 12, MIN_TILE_SHARE = 0.08;
 
+/** A strict feature match with at least this many inliers needs no second, more sensitive detector pass. */
+const ENOUGH_INLIERS = 40;
+
+/**
+ * The search for the global homography photo -> ref, in two steps so that a caller comparing many sheets can look
+ * at every sheet's first step before paying for the rest:
+ *  - `first()`: features at the first detector threshold. When they give a confident match (ENOUGH_INLIERS) its
+ *    candidates are checked tile by tile, and if one locks on the search is over (`final`).
+ *  - `finish()`: everything else, exactly as one uninterrupted search would go on: the second, more sensitive
+ *    threshold, and then the looser ratio test.
+ * Run one after the other, the two give the same result as before they were split.
+ */
+class CoarseSearch {
+  best: CoarseMatch | null = null;
+  final = false;
+  private readonly b: FeatureSide;
+  private readonly knnCache = new Map<string, Knn>();
+  private readonly tried: Mat3[] = [];
+  private refCheck: Uint8Array | null = null;
+  private strict: FeatureMatch[] = [];
+  /** What finish() still has to do: the second threshold (then loose), or only the loose pass. */
+  private next: "strict" | "loose" | null = null;
+  constructor(private readonly cv: Cv, private readonly prep: PhotoPrep, private readonly ref: GrayImage, private readonly log: Log) {
+    const sr = Math.min(1, FEATURE_SIDE / Math.max(ref.w, ref.h)), rw = Math.round(ref.w * sr), rh = Math.round(ref.h * sr);
+    this.b = new FeatureSide(cv, { data: resizeRaw(cv, ref.data, ref.w, ref.h, 1, rw, rh), w: rw, h: rh }, false);
+  }
+  /** Lift a match on the feature rasters to full-resolution frames: photo px -> ref px. */
+  private lift(H: Mat3): Mat3 {
+    const { prep, ref, b } = this;
+    return matMul3(scaleMat(ref.w / b.img.w, ref.h / b.img.h), matMul3(H, scaleMat(prep.side.img.w / prep.gray.w, prep.side.img.h / prep.gray.h)));
+  }
+  private consider(ms: FeatureMatch[], via: string): void {
+    const { cv, ref } = this;
+    for (const m of ms.slice(0, 6)) {
+      const H = this.lift(m.H);
+      // the same alignment found twice (another threshold or pass): check it once
+      if (this.tried.some((T) => sameHomography(T, H, ref.w, ref.h))) continue;
+      this.tried.push(H);
+      // the drawing as the tile check sees it, made once for all the candidates
+      if (!this.refCheck) { const { w, h } = checkSize(ref); this.refCheck = blurRaw(cv, resizeRaw(cv, ref.data, ref.w, ref.h, 1, w, h), w, h, 1, 1.0); }
+      const c = checkHomography(cv, this.prep.gray, ref, H, this.refCheck);
+      const ok = c.tiles >= MIN_TILES && c.tiles >= MIN_TILE_SHARE * c.usable;
+      this.log(`  ${via}: ${m.inliers} inliers, ${c.tiles} of ${c.usable} tiles lock${ok ? "" : " (rejected)"}`);
+      if (ok && (!this.best || c.tiles > this.best.tiles)) this.best = { ...m, H, tiles: c.tiles, via };
+    }
+  }
+  private loose(): void {
+    // nothing locked on: the print may be drawn differently from the app's sheet. A looser ratio test keeps more of
+    // the right matches (and more wrong ones, which the tile check turns down)
+    this.consider(featureCandidates(this.cv, this.prep.side, this.b, this.log, { thresholds: [0.001], ratio: 0.9, rounds: 4, label: "loose features", knnCache: this.knnCache }), "loose features");
+  }
+  first(): void {
+    this.strict = featureCandidates(this.cv, this.prep.side, this.b, this.log, { thresholds: [0.001], knnCache: this.knnCache });
+    if (!this.strict.some((m) => m.inliers >= ENOUGH_INLIERS)) { this.next = "strict"; return; }
+    this.consider(this.strict, "features");
+    if (this.best) this.final = true;
+    else this.next = "loose";
+  }
+  finish(): CoarseMatch | null {
+    if (this.next === "strict") {
+      const more = featureCandidates(this.cv, this.prep.side, this.b, this.log, { thresholds: [0.0003], knnCache: this.knnCache });
+      this.consider([...this.strict, ...more].sort((p, q) => q.inliers - p.inliers), "features");
+      if (!this.best) this.loose();
+    } else if (this.next === "loose") this.loose();
+    this.next = null;
+    this.final = true;
+    return this.best;
+  }
+  dispose(): void {
+    this.b.dispose();
+  }
+}
+
 /**
  * Global homography photo -> ref (both full-size grey). Candidates come from feature matches; when those are few
  * (the print may be drawn in another style than the app draws the sheet: other line weights, fills, colours,
  * text), a looser match adds more. Each candidate is checked tile by tile, and the one that locks most tiles wins:
  * a handful of right matches is enough, and a large wrong consensus is turned down.
  */
-async function coarseHomography(cv: Cv, prep: PhotoPrep, ref: GrayImage, log: Log): Promise<CoarseMatch | null> {
-  const photo = prep.gray, a = prep.side;
-  const sr = Math.min(1, FEATURE_SIDE / Math.max(ref.w, ref.h)), rw = Math.round(ref.w * sr), rh = Math.round(ref.h * sr);
-  const b = new FeatureSide(cv, { data: resizeRaw(cv, ref.data, ref.w, ref.h, 1, rw, rh), w: rw, h: rh }, false);
-  // lift to full-resolution frames: photo px -> ref px
-  const lift = (H: Mat3) => matMul3(scaleMat(ref.w / rw, ref.h / rh), matMul3(H, scaleMat(a.img.w / photo.w, a.img.h / photo.h)));
-  // the drawing as the tile check sees it, made once for all the candidates
-  let refCheck: Uint8Array | null = null;
-  let best: CoarseMatch | null = null;
-  const tried: Mat3[] = [];
-  const consider = (ms: FeatureMatch[], via: string) => {
-    for (const m of ms.slice(0, 6)) {
-      const H = lift(m.H);
-      // the same alignment found twice (another threshold or pass): check it once
-      if (tried.some((T) => sameHomography(T, H, ref.w, ref.h))) continue;
-      tried.push(H);
-      if (!refCheck) { const { w, h } = checkSize(ref); refCheck = blurRaw(cv, resizeRaw(cv, ref.data, ref.w, ref.h, 1, w, h), w, h, 1, 1.0); }
-      const c = checkHomography(cv, photo, ref, H, refCheck);
-      const ok = c.tiles >= MIN_TILES && c.tiles >= MIN_TILE_SHARE * c.usable;
-      log(`  ${via}: ${m.inliers} inliers, ${c.tiles} of ${c.usable} tiles lock${ok ? "" : " (rejected)"}`);
-      if (ok && (!best || c.tiles > best.tiles)) best = { ...m, H, tiles: c.tiles, via };
-    }
-  };
-  const knnCache = new Map<string, Knn>();
+function coarseHomography(cv: Cv, prep: PhotoPrep, ref: GrayImage, log: Log): CoarseMatch | null {
+  const search = new CoarseSearch(cv, prep, ref, log);
   try {
-    consider(featureCandidates(cv, a, b, log, { knnCache }), "features");
-    if (best) return best;
-    // nothing locked on: the print may be drawn differently from the app's sheet. A looser ratio test keeps more of
-    // the right matches (and more wrong ones, which the tile check turns down)
-    consider(featureCandidates(cv, a, b, log, { thresholds: [0.001], ratio: 0.9, rounds: 4, label: "loose features", knnCache }), "loose features");
-    return best;
+    search.first();
+    return search.final ? search.best : search.finish();
   } finally {
-    b.dispose();
+    search.dispose();
   }
 }
 
@@ -587,15 +634,46 @@ export interface Probe {
   H: Mat3
 }
 
-export async function probePhoto(photo: RgbImage, ref: RgbImage, refDpi: number, log: Log = () => {}): Promise<Probe | null> {
-  const cv = await loadCv();
-  const refGray = rgbToGray(ref.rgb, ref.w, ref.h);
-  const feat = await coarseHomography(cv, prepPhoto(cv, photo), { data: refGray, w: ref.w, h: ref.h }, log);
-  if (!feat) return null;
+function probeOf(feat: CoarseMatch, photo: RgbImage, ref: { w: number; h: number }, refDpi: number): Probe {
   const H = feat.H, inv = matInv3(H);
   // measure where the photo actually looks: around the sheet position of the photo centre
   const c = applyH(H, photo.w / 2, photo.h / 2);
   const x = Math.max(0, Math.min(ref.w, c[0])), y = Math.max(0, Math.min(ref.h, c[1]));
   const p0 = applyH(inv, x, y), p1 = applyH(inv, x + 1, y), p2 = applyH(inv, x, y + 1);
   return { seenDpi: refDpi * Math.sqrt(Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) * Math.hypot(p2[0] - p0[0], p2[1] - p0[1])), inliers: feat.inliers, tiles: feat.tiles, matches: feat.matches, H };
+}
+
+/**
+ * The quick match of the photo against one sheet, in the two steps of CoarseSearch: `first()` says whether the
+ * sheet matched confidently on the first try (`final`); `finish()` completes the search. One after the other they
+ * give what probePhoto gives. Call `dispose()` when done with it (WASM memory).
+ */
+export class SheetProbe {
+  private constructor(private readonly search: CoarseSearch, private readonly photo: RgbImage, private readonly ref: { w: number; h: number }, private readonly refDpi: number) {}
+  static async start(photo: RgbImage, ref: RgbImage, refDpi: number, log: Log = () => {}): Promise<SheetProbe> {
+    const cv = await loadCv();
+    const search = new CoarseSearch(cv, prepPhoto(cv, photo), { data: rgbToGray(ref.rgb, ref.w, ref.h), w: ref.w, h: ref.h }, log);
+    return new SheetProbe(search, photo, { w: ref.w, h: ref.h }, refDpi);
+  }
+  first(): { probe: Probe | null; final: boolean } {
+    this.search.first();
+    return { probe: this.search.final && this.search.best ? probeOf(this.search.best, this.photo, this.ref, this.refDpi) : null, final: this.search.final };
+  }
+  finish(): Probe | null {
+    const best = this.search.final ? this.search.best : this.search.finish();
+    return best ? probeOf(best, this.photo, this.ref, this.refDpi) : null;
+  }
+  dispose(): void {
+    this.search.dispose();
+  }
+}
+
+export async function probePhoto(photo: RgbImage, ref: RgbImage, refDpi: number, log: Log = () => {}): Promise<Probe | null> {
+  const p = await SheetProbe.start(photo, ref, refDpi, log);
+  try {
+    p.first();
+    return p.finish();
+  } finally {
+    p.dispose();
+  }
 }
