@@ -2,7 +2,7 @@ import { gzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { parseDrawingFile } from '../../../src/app/source/drawing-file'
 import { sniffBytes } from '../../../src/app/source'
-import { DrawingFormatError, PT_PER_FT, parseDrawingPayload, type DrawingDocument, type DrawingPage } from '../../../src/core/drawing'
+import { DrawingFormatError, PT_PER_FT, fillLazyPage, parseDrawingPayload, type DrawingDocument, type DrawingPage } from '../../../src/core/drawing'
 import { convertLegacyToZstd } from '../../../scripts/drawing-from-legacy.mjs'
 import { BlobBuffer, PNG_BYTES, buildPayload } from './builder-legacy'
 import { buildZstd, i32, pageFrame, zstd, type ZstdPage } from './builder'
@@ -323,6 +323,22 @@ describe('PERF-02 lazy pages: a page frame is decoded when its items are first r
     expect(doc.pages[1].id).toBe('2')
     expect(() => doc.pages[1].items).toThrow(/^pages\[1\]\.frame: does not decompress/)
     expect(doc.pages[0].items).toHaveLength(1)
+  })
+
+  it("keeps a later page's view type and views", () => {
+    const view = onePage({ items: [], views: { '9': { type: 'section', name: 'Sec A', scale: '1 : 50' } } }, undefined, { id: 2, kind: 'view', viewType: 'axon' })
+    const p = parseDrawingPayload(buildZstd([segsPage(1, 30480), view], {}), { lazy: true }).pages[1]
+    expect(p.viewType).toBe('axon')
+    expect(p.views).toEqual({ '9': { type: 'section', name: 'Sec A', scale: '1 : 50' } })
+  })
+
+  it('takes a later page decoded elsewhere instead of decompressing its frame', () => {
+    const junk = { entry: entry({ id: 2 }), bytes: new Uint8Array(40).fill(7) }
+    const doc = parseDrawingPayload(buildZstd([segsPage(1, 30480), junk], {}), { lazy: true })
+    const decoded = parseDrawingPayload(file(), { lazy: true }).pages[1]
+    fillLazyPage(doc.pages[1], { items: decoded.items, boxes: decoded.boxes, views: decoded.views })
+    expect(doc.pages[1].items).toBe(decoded.items)
+    expect(doc.pages[1].boxes).toBe(decoded.boxes)
   })
 
   it('still rejects a broken first page when the file is opened', () => {
