@@ -43,7 +43,7 @@ export function fileToOpened(file: File): Promise<OpenedFile> {
   return file.arrayBuffer().then((bytes) => ({ name: file.name, size: file.size, bytes }))
 }
 
-export function pickFile(accept = 'application/pdf,.pdf,.drawing,application/json,application/zip'): Promise<File | null> {
+export function pickFile(accept = 'application/pdf,.pdf,.drawing,.rvt,application/json,application/zip'): Promise<File | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input')
     input.type = 'file'
@@ -82,7 +82,7 @@ const fsw = (): FsWindow => window as unknown as FsWindow
 /** Real pickers only for people: automated browsers (Playwright) use the <input type=file> / download fallback. */
 export const fsAccessAvailable = (): boolean => typeof window !== 'undefined' && typeof fsw().showOpenFilePicker === 'function' && !navigator.webdriver
 
-const DRAWING_TYPES: PickerType[] = [{ description: 'PDF or .drawing', accept: { 'application/pdf': ['.pdf'], 'application/octet-stream': ['.drawing'] } }]
+const DRAWING_TYPES: PickerType[] = [{ description: 'PDF, .drawing or Revit model', accept: { 'application/pdf': ['.pdf'], 'application/octet-stream': ['.drawing', '.rvt'] } }]
 
 /** Folder chosen for "Save to file" this session (one permission prompt). */
 let saveDir: FileSystemDirectoryHandle | null = null
