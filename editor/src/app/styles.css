@@ -657,3 +657,8 @@ button.revit-sheet-name:hover { text-decoration: underline; }
 }
 .landing-logo.brush-loader { width: min(100%, 520px); height: auto; }
 .placeholder .brush-loader { width: 38%; opacity: 0.85; }
+
+/* ── move / copy (S2-07) ── */
+.move-ghost .line { fill: none; stroke: var(--accent, #2563eb); }
+.move-ghost .fill { fill: var(--accent, #2563eb); fill-opacity: 0.12; }
+.select-notice { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 70; padding: 8px 14px; border-radius: 8px; background: var(--ink, #1d1d1f); color: #fff; font-size: 12px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2); }

@@ -9,7 +9,7 @@ import { installBrain } from './brain'
 import { registerSheetOverlay } from './board/SheetView'
 import { MeasureOverlay } from './board/viewAidLayers'
 import { InspectOverlay } from './drawing/InspectLayers'
-import { SelectionOverlay, TypeMenu } from './select/SelectLayers'
+import { SelectionOverlay, SelectNotice, TypeMenu } from './select/SelectLayers'
 import { useView } from './view'
 import { getPlatform } from './platform'
 import { fileToOpened } from './platform/browser'
@@ -244,6 +244,7 @@ export function App() {
       </div>
       <PhotoImportDialog />
       <TypeMenu />
+      <SelectNotice />
     </div>
   )
 }

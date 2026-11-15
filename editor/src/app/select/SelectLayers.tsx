@@ -15,14 +15,16 @@ import { KIND_LABEL } from '../brain/overlays'
 import { elementBox, menuModel, resolveSelection, selection, setKind, setType, useSelection } from './selection'
 import { typeLabel } from './types'
 import { askRevitTypes, useRevitTypesVersion } from './revitTypes'
+import { entryFor, useRevit } from '../revit/controller'
 
 const px = (n: number) => `calc(${n}px / var(--z))`
 const d = (pts: readonly Point[], closed = false) => (pts.length ? `M${pts.map((p) => `${p.x} ${p.y}`).join('L')}${closed ? 'Z' : ''}` : '')
 
 /** Registered as a sheet overlay: what is selected on this sheet, and the pending type changes. */
 export function SelectionOverlay({ sheet }: { sheet: Sheet; placement: Placement }) {
-  const { items } = useSelection()
+  const { items, drag } = useSelection()
   const { accepted, strokes, commands, hidden } = useSession()
+  const rv = useRevit()
   const { source } = useDocState()
   const vp = source?.vectorPage?.(sheet.id) ?? null
 
@@ -62,7 +64,26 @@ export function SelectionOverlay({ sheet }: { sheet: Sheet; placement: Placement
     return out
   }, [vp, commands])
 
-  if (!drawn.length && !host && !marks.length) return null
+  // S2-07: host moves and copies Revit has not redrawn yet, drawn where they go
+  const ghosts = useMemo(() => {
+    const out: { key: string; label: string; dx: number; dy: number; shapes: ReturnType<typeof shapes> }[] = []
+    for (const c of commands) {
+      if ((c.op !== 'move' && c.op !== 'copy') || entryFor(c.id)?.landed) continue
+      if (c.op === 'move' && c.sheetId === sheet.id && vp) {
+        const its = itemsOf(vp.page, c.targets)
+        if (its.length) out.push({ key: c.id, label: 'moved', dx: c.dx, dy: c.dy, shapes: shapes(its) })
+      }
+      if (c.op === 'copy' && c.toSheetId === sheet.id) {
+        const from = source?.vectorPage?.(c.sheetId)
+        const its = from ? itemsOf(from.page, c.targets) : []
+        if (its.length) out.push({ key: c.id, label: 'copied', dx: c.to.x - c.at.x, dy: c.to.y - c.at.y, shapes: shapes(its) })
+      }
+    }
+    return out
+  }, [commands, vp, source, sheet.id, rv.resultsRev])
+  const shift = drag ? `translate(${drag.dx} ${drag.dy})` : undefined
+
+  if (!drawn.length && !host && !marks.length && !ghosts.length) return null
   return (
     <g data-layer="selection">
       {marks.map((m) => (
@@ -73,7 +94,14 @@ export function SelectionOverlay({ sheet }: { sheet: Sheet; placement: Placement
           </text>
         </g>
       ))}
+      {ghosts.map((g) => (
+        <g key={g.key} className="move-ghost" data-testid="move-ghost" data-kind={g.label} transform={`translate(${g.dx} ${g.dy})`}>
+          {g.shapes.lines && <path className="line" d={g.shapes.lines} style={{ strokeWidth: px(2), strokeDasharray: `${px(5)} ${px(3)}` }} />}
+          {g.shapes.fills && <path className="fill" d={g.shapes.fills} fillRule="evenodd" />}
+        </g>
+      ))}
       {host && (
+        <g transform={shift}>
         <g className="select-hl" data-testid="selected-sheet" data-items={hostIds.join(',')}>
           {host.fills && <path className="fill" d={host.fills} fillRule="evenodd" />}
           {host.lines && <path className="line" d={host.lines} style={{ strokeWidth: `calc(${host.maxW}px + 6px / var(--z))` }} />}
@@ -84,10 +112,13 @@ export function SelectionOverlay({ sheet }: { sheet: Sheet; placement: Placement
             <polygon key={i} className="box" points={q} style={{ strokeWidth: px(2) }} />
           ))}
         </g>
+        </g>
       )}
-      {drawn.map((s) => (
-        <path key={s.id} className="select-drawn" data-testid="selected-drawn" data-stroke-id={s.id} d={d(s.path.points, s.path.closed)} style={{ strokeWidth: px(10) }} />
-      ))}
+      <g transform={shift}>
+        {drawn.map((s) => (
+          <path key={s.id} className="select-drawn" data-testid="selected-drawn" data-stroke-id={s.id} d={d(s.path.points, s.path.closed)} style={{ strokeWidth: px(10) }} />
+        ))}
+      </g>
     </g>
   )
 }
@@ -194,6 +225,17 @@ export function TypeMenu() {
         </>
       )}
       {model.note && <div className="type-menu-note">{model.note}</div>}
+    </div>
+  )
+}
+
+/** S2-07: the last move / paste message (a refused paste), for a few seconds. */
+export function SelectNotice() {
+  const { notice } = useSelection()
+  if (!notice) return null
+  return (
+    <div className="select-notice" role="status" data-testid="select-notice">
+      {notice}
     </div>
   )
 }
