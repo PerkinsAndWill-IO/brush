@@ -14,13 +14,14 @@ sketch is real Revit model: walls, doors, furniture. The sheet comes back redraw
 | 0:00 | **Hook** | The napkin photo (or the start page) | "Every building starts as a sketch. Then it takes weeks of clicking to become *this*." |
 | 0:30 | **Setup** | Start page, Revit linked: the sheet picker. Pick **A102**, Open. | "Revit is open with the real model, Snowdon Towers. Brush lists its sheets. I pick one." |
 | 1:00 | **The loop** | Sketch a **wall**, a **door** in it, a **table** beside it. The timer counts each one home. | "A wall… a door… a table." Then stop talking and let the room watch the timer. |
-| 2:30 | **Hand over the pen** | A judge draws one wall. | "You've never opened Revit. Draw a wall." |
+| 2:15 | **Change your mind** | Select tool, **right-click the table**: the type menu lists every type Revit has. Pick **Table-Dining Round w Chairs: 60" Diameter**. The timer counts the swap. | "Not the table I wanted. Right-click, pick another type: Revit swaps it and redraws the sheet." |
+| 2:45 | **Hand over the pen** | A judge draws one wall. | "You've never opened Revit. Draw a wall." |
 | 3:15 | **It reads the building** | Select tool, hover the wall just drawn: the inspector shows its Revit type and level. | "That's not ink any more. It's a real Revit wall, with its type and its level." |
 | 3:45 | **Why it matters** | One slide | "Weeks become minutes, and the people who sketch can change the model directly." |
 | 4:30 | **Close** | Show the timer's best time. | "Brush. Sketch it, and it's built." |
 
-Rehearsed timings (Snowdon Towers, **A102**, dev laptop, four rehearsals): each element comes back modelled in
-**6–9 s** on A102. A sheet with less on it is faster (A103: 2–4 s), but A102 is the one that draws furniture, so
+Rehearsed timings (Snowdon Towers, **A102**, dev laptop, five rehearsals): each element comes back modelled in
+**3–9 s** on A102, and the type change in about 5 s. A sheet with less on it is faster (A103: 2–4 s), but A102 is the one that draws furniture, so
 the table shows. The first edit after opening a sheet is the slowest; draw one throwaway wall before going on stage
 (then undo it). With the timer running, the wait reads as a feature rather than lag.
 
@@ -40,6 +41,9 @@ Live/Work Unit **205**, the empty top half of the room, below the north wall:
 - **Table:** a small rectangle to the right of the wall, under the room tag, about 66" × 36" at the sheet's 1:96.
   Furniture is chosen by the size you draw: a rectangle that size becomes `Table-Rectangular: 66" x 36"`; a big one
   becomes a bed or a banquette.
+- **Type change:** select tool, right-click the middle of the table once it's drawn by Revit (not while it's still
+  ink), and pick `Table-Dining Round w Chairs: 60" Diameter` from the menu. The menu fills in Revit's full list a
+  moment after it opens. A dashed mark with "→ new type" shows until Revit has redrawn it.
 - **Inspector:** select tool, hover the new wall between its top end and the door. The card shows *Walls*, its type
   and *level L2*.
 
@@ -81,14 +85,14 @@ which beat is playing, a visible pen draws at hand speed, and the strokes really
 ```js
 await __brushDemo.run()              // whole run of show, with talking pauses (~45 s of script)
 await __brushDemo.run({ fast: true }) // same, no pauses
-await __brushDemo.beat('loop')        // one beat: 'hook' | 'setup' | 'loop' | 'inspect' | 'close'
+await __brushDemo.beat('loop')        // one beat: 'hook' | 'setup' | 'loop' | 'retype' | 'inspect' | 'close'
 await __brushDemo.reset()             // take everything it drew back out of Revit
 __brushDemo.spots                     // where it draws (sheet fractions); edit SNOWDON_SPOTS in editor/src/app/demo/rehearse.ts
 __brushDemo.furniture()               // the model's furniture families, for sizing the table
 ```
 
 `run()` resolves with each beat's duration and the round-trip stats, for example
-`{ seconds: { hook: 5, setup: 9, loop: 18.5, inspect: 7, close: 5 }, trips: { best: 6147, median: 7391, … } }`.
+`{ seconds: { hook: 5, setup: 9, loop: 15.9, retype: 12.5, inspect: 7, close: 5 }, trips: { best: 3330, median: 5281, … } }`.
 
 **Always `reset()` after a rehearsal.** It undoes the strokes (Revit reverts them) and deletes, by element id, anything
 an earlier page load made. Those ids are kept in `localStorage` (`brush.demo.elements`), so a reload doesn't strand
@@ -104,6 +108,7 @@ them; after a reload `reset()` connects and opens the sheet itself. Don't edit t
 | The timer passes 10 s | Keep talking through the inspector beat; the sheet will land. Don't redraw. |
 | "Revit could not apply this" chip | The stroke is off the room or crosses another element. Undo and draw it again inside the room. |
 | Furniture lands but isn't drawn | That family is hidden in the sheet's view. Stay on A102, or draw a table-sized rectangle. |
+| The type menu has only a few types | Revit's full list is still on its way: wait a second, or close and right-click again. |
 | Inspector shows the room, not the wall | Move the pointer a hair: the card opening shifts the board under a still pointer. |
 
 ## Known rough edges

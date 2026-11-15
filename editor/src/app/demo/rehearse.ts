@@ -33,6 +33,8 @@ export interface DemoSpots {
   door: [Frac, Frac]
   /** The table: a rectangle, as two opposite corners. */
   table: [Frac, Frac]
+  /** The type the table is changed to from the type menu (a type name, or the start of one). */
+  retypeTo: string
   /** A point on an existing wall, for the inspector. */
   inspect: Frac
   /** What the camera shows while sketching: the centre and how much of the sheet's width fills the view. */
@@ -62,6 +64,8 @@ export const SNOWDON_SPOTS: DemoSpots = {
     [0.525, 0.36],
     [0.5414, 0.3725],
   ],
+  // a family A102's view draws (five of them on the sheet already)
+  retypeTo: 'Table-Dining Round w Chairs: 60" Diameter',
   // the wall just sketched, between its top and the door: "that is a real Revit wall now"
   inspect: [0.5039, 0.329],
 }
@@ -337,6 +341,44 @@ async function hover(sheetId: string, f: Frac, ms = 900) {
   }
 }
 
+/**
+ * Change a placed element's type the way a person does: right-click it (the type menu opens and asks Revit for every
+ * type it allows), then pick the type. Resolves with the type picked.
+ */
+async function retype(sheetId: string, f: Frac, typeName: string): Promise<string> {
+  const vp = getViewportEl()
+  if (!vp) throw new Error('demo: no board on screen')
+  session.setTool('select')
+  await glide(toScreen(sheetId, toSheet(sheetId, f)), 800)
+  const rows = () => [...document.querySelectorAll<HTMLButtonElement>('[data-testid="type-menu"] button[data-type]')]
+  const pickRow = () => rows().find((b) => b.dataset.type === typeName) ?? rows().find((b) => b.dataset.type!.startsWith(typeName))
+  // Right after the sheet lands the board may still pick what was under the table (the room): when the menu is for
+  // something else, close it and right-click again. Revit's own list arrives a moment after the menu opens.
+  let row: HTMLButtonElement | undefined
+  for (let attempt = 0; attempt < 5 && !row; attempt++) {
+    const at = toScreen(sheetId, toSheet(sheetId, f))
+    penAt(at.x, at.y, true)
+    vp.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: at.x, clientY: at.y, button: 2, buttons: 2 }))
+    await sleep(150)
+    penAt(at.x, at.y, false)
+    row = await until(pickRow, 4000, 'the type').catch(() => undefined)
+    if (!row) {
+      document.querySelector<HTMLElement>('[data-testid="type-menu"]')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await sleep(800)
+    }
+  }
+  if (!row) throw new Error(`demo: "${typeName}" never showed in the type menu`)
+  row.scrollIntoView({ block: 'center' })
+  await sleep(250)
+  const r = row.getBoundingClientRect()
+  await glide({ x: r.left + Math.min(r.width / 2, 120), y: r.top + r.height / 2 }, 700)
+  penAt(r.left + Math.min(r.width / 2, 120), r.top + r.height / 2, true)
+  await sleep(120)
+  row.click()
+  penOff()
+  return row.dataset.type!
+}
+
 // ─────────────── beats ───────────────
 
 export interface RunOptions {
@@ -352,12 +394,14 @@ const SAY = {
   door: '…a door in it…',
   table: '…and a table.',
   back: 'Each one is now a real Revit element, and the sheet came back drawn by Revit.',
+  retype: 'Not the table I wanted. Right-click it and pick another type: Revit lists every one it has.',
+  retyped: 'Swapped in Revit, and redrawn.',
   inspect: 'Hover the wall you just sketched: it is a real Revit wall now, with its type and level.',
   close: 'Brush. Sketch it, and it is built.',
 }
 
-type Beat = 'hook' | 'setup' | 'loop' | 'inspect' | 'close'
-export const BEATS: readonly Beat[] = ['hook', 'setup', 'loop', 'inspect', 'close']
+type Beat = 'hook' | 'setup' | 'loop' | 'retype' | 'inspect' | 'close'
+export const BEATS: readonly Beat[] = ['hook', 'setup', 'loop', 'retype', 'inspect', 'close']
 
 async function beat(name: Beat, opts: RunOptions = {}) {
   const spots = opts.spots ?? SNOWDON_SPOTS
@@ -421,6 +465,18 @@ async function beat(name: Beat, opts: RunOptions = {}) {
       const stats = tripStats(roundTrips.get().trips)
       caption('1:00 · The loop', `${SAY.back}${ms !== undefined ? ` Last one: ${(ms / 1000).toFixed(1)} s.` : ''}${stats.best !== undefined ? ` Best: ${(stats.best / 1000).toFixed(1)} s.` : ''}`)
       await talk(6000)
+      return
+    }
+    case 'retype': {
+      const s = sheetByNumber(spots.sheet)
+      caption('2:15 · Change your mind', SAY.retype)
+      const [a, b] = spots.table
+      const picked = await retype(s.id, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], spots.retypeTo)
+      caption('2:15 · Change your mind', `${picked}…`)
+      const ms = await waitLanded()
+      caption('2:15 · Change your mind', `${SAY.retyped}${ms !== undefined ? ` ${(ms / 1000).toFixed(1)} s.` : ''}`)
+      await talk(5000)
+      session.setTool('brush')
       return
     }
     case 'inspect': {
