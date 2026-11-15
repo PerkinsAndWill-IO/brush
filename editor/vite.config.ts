@@ -82,9 +82,15 @@ function listSamples(): SampleEntry[] {
     })
 }
 
+/** Samples too big for git, hosted elsewhere (Vercel Blob): `remote-samples.json` in the samples folder, a list of `SampleEntry` with absolute URLs. */
+function listRemoteSamples(): SampleEntry[] {
+  const file = resolve(samplesDir, 'remote-samples.json')
+  return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as SampleEntry[]) : []
+}
+
 /**
  * The sample `.drawing` files in `../schema/public/examples` (single source: not copied into editor/).
- * - `virtual:brush-samples` exports the list for the start page's sample picker.
+ * - `virtual:brush-samples` exports the list for the start page's sample picker, plus the remote ones.
  * - `vite dev` / `vite preview` serve them at /samples/*; `vite build` emits them into dist/samples/.
  * If the folder is missing (editor deployed on its own) the list is empty and the picker hides.
  */
@@ -105,7 +111,7 @@ function sampleDrawings(): Plugin {
     resolveId: (id) => (id === VIRTUAL ? RESOLVED : undefined),
     load(id) {
       if (id !== RESOLVED) return
-      return `export default ${JSON.stringify(listSamples())}`
+      return `export default ${JSON.stringify([...listSamples(), ...listRemoteSamples()])}`
     },
     configureServer(server) {
       server.middlewares.use(handler)
