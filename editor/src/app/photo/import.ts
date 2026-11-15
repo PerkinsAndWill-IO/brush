@@ -15,6 +15,7 @@
  */
 import type { Sheet } from '@core/types'
 import { boardView } from '../board/Board'
+import { whenRendersIdle } from '../board/renderQueue'
 import { session, getSession } from '../session'
 import { openSource, type DrawingSource, type PageRenderer, type SourceInput } from '../source'
 import { getDocState } from '../store'
@@ -22,6 +23,7 @@ import type { InkChoice, MarkupLayer, MarkupResult, Probe } from './pipeline'
 import { MAX_AUTO_SHEETS, PROBE_DPI, candidateSheets, matchPrintedSheet, pickSheet, printedCandidates, printedScale, sheetLabel, workingDpi } from './plan'
 import type { PhotoRequest, PhotoResponse, RasterMessage } from './protocol'
 import { markupToStrokes, rgbToHex } from './toStrokes'
+import { tracePaper } from './trace'
 
 export interface PhotoImportOptions {
   /** Sheet the photo shows (with `printed`: the open sheet the strokes go on). Leave out to find it. */
@@ -207,12 +209,25 @@ export async function importPhotoMarkup(photo: Blob, opts: PhotoImportOptions = 
       session.addStrokes(strokes)
       session.setActiveSheet(sheet.id)
       if (!opts.keepCamera) boardView.focusSheet(sheet.pageIndex)
+      // P1-10: the strokes arrive on a sheet of trace paper, unrolled over the drawing once the sheet has been
+      // drawn at the new zoom (pdf.js renders on the main thread and would make the roll stutter)
+      void unrollWhenDrawn(sheet.id)
     }
     return summarize(sheet, groupId, result, strokes.length, dpi, performance.now() - t0, printedFrom)
   } finally {
     client.close()
     void printed?.source.close()
   }
+}
+
+const nextFrame = () => new Promise<void>((r) => (typeof requestAnimationFrame === 'function' ? requestAnimationFrame(() => r()) : setTimeout(r, 16)))
+
+async function unrollWhenDrawn(sheetId: string) {
+  await nextFrame()
+  await nextFrame()
+  await whenRendersIdle(2500)
+  await nextFrame()
+  tracePaper.unroll(sheetId)
 }
 
 /** Open the printed file (P1-09) for matching only: it is not shown and not kept. */

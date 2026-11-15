@@ -3,13 +3,16 @@
  * from the app menu (ui/Chrome.tsx) or by dropping an image on an open drawing.
  * The work itself is in ./import.ts; this file is the UI state around one import.
  */
-import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import type { Sheet } from '@core/types'
 import { getDocState, useDocState } from '../store'
 import { makeElements } from './groupActions'
 import { PhotoImportError, importPhotoMarkup, type PhotoImportSummary } from './import'
 import type { InkChoice } from './pipeline'
 import { MAX_AUTO_SHEETS, knownSheetId, sheetLabel } from './plan'
+import { firstGlance, peekPreference } from './peek'
+import { PhotoProgress } from './PhotoProgress'
+import { advanceStage, sheetOfLine, type ImportStage } from './progress'
 
 type Phase = 'pick' | 'running' | 'done'
 
@@ -27,11 +30,21 @@ interface DialogState {
   askPrinted: boolean
   ink: InkChoice
   lines: string[]
+  /** P1-11: where the running import is, as the dialog tells it. */
+  stage: ImportStage
+  startedAt: number
+  stageAt: number
+  /** The sheet being compared while finding it. */
+  probing?: string
+  /** Ask the hosted model for a first glance at the photo while it is read (opt-in, remembered). */
+  peek: boolean
+  /** undefined = not asked; null = waiting. */
+  glance?: string | null
   summary?: PhotoImportSummary
   error?: string
 }
 
-const CLOSED: DialogState = { open: false, phase: 'pick', file: null, sheetId: '', sheetDoc: 0, printed: null, askPrinted: false, ink: 'both', lines: [] }
+const CLOSED: DialogState = { open: false, phase: 'pick', file: null, sheetId: '', sheetDoc: 0, printed: null, askPrinted: false, ink: 'both', lines: [], stage: 'develop', startedAt: 0, stageAt: 0, peek: peekPreference.get() }
 let state: DialogState = CLOSED
 let abort: AbortController | null = null
 const listeners = new Set<() => void>()
@@ -58,12 +71,12 @@ export const photoImport = {
     const doc = getDocState()
     const same = state.sheetDoc === doc.loadId
     const sheetId = same ? (knownSheetId(doc.sheets, state.sheetId) ?? '') : ''
-    set({ ...CLOSED, open: true, file: file ?? null, sheetId, sheetDoc: doc.loadId, printed: same ? state.printed : null, ink: state.ink })
+    set({ ...CLOSED, open: true, file: file ?? null, sheetId, sheetDoc: doc.loadId, printed: same ? state.printed : null, ink: state.ink, peek: state.peek })
   },
   close() {
     abort?.abort()
     abort = null
-    set({ ...CLOSED, sheetId: state.sheetId, sheetDoc: state.sheetDoc, printed: state.printed, ink: state.ink })
+    set({ ...CLOSED, sheetId: state.sheetId, sheetDoc: state.sheetDoc, printed: state.printed, ink: state.ink, peek: state.peek })
   },
   async run() {
     const { file, ink } = state
@@ -76,14 +89,28 @@ export const photoImport = {
     if ((sheetId ?? '') !== state.sheetId || !same) set({ sheetId: sheetId ?? '', sheetDoc: doc.loadId, printed })
     const ac = new AbortController()
     abort = ac
-    set({ phase: 'running', lines: [], error: undefined, summary: undefined })
+    const t0 = performance.now()
+    set({ phase: 'running', lines: [], error: undefined, summary: undefined, stage: 'develop', startedAt: t0, stageAt: t0, probing: undefined, glance: state.peek ? null : undefined })
+    // P1-11: the first glance runs beside the import and never holds it up
+    if (state.peek)
+      void firstGlance(file, ac.signal).then((g) => {
+        if (!ac.signal.aborted && state.phase === 'running') set({ glance: g ?? undefined })
+      })
+    const onLine = (line: string) => {
+      const stage = advanceStage(state.stage, line)
+      set({
+        lines: [...state.lines, line].slice(-200),
+        ...(stage !== state.stage ? { stage, stageAt: performance.now() } : {}),
+        probing: sheetOfLine(line) ?? (stage === 'find' ? state.probing : undefined),
+      })
+    }
     try {
       const summary = await importPhotoMarkup(file, {
         sheetId,
         printed: printed ?? undefined,
         ink,
         signal: ac.signal,
-        onProgress: (line) => !ac.signal.aborted && set({ lines: [...state.lines, line].slice(-200) }),
+        onProgress: (line) => !ac.signal.aborted && onLine(line),
       })
       if (!ac.signal.aborted) set({ phase: 'done', summary, askPrinted: false })
     } catch (e) {
@@ -159,6 +186,9 @@ export function PhotoImportDialog() {
   const input = useRef<HTMLInputElement>(null)
   const printedInput = useRef<HTMLInputElement>(null)
   const ready = doc.status === 'ready'
+  // the chosen photo, shown on the light table while it is read
+  const photoUrl = useMemo(() => (st.file ? URL.createObjectURL(st.file) : null), [st.file])
+  useEffect(() => () => void (photoUrl && URL.revokeObjectURL(photoUrl)), [photoUrl])
 
   useEffect(() => {
     if (!st.open) return
@@ -179,10 +209,12 @@ export function PhotoImportDialog() {
 
   if (!st.open || !ready) return null
   const running = st.phase === 'running'
+  // P1-10: after an import that added strokes the dialog steps aside to a card, so the trace can be seen unrolling
+  const aside = st.phase === 'done' && !!st.summary?.strokes
   return (
-    <div className="modal-backdrop" onPointerDown={(e) => e.target === e.currentTarget && !running && photoImport.close()}>
-      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="photo-import-title" data-testid="photo-import" data-phase={st.phase}>
-        <h2 id="photo-import-title">Import markup from a photo</h2>
+    <div className={`modal-backdrop${aside ? ' aside' : ''}`} onPointerDown={(e) => e.target === e.currentTarget && !running && photoImport.close()}>
+      <div className={`modal${running ? ' running' : ''}${aside ? ' aside' : ''}`} role="dialog" aria-modal={!aside} aria-labelledby="photo-import-title" data-testid="photo-import" data-phase={st.phase}>
+        <h2 id="photo-import-title">{running ? 'Reading your markup' : aside ? 'Markup on trace' : 'Import markup from a photo'}</h2>
 
         {st.phase === 'pick' && (
           <>
@@ -245,6 +277,21 @@ export function PhotoImportDialog() {
                 <option value="dark">Black pen and pencil only</option>
               </select>
             </label>
+            <label className="check" title="Sends a small preview of the photo to the hosted model (AI Gateway). The tracing itself stays on this machine.">
+              <input
+                type="checkbox"
+                data-testid="photo-peek"
+                checked={st.peek}
+                onChange={(e) => {
+                  peekPreference.set(e.target.checked)
+                  set({ peek: e.target.checked })
+                }}
+              />
+              <span>
+                Ask Claude for a first glance while it reads
+                <small>Sends a small preview of the photo; the tracing stays on this machine.</small>
+              </span>
+            </label>
             {st.error && (
               <div className="error" role="alert" data-testid="photo-error">
                 <p>{st.error}</p>
@@ -268,14 +315,11 @@ export function PhotoImportDialog() {
 
         {running && (
           <>
-            <p>
-              Reading <b>{st.file?.name}</b>. This takes from a few seconds to a minute, depending on the photo and the sheet.
-            </p>
-            <ol className="progress" aria-live="polite" data-testid="photo-progress">
-              {st.lines.slice(-6).map((l, i) => (
-                <li key={`${st.lines.length}-${i}`}>{l}</li>
-              ))}
-            </ol>
+            <PhotoProgress
+              photoUrl={photoUrl}
+              fileName={st.file?.name}
+              view={{ stage: st.stage, startedAt: st.startedAt, stageAt: st.stageAt, sheet: st.probing, glance: st.glance, lines: st.lines }}
+            />
             <div className="modal-actions">
               <button type="button" className="btn soft" onClick={() => photoImport.close()}>
                 Cancel
