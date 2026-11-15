@@ -1079,7 +1079,7 @@ export function presenterSteps(spots: DemoSpots = SNOWDON_SPOTS): Step[] {
     }
   }
   return [
-    { id: 'floors', label: 'Open four floors', run: () => quietly(() => beat('setup', { spots, fast: true })) },
+    { id: 'floors', label: 'Kickoff demo', run: () => quietly(() => beat('setup', { spots, fast: true })) },
     {
       id: 'sketch',
       label: 'Sketch a wall, a door and a table',

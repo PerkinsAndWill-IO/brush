@@ -15,7 +15,7 @@ measured on the dev laptop, so the talk fits around them.
 | Time | Beat | On screen | Say |
 |---|---|---|---|
 | 0:00 | **Hook** | The start page | "Architects think with a pen. Revit makes them think in dialog boxes." |
-| 0:20 | **Setup** [1 Open four floors] | Picker: A102–A105 ticked, Open 4 sheets, zoom into Live/Work Unit 205 (~20 s) | "Revit is open with the real model, Snowdon Towers. I take four floors." Keep talking while they arrive. |
+| 0:20 | **Setup** [1 Kickoff demo] | Picker: A102–A105 ticked, Open 4 sheets, zoom into Live/Work Unit 205 (~20 s) | "Revit is open with the real model, Snowdon Towers. I take four floors." Keep talking while they arrive. |
 | 0:45 | **The loop** [2 Sketch a wall, a door and a table] | Wall, door, table; the timer counts each home; the table turns round from the type menu (~20 s) | "A wall… a door… a table." Then, as it swaps: "Not that table: right-click, another type." |
 | 1:15 | **It reads the building** [3 What is it?, 4 Every floor, 5 Back] | The facade wall's card with its Revit parameters; zoom out: lit up on all four floors (~5 s) | "That's a real Revit wall, with its parameters. One wall, four floors." |
 | 1:45 | **Hand over the pen** (optional) | A judge draws one wall | "You've never opened Revit. Draw a wall." Skip it if the clock is tight. |
@@ -73,7 +73,7 @@ right corner, saying what it will do next. Each click plays one step in the real
 
 | # | Button says | What happens |
 |---|---|---|
-| 1 | Open four floors | Connects to Revit, ticks A102–A105 in the picker, opens them, **cleans the stage** (takes back anything an earlier run left in Live/Work Unit 205, or stops and says so), zooms into the room. |
+| 1 | Kickoff demo | Connects to Revit, ticks A102–A105 in the picker, opens them, **cleans the stage** (takes back anything an earlier run left in Live/Work Unit 205, or stops and says so), zooms into the room. |
 | 2 | Sketch a wall, a door and a table | Draws all three, waits for the table to be in Revit, then right-clicks it and picks the 60" round dining table. |
 | 3 | What is it? | Still zoomed in, **clicks** the north facade wall along the room: its card pins open with its Revit parameters. |
 | 4 | Every floor | Zooms out: the selected wall is lit up on all four floors. |
