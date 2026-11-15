@@ -5,6 +5,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import { bandRows, explainRows, fitRows, type FitGrid } from '../../../src/app/photo/pipeline/fit'
+import { lanczosReduceRows, lanczosRowSpan } from '../../../src/app/photo/pipeline/raster'
+import { warpRgb, warpRgbRows } from '../../../src/app/photo/pipeline/warp'
 import { makeSyntheticCase } from './synthetic'
 
 /** Index of the first element where `a` and `b` differ, -1 if none (quicker than toEqual on million-element arrays). */
@@ -54,5 +56,33 @@ describe('photo pipeline: reading the ink in bands of rows', () => {
         for (const k of ['inkRgb', 'clean'] as const) expect(firstDiff(part[k], all[k].subarray(y0 * w * 3, y1 * w * 3)), k).toBe(-1)
       }
     }
+  }, 60_000)
+
+  it('P1-02: the sheet shrunk and the photo warped in bands of rows come out as in one go', () => {
+    const c = makeSyntheticCase()
+    const { w, h } = c.ref
+    for (const ch of [1, 3]) {
+      const data = ch === 3 ? c.ref.rgb : c.ref.rgb.filter((_, i) => i % 3 === 0)
+      const nw = Math.round(w * 0.61), nh = Math.round(h * 0.61)
+      const whole = lanczosReduceRows(data, 0, w, h, ch, nw, nh, 0, nh)
+      for (const [oy0, oy1] of [[0, 3], [3, Math.floor(nh / 2)], [Math.floor(nh / 2), nh]]) {
+        const [y0, y1] = lanczosRowSpan(h, nh, oy0, oy1)
+        const part = lanczosReduceRows(data.slice(y0 * w * ch, y1 * w * ch), y0, w, h, ch, nw, nh, oy0, oy1)
+        expect(firstDiff(part, whole.subarray(oy0 * nw * ch, oy1 * nw * ch)), `ch ${ch} rows ${oy0}-${oy1}`).toBe(-1)
+      }
+    }
+    // the photo into a sheet-sized raster through a turn and a wrinkle field
+    const a = 0.03, H = [Math.cos(a) * 0.5, -Math.sin(a) * 0.5, 40, Math.sin(a) * 0.5, Math.cos(a) * 0.5, 30, 0.00001, 0, 1]
+    const field = { gw: 4, gh: 3, x0: 0, y0: 0, step: 300, dx: Float32Array.from({ length: 12 }, (_, i) => (i % 5) - 2), dy: Float32Array.from({ length: 12 }, (_, i) => (i % 3) - 1) }
+    const whole = warpRgb(c.photo, H, field, 0.7, w, h)
+    let covered = 0
+    for (const [r0, r1] of [[0, 1], [1, 400], [400, h]]) {
+      const part = warpRgbRows(c.photo, H, field, 0.7, w, r0, r1)
+      covered += part.covered
+      expect(firstDiff(part.rgb, whole.rgb.subarray(r0 * w * 3, r1 * w * 3)), `rgb rows ${r0}-${r1}`).toBe(-1)
+      expect(firstDiff(part.valid, whole.valid.subarray(r0 * w, r1 * w)), `valid rows ${r0}-${r1}`).toBe(-1)
+    }
+    expect(covered).toBe(whole.covered)
+    expect(whole.covered).toBeGreaterThan(w * h * 0.3)
   }, 60_000)
 })

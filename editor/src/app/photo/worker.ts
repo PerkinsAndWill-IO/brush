@@ -27,6 +27,8 @@ if (typeof Worker !== 'undefined' && cores > 2) useModelWorkers(createModelPool(
 const MAX_PHOTO_SIDE = 6000
 
 let photo: RgbImage | null = null
+/** The latest decode asked for (see 'decode'). */
+let decodeGen = 0
 /** Matches started with `firstOnly`, by key, waiting for a 'probe-rest' (or for the trace, which drops them). */
 const pending = new Map<number, SheetProbe>()
 const dropPending = () => {
@@ -74,9 +76,14 @@ scope.onmessage = async (e) => {
   const log = (line: string) => post({ id: req.id, type: 'log', line })
   try {
     if (req.type === 'decode') {
+      // messages are handled as they come, so a photo picked while an earlier one is still being read is read
+      // alongside it: whichever was asked for last wins, however the two finish
+      const gen = ++decodeGen
+      const img = await decode(req.blob)
+      if (gen !== decodeGen) throw new Error('another photo was chosen meanwhile')
       dropPending()
       if (photo) releasePhoto(photo)
-      photo = await decode(req.blob)
+      photo = img
       post({ id: req.id, ok: true, type: 'decode', w: photo.w, h: photo.h })
       // find the photo's features now, while the main thread renders the first sheet to compare it with
       // (a failure here shows up again, with its message, in the probe)

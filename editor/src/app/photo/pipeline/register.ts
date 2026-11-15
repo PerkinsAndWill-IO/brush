@@ -8,9 +8,11 @@
 import { loadCv, type Cv, type Mat } from "./cv";
 import { rgbToGray, resizeRaw, blurRaw, matMul3, matInv3, applyH, scaleMat, type GrayImage, type Log, type Mat3, type RgbImage } from "./raster";
 import { explainAway } from "./isolate";
+import { sampleField, type Field } from "./warp";
+import { shrinkRaster, warpPhoto } from "./fit";
 
-/** A coarse grid of displacements (px), bilinear in between. */
-export interface Field { gw: number; gh: number; x0: number; y0: number; step: number; dx: Float32Array; dy: Float32Array }
+export { sampleField, type Field } from "./warp";
+
 interface MeasuredField extends Field { okx: Uint8Array; oky: Uint8Array; why: Record<string, number> }
 interface FieldStats { nodes: number; partial: number; total: number; median: number; p95: number }
 /** A grey raster in sheet space with its coverage mask. */
@@ -320,29 +322,6 @@ function warpGray(photo: GrayImage, toPhoto: Mat3, field: Field | null, w: numbe
   return { data: out, valid };
 }
 
-/** Bilinear colour warp of the photo into sheet space. `field` (optional) is in px of a grid `fieldScale` times the output size. */
-function warpRgb(photo: RgbImage, toPhoto: Mat3, field: Field | null, fieldScale: number, w: number, h: number): { rgb: Uint8Array; valid: Uint8Array; covered: number } {
-  const rgb = new Uint8Array(w * h * 3), valid = new Uint8Array(w * h);
-  const src = photo.rgb, sw = photo.w, sh = photo.h;
-  let covered = 0;
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      let sx = x, sy = y;
-      if (field) { const d = sampleField(field, x * fieldScale, y * fieldScale); sx += d[0] / fieldScale; sy += d[1] / fieldScale; }
-      const q = toPhoto[6] * sx + toPhoto[7] * sy + toPhoto[8];
-      const px = (toPhoto[0] * sx + toPhoto[1] * sy + toPhoto[2]) / q, py = (toPhoto[3] * sx + toPhoto[4] * sy + toPhoto[5]) / q;
-      if (!(q > 0 && px >= 0 && py >= 0 && px < sw - 1 && py < sh - 1)) continue;
-      const x0 = px | 0, y0 = py | 0, fx = px - x0, fy = py - y0, i = (y0 * sw + x0) * 3, j = i + sw * 3, o = (y * w + x) * 3;
-      const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
-      rgb[o] = src[i] * w00 + src[i + 3] * w10 + src[j] * w01 + src[j + 3] * w11;
-      rgb[o + 1] = src[i + 1] * w00 + src[i + 4] * w10 + src[j + 1] * w01 + src[j + 4] * w11;
-      rgb[o + 2] = src[i + 2] * w00 + src[i + 5] * w10 + src[j + 2] * w01 + src[j + 5] * w11;
-      valid[y * w + x] = 1; covered++;
-    }
-  }
-  return { rgb, valid, covered };
-}
-
 /** Shift a sheet-space grey image by a displacement field: out(x) = img(x + d(x)). */
 function warpByField(img: Warped, field: Field, w: number, h: number): Warped {
   const out = new Uint8Array(w * h), valid = new Uint8Array(w * h), data = img.data;
@@ -371,19 +350,6 @@ async function suppressMarkup(cv: Cv, img: { rgb: Uint8Array; valid: Uint8Array 
   const out = new Uint8Array(N);
   for (let i = 0; i < N; i++) out[i] = inked[i] ? 255 : flat[i];
   return { data: out, valid: img.valid };
-}
-
-const fieldTmp = [0, 0];
-/** Bilinear lookup in a coarse displacement grid; (x, y) in the grid's own pixel frame. */
-export function sampleField(f: Field, x: number, y: number): number[] {
-  let gx = (x - f.x0) / f.step, gy = (y - f.y0) / f.step;
-  gx = gx < 0 ? 0 : gx > f.gw - 1 ? f.gw - 1 : gx;
-  gy = gy < 0 ? 0 : gy > f.gh - 1 ? f.gh - 1 : gy;
-  const ix = Math.min(f.gw - 2, gx | 0), iy = Math.min(f.gh - 2, gy | 0), fx = gx - ix, fy = gy - iy, i = iy * f.gw + ix;
-  const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
-  fieldTmp[0] = f.dx[i] * w00 + f.dx[i + 1] * w10 + f.dx[i + f.gw] * w01 + f.dx[i + f.gw + 1] * w11;
-  fieldTmp[1] = f.dy[i] * w00 + f.dy[i + 1] * w10 + f.dy[i + f.gw] * w01 + f.dy[i + f.gw + 1] * w11;
-  return fieldTmp;
 }
 
 /**
@@ -535,7 +501,12 @@ export async function registerPhoto(photo: RgbImage, ref: RgbImage, { log = cons
   // b) refine against the drawing itself at half the output resolution
   let field: Field | null = null;
   const r = Math.min(1, 2700 / Math.max(ref.w, ref.h)), fw = Math.round(ref.w * r), fh = Math.round(ref.h * r);
-  const refSmall = refine ? blurRaw(cv, resizeRaw(cv, refGray, ref.w, ref.h, 1, fw, fh), fw, fh, 1, 1.0) : null;
+  // the drawing at the refit's size, grey and (for the wrinkle passes) in colour: shrunk on the helper workers, the
+  // colour one while the refit runs
+  const refSmallP = refine ? shrinkRaster(refGray, ref.w, ref.h, 1, fw, fh) : null;
+  const refRgbSmallP = refine ? shrinkRaster(ref.rgb, ref.w, ref.h, 3, fw, fh) : null;
+  refRgbSmallP?.catch(() => {}); // awaited below, unless the refit fails first
+  const refSmall = refSmallP ? blurRaw(cv, await refSmallP, fw, fh, 1, 1.0) : null;
   const toSmall = scaleMat(fw / ref.w, fh / ref.h);
   let locked = false;
   if (refSmall) {
@@ -584,8 +555,8 @@ export async function registerPhoto(photo: RgbImage, ref: RgbImage, { log = cons
     // What a homography cannot explain (wrinkle, curl, lens) becomes a smooth residual field, built up over
     // a few passes. These passes look at a copy of the photo with the markup suppressed, so that heavy pen
     // or marker strokes cannot pull the alignment towards themselves.
-    const small = warpRgb(photo, matInv3(matMul3(toSmall, H)), null, 1, fw, fh);
-    const base = await suppressMarkup(cv, small, await resizeRaw(cv, ref.rgb, ref.w, ref.h, 3, fw, fh), fw, fh, scale * r);
+    const small = await warpPhoto(photo, matInv3(matMul3(toSmall, H)), null, 1, fw, fh);
+    const base = await suppressMarkup(cv, small, await refRgbSmallP!, fw, fh, scale * r);
     let check: FieldStats | null = null, best: { check: FieldStats; field: Field | null } | null = null;
     for (let pass = 0; pass < 5; pass++) {
       const m = measureField(cv, refSmall, field ? warpByField(base, field, fw, fh) : base, fw, fh, { search: pass === 0 ? 16 : 12 });
@@ -607,7 +578,7 @@ export async function registerPhoto(photo: RgbImage, ref: RgbImage, { log = cons
 
   // c) resample the colour photo once, straight into sheet space
   const toPhoto = matInv3(H), w = ref.w, h = ref.h;
-  const { rgb, valid, covered } = warpRgb(photo, toPhoto, field, r, w, h);
+  const { rgb, valid, covered } = await warpPhoto(photo, toPhoto, field, r, w, h);
   report.sheetCoverage = covered / (w * h);
   report.homography = H;
   /** sheet px -> photo px, including the wrinkle correction (for diagnostics) */

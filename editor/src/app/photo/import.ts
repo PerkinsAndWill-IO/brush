@@ -299,14 +299,12 @@ async function findSheet(
   return found
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-
 /** Render a sheet as it is printed, at `dpi`, and read the pixels back. */
 export async function renderSheetRaster(pages: PageRenderer, pageIndex: number, dpi: number, signal?: AbortSignal): Promise<RasterMessage> {
   const canvas = document.createElement('canvas')
-  await pages.render(pageIndex, canvas, dpi / 72, signal)
-  // a raster-heavy PDF page may come back as an image-less preview first; the full page lands in the same canvas
-  for (let waited = 0; canvas.dataset.preview === '1' && waited < 60_000; waited += 100) await sleep(100)
+  // off screen: the whole page (never a raster-heavy PDF page's image-less preview), and the board's own render of
+  // a sheet still showing its preview is left to finish
+  await pages.render(pageIndex, canvas, dpi / 72, signal, undefined, { offscreen: true })
   const g = canvas.getContext('2d')
   if (!g || !canvas.width || !canvas.height) throw new PhotoImportError('could not render the sheet')
   const img = g.getImageData(0, 0, canvas.width, canvas.height)

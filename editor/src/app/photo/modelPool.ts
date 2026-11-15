@@ -1,10 +1,13 @@
 /**
- * Runs explainAway's two heavy loops (./pipeline/fit.ts: fitting the local ink models, then explaining every pixel)
- * on a few helper workers at once, each taking a band of rows. They are the slowest part of reading the ink, run
+ * Runs explainAway's two heavy loops (./pipeline/fit.ts: fitting the local ink models, then explaining every pixel),
+ * the Lanczos shrink of the rendered sheet and the warp of the photo into sheet space on a few helper workers at once,
+ * each taking a band of rows. They are the slowest part of reading the ink, run
  * twice per import, and the result is exactly the same as on one thread. Used by the photo worker; if anything goes
  * wrong (no workers inside workers in this browser, a helper that crashes) the loops run on its own thread instead.
  */
 import { bandRows, explainRows, fitRows, type Explained, type FitResult, type ModelWorkers } from './pipeline/fit'
+import { lanczosReduceRows, lanczosRowSpan, type RgbImage } from './pipeline/raster'
+import { warpRgb, type Warp } from './pipeline/warp'
 import type { ModelReply, ModelRequest } from './model-worker'
 
 type Request = ModelRequest extends infer R ? (R extends unknown ? Omit<R, 'id'> : never) : never
@@ -13,6 +16,10 @@ export function createModelPool(size: number): ModelWorkers {
   let helpers: Worker[] | null = null
   let broken = false
   let nextId = 1
+  // the photo the helpers hold for warps: a key per photo, and which helpers have it
+  const photoKeys = new WeakMap<RgbImage, number>()
+  let nextPhotoKey = 1
+  const hasPhoto = new Map<Worker, number>()
 
   const call = (worker: Worker, req: Request, transfer: Transferable[]) =>
     new Promise<ModelReply>((resolve, reject) => {
@@ -46,6 +53,7 @@ export function createModelPool(size: number): ModelWorkers {
       broken = true
       for (const h of helpers ?? []) h.terminate()
       helpers = null
+      hasPhoto.clear()
       return local()
     }
   }
@@ -101,6 +109,48 @@ export function createModelPool(size: number): ModelWorkers {
           return out
         },
         () => explainRows(params, { rgb, valid, refLo, y0: 0, y1: params.h }),
+      ),
+    shrink: (data, w, h, ch, nw, nh) =>
+      parallel(
+        nh,
+        async (hs) => {
+          const parts = split(nh, hs.length).map(async ([oy0, oy1], k) => {
+            const [y0, y1] = lanczosRowSpan(h, nh, oy0, oy1)
+            const band = data.slice(y0 * w * ch, y1 * w * ch)
+            const reply = await call(hs[k], { type: 'shrink', band, bandY0: y0, w, h, ch, nw, nh, oy0, oy1 }, [band.buffer])
+            return { r: (reply as { shrunk: Uint8Array }).shrunk, oy0 }
+          })
+          const out = new Uint8Array(nw * nh * ch)
+          for (const { r, oy0 } of await Promise.all(parts)) out.set(r, oy0 * nw * ch)
+          return out
+        },
+        () => lanczosReduceRows(data, 0, w, h, ch, nw, nh, 0, nh),
+      ),
+    warp: (photo, toPhoto, field, fieldScale, w, h) =>
+      parallel(
+        h,
+        async (hs) => {
+          let key = photoKeys.get(photo)
+          if (!key) photoKeys.set(photo, (key = nextPhotoKey++))
+          const photoKey = key
+          const parts = split(h, hs.length).map(async ([r0, r1], k) => {
+            // each helper gets its own copy of the photo once (structured clone), then only the warp's parameters
+            if (hasPhoto.get(hs[k]) !== photoKey) {
+              await call(hs[k], { type: 'photo', key: photoKey, photo }, [])
+              hasPhoto.set(hs[k], photoKey)
+            }
+            const reply = await call(hs[k], { type: 'warp', key: photoKey, toPhoto, field, fieldScale, w, r0, r1 }, [])
+            return { r: (reply as { warped: Warp }).warped, r0 }
+          })
+          const out: Warp = { rgb: new Uint8Array(w * h * 3), valid: new Uint8Array(w * h), covered: 0 }
+          for (const { r, r0 } of await Promise.all(parts)) {
+            out.rgb.set(r.rgb, r0 * w * 3)
+            out.valid.set(r.valid, r0 * w)
+            out.covered += r.covered
+          }
+          return out
+        },
+        () => warpRgb(photo, toPhoto, field, fieldScale, w, h),
       ),
   }
 }
