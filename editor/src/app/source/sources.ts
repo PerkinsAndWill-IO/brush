@@ -205,22 +205,37 @@ export class PackageDrawingSource implements DrawingSource {
  */
 export class DrawingFileSource implements DrawingSource {
   readonly kind = 'package' as const
-  readonly palette: TypePalette
   readonly project?: string
-  private readonly sheets: Sheet[]
+  private renderer?: PageRenderer
 
   constructor(
     readonly name: string,
     readonly doc: DrawingDocument,
   ) {
-    this.sheets = sheetsFromDrawing(doc)
-    this.palette = paletteFromDrawing(doc)
     if (doc.source.file) this.project = doc.source.file.replace(/\.[^.]+$/, '')
   }
 
+  private palette_?: TypePalette
+  /** Measured on every page, so built when first asked: opening a file reads only its first page. */
+  get palette(): TypePalette {
+    return (this.palette_ ??= paletteFromDrawing(this.doc))
+  }
+
   async load(): Promise<LoadedSource> {
+    return { sheets: sheetsFromDrawing(this.doc), pdf: null, pages: (this.renderer ??= this.pageRenderer()) }
+  }
+
+  /**
+   * Like `load`, but reads only the first page: later sheets carry just a scale their page states. Lets the first sheet
+   * paint before the other pages are decoded; `load` again once their contexts are built has every scale.
+   */
+  loadFirst(): LoadedSource {
+    return { sheets: sheetsFromDrawing(this.doc, 1), pdf: null, pages: (this.renderer ??= this.pageRenderer()) }
+  }
+
+  private pageRenderer(): PageRenderer {
     const pages = this.doc.pages
-    const renderer: PageRenderer = {
+    return {
       render: async (i, canvas, pxPerPt, signal, gate) => {
         const [m, f] = await Promise.all([import('../drawing/render'), import('../drawing/filters')])
         const fs = f.getFilters()
@@ -232,7 +247,6 @@ export class DrawingFileSource implements DrawingSource {
         return m.renderDrawingPage(pages[i], canvas, pxPerPt, signal, gate, { key: fs.version, hide: f.hiddenPredicate(this.doc, fs) }, region)
       },
     }
-    return { sheets: this.sheets, pdf: null, pages: renderer }
   }
 
   async contextFor(sheetId: string): Promise<SheetContext> {

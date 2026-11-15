@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!--
-    The Revit add-in. Revit 2025 and 2026 run on .NET 8, Revit 2027 on .NET 10.
+    The Revit add-in's shim: the only assembly Revit loads. It owns the ribbon and the API-thread dispatcher and loads
+    Brush.Revit.Link.dll (everything else) into a collectible context it can swap after a rebuild. Keep it small: a
+    change here still needs a Revit restart. It must not reference Brush.Link.Core (that would load Core outside the
+    swappable context).
+    Revit 2025 and 2026 run on .NET 8, Revit 2027 on .NET 10.
     Build for another Revit year with: dotnet build -p:RevitVersion=2025   (2025, 2026, 2027)
     The Revit API comes from reference-only packages (no Revit install needed to compile, not shipped).
   -->
@@ -23,7 +27,6 @@
   <ItemGroup>
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="$(RevitApiVersion)" ExcludeAssets="runtime" PrivateAssets="all" />
     <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="$(RevitApiVersion)" ExcludeAssets="runtime" PrivateAssets="all" />
-    <ProjectReference Include="..\Brush.Link.Core\Brush.Link.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -35,10 +38,11 @@
       <AddinsDir>$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)</AddinsDir>
     </PropertyGroup>
     <ItemGroup>
-      <BrushFiles Include="$(TargetDir)*.dll;$(TargetDir)*.pdb" />
+      <BrushFiles Include="$(TargetDir)Brush.Revit.dll;$(TargetDir)Brush.Revit.pdb" />
     </ItemGroup>
-    <Copy SourceFiles="$(TargetDir)Brush.Revit.addin" DestinationFolder="$(AddinsDir)" />
-    <Copy SourceFiles="@(BrushFiles)" DestinationFolder="$(AddinsDir)\Brush" />
-    <Message Importance="high" Text="Brush Link installed for Revit $(RevitVersion) in $(AddinsDir)" />
+    <!-- Revit locks this DLL while it runs. An unchanged one is skipped; a changed one fails here: restart Revit. -->
+    <Copy SourceFiles="$(TargetDir)Brush.Revit.addin" DestinationFolder="$(AddinsDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(BrushFiles)" DestinationFolder="$(AddinsDir)\Brush" SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="Brush shim installed for Revit $(RevitVersion) in $(AddinsDir)" />
   </Target>
 </Project>

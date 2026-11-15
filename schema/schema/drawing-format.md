@@ -38,13 +38,15 @@ requests.
   "source": {"file": "model.rvt", "generator": "..."},
   "unitsPerFoot": 30480,
   "pages": [
-    {"id": 382617, "kind": "sheet", "number": "A102", "name": "Plans", "scale": null, "min": [0, 0], "max": [2.76, 1.95], "frame": [1024, 5032112]}
+    {"id": 382617, "kind": "sheet", "number": "A102", "name": "Plans", "scale": null, "min": [0, 0], "max": [2.76, 1.95], "frame": [1024, 5032112]},
+    {"id": 960621, "kind": "view", "viewType": "axon", "number": null, "name": "{3D}", "scale": "1 : 100", "min": [0, 0], "max": [4, 3], "frame": [5032136, 81022]}
   ],
   "elements": [5033136, 96210]
 }
 ```
 
-- `pages`: the legacy page fields without `items`. `frame` is the page frame.
+- `pages`: the legacy page fields without `items`. `frame` is the page frame. A `view` page also has `viewType` (see
+  [View types](#view-types)).
 - `unitsPerFoot` is 30480, which makes one unit 0.01 mm of paper. Readers reject any other value.
 - `elements` is the frame of the elements table. Its content is the UTF-8 JSON object that was `elements` in
   the legacy format. A reader may load it after the first page is drawn: only the metadata card, filters and context need it.
@@ -63,8 +65,20 @@ Decompressed, a page frame is laid out like a legacy payload without the magic a
 The page JSON:
 
 ```json
-{"items": [], "boxes": {"12345": [x0, y0, x1, y1]}}
+{
+  "items": [],
+  "boxes": {"12345": [x0, y0, x1, y1]},
+  "views": {"960621": {"type": "plan", "name": "Level 1", "scale": "1 : 100", "box": [x0, y0, x1, y1]}}
+}
 ```
+
+- **`views`:** every view whose items are on this page, keyed by view id, which is the `view` field of those items.
+  - On a sheet, these are the views placed in its viewports. On a `view` page, it is the view itself.
+  - `type` is the view type (see [View types](#view-types)). `name` and `scale` are as on pages; `scale` is `null`
+    when the view has none.
+  - `box` is the viewport's rectangle on the page, in units relative to the page `min`, like `boxes`. It is left out
+    when the view has no viewport, for example on its own `view` page.
+  - Items drawn by the sheet itself (title block, sheet text) have no `view`.
 
 - **`items`:** legacy items, in draw order, with the same blob reference fields (`pts`, `segs`, `rings`, `png`).
   `text` items are unchanged: their coordinates stay JSON numbers in paper feet.
@@ -73,6 +87,27 @@ The page JSON:
   the page `min`.
 - **`image` items:** they may carry `rot`, the rotation in radians, anticlockwise about the centre of the image
   rectangle. It is left out when it is 0. A reader that cannot rotate images draws them unrotated.
+
+### View types
+
+`viewType` on a page and `type` in `views` take one of these values. Readers treat an unknown value as `other`.
+
+| Value | View |
+| --- | --- |
+| `plan` | floor plan |
+| `ceiling` | reflected ceiling plan |
+| `structural-plan` | structural (engineering) plan |
+| `area-plan` | area plan |
+| `elevation` | elevation |
+| `section` | section |
+| `detail` | detail view (a callout or section cut from the model) |
+| `drafting` | drafting view (2D only, no model) |
+| `axon` | 3D view, orthographic |
+| `perspective` | 3D view, perspective (camera) |
+| `legend` | legend |
+| `schedule` | schedule placed on a sheet |
+| `rendering` | rendering or image view |
+| `other` | anything else |
 
 ### Coordinate blobs
 

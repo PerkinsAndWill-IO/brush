@@ -1,13 +1,15 @@
 # Example drawing
 
-`house.drawing` is a three-page drawing in the viewer's `.drawing` format (legacy gzip format, `schema/drawing-format-legacy.md`):
+`house.drawing` is a three-page drawing in the current `.drawing` format (version 1, zstd frames, `schema/schema/drawing-format.md`):
 
 - sheet A102, Plans
 - sheet A103, Elevations and Sections
 - a 3D (axonometric) view of the model
 
-Every line, fill and text carries the element it came from, so hovering shows its card. Open it with the page
-switcher, or with `?file=/examples/house.drawing` on the dev server (`npm run dev`, port 5199).
+Every line, fill and text carries the element it came from, so hovering shows its card. Open it from the Editor's
+sample picker. The old schema viewer reads only the legacy gzip format and keeps its own copy in `public/scenes/`.
+
+`kro/kro-sample.drawing` is a second sample, from a real project (see `kro/README.md`).
 
 ## Licence
 

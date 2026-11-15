@@ -8,7 +8,7 @@ import { contextFor, emptyContext } from '../brain/contextStore'
 import { getSession, session } from '../session'
 import { getDocState } from '../store'
 import { photoGroups } from './groups'
-import { numberCommands, readStrokes } from './interpret'
+import { newWallsContext, numberCommands, readStrokes, type ReadOutcome } from './interpret'
 
 export interface MakeElementsResult {
   /** Strokes that became elements. */
@@ -73,20 +73,42 @@ export async function makeElements(groupId: string): Promise<MakeElementsResult>
     const todo = start.strokes.filter((s) => ids.has(s.id) && !done.has(s.id))
     const ctx = (await contextFor(group.sheetId)) ?? emptyContext(group.sheetId)
     const settings = { ...getSession().settings }
-    const history: AcceptedDecision[] = getSession().accepted.slice()
-    const decisions: { decision: AcceptedDecision; command: Command | null }[] = []
-    const result: MakeElementsResult = { elements: 0, unsure: 0, ink: 0, byKind: {} }
-    for (let i = 0; i < todo.length; i += CHUNK) {
-      const part = readStrokes(todo.slice(i, i + CHUNK), ctx, settings, { palette: doc.source?.palette, history, committedAt: Date.now() })
-      for (const d of part.decisions) {
-        decisions.push(d)
-        history.push(d.decision)
+    const palette = doc.source?.palette
+    const base = getSession().accepted
+    const read = async (strokes: typeof todo, c: typeof ctx, before: readonly AcceptedDecision[]) => {
+      const history = before.slice()
+      const decisions: { decision: AcceptedDecision; command: Command | null }[] = []
+      const outcomes = new Map<string, ReadOutcome>()
+      for (let i = 0; i < strokes.length; i += CHUNK) {
+        const part = readStrokes(strokes.slice(i, i + CHUNK), c, settings, { palette, history, committedAt: Date.now() })
+        for (const d of part.decisions) {
+          decisions.push(d)
+          history.push(d.decision)
+        }
+        for (const [id, o] of part.outcomes) outcomes.set(id, o)
+        await new Promise((r) => setTimeout(r, 0))
+        if (getDocState().loadId !== loadId) throw new Error('Another drawing was opened; nothing was changed.')
       }
-      for (const o of part.outcomes.values()) result[o === 'element' ? 'elements' : o]++
-      for (const [k, n] of Object.entries(part.byKind)) result.byKind[k as DecisionKind] = (result.byKind[k as DecisionKind] ?? 0) + (n ?? 0)
-      await new Promise((r) => setTimeout(r, 0))
-      if (getDocState().loadId !== loadId) throw new Error('Another drawing was opened; nothing was changed.')
+      return { decisions, outcomes }
     }
+    // C1: walls first, then the rest against the sheet plus the new walls (a door in a new wall is hosted in it)
+    const first = await read(todo, ctx, base)
+    const outcomes = first.outcomes
+    let decisions = first.decisions
+    const walls = newWallsContext(decisions, ctx, palette)
+    if (walls) {
+      const wallIds = new Set(walls.walls.map((w) => w.decision.strokeId))
+      const second = await read(
+        todo.filter((s) => !wallIds.has(s.id)),
+        walls.ctx,
+        [...base, ...walls.walls.map((w) => w.decision)],
+      )
+      decisions = [...walls.walls, ...second.decisions]
+      for (const [id, o] of second.outcomes) outcomes.set(id, o)
+    }
+    const result: MakeElementsResult = { elements: 0, unsure: 0, ink: 0, byKind: {} }
+    for (const o of outcomes.values()) result[o === 'element' ? 'elements' : o]++
+    for (const d of decisions) result.byKind[d.decision.kind] = (result.byKind[d.decision.kind] ?? 0) + 1
     // strokes erased or undone while reading are left out; command ids are given now, with the commit, so they follow
     // whatever the brush or another import committed while these strokes were read
     const now = getSession()

@@ -105,6 +105,17 @@ export interface DrawImage extends Common {
 
 export type DrawItem = DrawPath | DrawSegs | DrawFill | DrawText | DrawImage
 
+export const VIEW_TYPES = ['plan', 'ceiling', 'structural-plan', 'area-plan', 'elevation', 'section', 'detail', 'drafting', 'axon', 'perspective', 'legend', 'schedule', 'rendering', 'other'] as const
+export type ViewType = (typeof VIEW_TYPES)[number]
+
+/** One view on a page (zstd files only). `box` is the viewport rectangle in sheet points, absent for a view's own page. */
+export interface DrawingView {
+  type: ViewType
+  name: string
+  scale: string | null
+  box?: [number, number, number, number]
+}
+
 export interface DrawingPage {
   /** Host id of the sheet or view, as a string. */
   id: string
@@ -121,6 +132,10 @@ export interface DrawingPage {
    * in sheet points (for culling and picking; text anchors may be missing). Absent for legacy files.
    */
   boxes?: Record<string, [number, number, number, number]>
+  /** Zstd files only, on a `view` page: what kind of view it is. Absent when the file does not say. */
+  viewType?: ViewType
+  /** Zstd files only: the views on this page keyed by view id (the `view` of its items). */
+  views?: Record<string, DrawingView>
 }
 
 export interface DrawingDocument {

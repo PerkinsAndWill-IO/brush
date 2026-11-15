@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import type { AcceptedDecision, Command, Stroke } from '../../src/core/types'
 import { StrokeHistory } from '../../src/app/board/history'
 import { photoGroupOf, photoGroups } from '../../src/app/photo/groups'
-import { numberCommands, readStrokes } from '../../src/app/photo/interpret'
+import { newWallsContext, numberCommands, readStrokes } from '../../src/app/photo/interpret'
 import { markupToStrokes } from '../../src/app/photo/toStrokes'
 import { PT_PER_M, polyStroke, scribbleStroke, settings, testContext } from './predict/helpers'
 
@@ -126,5 +126,37 @@ describe('P1-08 make elements from an import', () => {
     expect(h.strokes()).toHaveLength(2)
     h.redo()
     expect(h.accepted()).toHaveLength(2)
+  })
+
+  it('C1-05: a photo with a new wall and a door in it: the door is hosted in the new wall, whatever the stroke order', () => {
+    // a 10 m wall inside the room (no wall there on the sheet) and a 0.9 m tick across it, the door traced first
+    const NEW_WALL: [number, number][] = [
+      [150, 100],
+      [150.5, 395],
+    ]
+    const TICK: [number, number][] = [
+      [150 - 0.45 * PT_PER_M, 250],
+      [150 + 0.45 * PT_PER_M, 250.5],
+    ]
+    const strokes = imported('pc1-', [TICK, NEW_WALL])
+    // pass 1 (what groupActions.makeElements reads first): the door has no wall to sit in
+    const first = readStrokes(strokes, ctx, S, { committedAt: 1 })
+    expect(first.decisions.map((d) => d.decision.kind)).toEqual(['wall'])
+    const walls = newWallsContext(first.decisions, ctx)!
+    const wallIds = new Set(walls.walls.map((w) => w.decision.strokeId))
+    // pass 2: everything else, against the sheet plus the new wall
+    const second = readStrokes(strokes.filter((s) => !wallIds.has(s.id)), walls.ctx, S, { committedAt: 1, history: walls.walls.map((w) => w.decision) })
+    expect(second.decisions.map((d) => d.decision.kind)).toEqual(['door'])
+    const numbered = numberCommands([...walls.walls, ...second.decisions], [{ id: 'cmd-0004' }] as unknown as Command[], 'cmd')
+    expect(numbered.map((d) => d.command?.op)).toEqual(['create_wall', 'place_door']) // the wall is applied first
+    const door = numbered[1].command!
+    expect(door.op === 'place_door' && door.hostWallRef).toBe('cmd-0005')
+  })
+
+  it('C1-05: a door whose new host wall did not make it into the batch names no host (the model picks the nearest)', () => {
+    const decision = { strokeId: 'd' } as AcceptedDecision
+    const door: Command = { op: 'place_door', id: 'pending', sheetId: 'sheet-0', strokeId: 'd', at: { x: 0, y: 0 }, widthPt: 25, angleRad: 0, hostWallRef: 'new-wall:gone' }
+    const [out] = numberCommands([{ decision, command: door }], [], 'cmd')
+    expect(out.command?.op === 'place_door' && out.command.hostWallRef).toBeUndefined()
   })
 })
