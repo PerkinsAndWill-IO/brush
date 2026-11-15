@@ -133,7 +133,7 @@ function commitNow(c: Current, d = c.session.commit(Date.now())) {
   }
   // an eraser pass that reads as delete is kept (as an inkless eraser stroke) so the element has a source
   if (eraser && !getSession().strokes.some((s) => s.id === c.stroke.id)) doc.addStroke({ ...c.session.stroke, points: c.session.stroke.points.slice() })
-  const command = commandFromDecision(d, nextCommandId(getSession().commands, getSession().commandPrefix), c.ctx)
+  const command = commandFromDecision(d, nextCommandId(getSession().commands, getSession().commandPrefix, getSession().commandSeq), c.ctx)
   doc.commitDecision(d, command)
   const shown = [c.applied, c.session.current, getLive().hypothesis].find((h) => h?.kind === d.kind) ?? getLive().hypothesis
   setLive({ phase: 'committed', decision: d, chips: [], hypothesis: shown && { ...shown, stable: true } })

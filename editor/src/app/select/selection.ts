@@ -232,10 +232,10 @@ function contextWithout(sheetId: string, strokeIds: ReadonlySet<string>): SheetC
 
 /** Command ids handed out in order, so a batch never reuses one. */
 function idMaker() {
-  const { commands, commandPrefix } = getSession()
+  const { commands, commandPrefix, commandSeq } = getSession()
   const log: Command[] = commands.slice()
   return (cmd: (id: string) => Command | null): Command | null => {
-    const c = cmd(nextCommandId(log, commandPrefix))
+    const c = cmd(nextCommandId(log, commandPrefix, commandSeq))
     if (c) log.push(c)
     return c
   }

@@ -12,6 +12,8 @@ export type Tool = 'select' | 'brush' | 'eraser' | 'pan' | 'measure'
 
 export interface SessionState {
   strokes: readonly Stroke[]
+  /** Highest command number ever issued in this session, undone ones included (nextCommandId's floor). */
+  commandSeq: number
   /** Accepted predictions (M3), one per committed stroke; markup is never stored. */
   accepted: readonly AcceptedDecision[]
   /** The command log (M3/M5). */
@@ -44,6 +46,7 @@ let state: SessionState = {
   strokes: [],
   accepted: [],
   commands: [],
+  commandSeq: 0,
   canUndo: false,
   canRedo: false,
   tool: 'brush',
@@ -63,7 +66,7 @@ function emit(next: Partial<SessionState>) {
 }
 
 function syncStrokes(dirty = true) {
-  emit({ strokes: history.strokes(), accepted: history.accepted(), commands: history.commands(), canUndo: history.canUndo(), canRedo: history.canRedo() })
+  emit({ strokes: history.strokes(), accepted: history.accepted(), commands: history.commands(), commandSeq: history.highestCommandNumber(), canUndo: history.canUndo(), canRedo: history.canRedo() })
   if (dirty) scheduleSave()
 }
 
