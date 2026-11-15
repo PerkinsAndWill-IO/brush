@@ -16,10 +16,13 @@ import {
   parseDrawingPayload,
   parseLegacyDrawingPayload,
   type DrawingDocument,
+  type DrawingPage,
+  type DrawItem,
   type LazyFrame,
 } from '@core/drawing'
-import { rememberAnalysis } from '@core/context/drawing'
-import type { DecodedPage, ElementsToDecode, FrameToDecode } from './decode-worker'
+import { rememberAnalysis, type PageAnalysis } from '@core/context/drawing'
+import type { ContextItem } from '@core/types'
+import type { ElementsToDecode, FrameToDecode, PageChunk, PageEnd } from './decode-worker'
 
 export async function gunzip(bytes: Uint8Array): Promise<Uint8Array> {
   if (typeof DecompressionStream === 'undefined') throw new DrawingFormatError('reading a .drawing needs DecompressionStream')
@@ -68,23 +71,37 @@ export function watchPages(doc: DrawingDocument, on: (done: number, total: numbe
   return () => void l?.watchers.delete(on)
 }
 
-type Decoder = ((frame: Uint8Array, f: LazyFrame, index: number) => Promise<Omit<DecodedPage, 'index'>>) & { close(): void }
+/** What a decoder hands back for a frame: the page's content and analysis, or nothing if it did not decode. */
+type Decoded = { page?: Pick<DrawingPage, 'items' | 'boxes' | 'views'>; analysis?: PageAnalysis }
+type Decoder = ((frame: Uint8Array, f: LazyFrame, index: number) => Promise<Decoded>) & { close(): void }
 
 /**
  * Decodes (and analyses) frames in a module worker, in the order posted; resolves without a page for a frame that does
- * not decode. `elements` is the compressed elements table, which the analysis reads (a copy is posted).
+ * not decode. `elements` is the compressed elements table, which the analysis reads (a copy is posted). A page arrives
+ * in chunks (see decode-worker.ts), each received in its own short task.
  */
 function workerDecoder(elements?: Uint8Array): Decoder {
-  const waiting = new Map<number, (r: Omit<DecodedPage, 'index'>) => void>()
+  const waiting = new Map<number, { resolve: (r: Decoded) => void; items: DrawItem[]; ctxItems: ContextItem[] }>()
   let worker: Worker | null = new Worker(new URL('./decode-worker.ts', import.meta.url), { type: 'module' })
-  worker.onmessage = (e: MessageEvent<DecodedPage>) => {
-    waiting.get(e.data.index)?.(e.data)
+  worker.onmessage = (e: MessageEvent<PageChunk | PageEnd>) => {
+    const w = waiting.get(e.data.index)
+    if (!w) return
+    if (!('done' in e.data)) {
+      if (e.data.items) for (const it of e.data.items) w.items.push(it)
+      if (e.data.ctxItems) for (const it of e.data.ctxItems) w.ctxItems.push(it)
+      return
+    }
     waiting.delete(e.data.index)
+    const { page, analysis } = e.data
+    w.resolve({
+      page: page && { ...page, items: w.items },
+      analysis: analysis && { ...analysis, ctx: { ...analysis.ctx, items: w.ctxItems } },
+    })
   }
   // a crashed worker decodes nothing more: its pages are decoded on the main thread when first read
   worker.onerror = () => {
     worker = null
-    waiting.forEach((r) => r({}))
+    waiting.forEach((w) => w.resolve({}))
     waiting.clear()
   }
   if (elements) {
@@ -92,9 +109,9 @@ function workerDecoder(elements?: Uint8Array): Decoder {
     worker.postMessage({ elements: copy } satisfies ElementsToDecode, [copy.buffer])
   }
   const decode = (frame: Uint8Array, f: LazyFrame, index: number) =>
-    new Promise<Omit<DecodedPage, 'index'>>((resolve) => {
+    new Promise<Decoded>((resolve) => {
       if (!worker) return resolve({})
-      waiting.set(index, resolve)
+      waiting.set(index, { resolve, items: [], ctxItems: [] })
       worker.postMessage({ index, frame, header: f.header, name: f.name } satisfies FrameToDecode, [frame.buffer as ArrayBuffer])
     })
   return Object.assign(decode, { close: () => worker?.terminate() })
