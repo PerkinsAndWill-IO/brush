@@ -7,8 +7,7 @@
  * element on another sheet" is simply the items with the same `el`.
  */
 import { useSyncExternalStore } from 'react'
-import type { DrawingDocument, DrawingElement, DrawingPage, DrawItem } from '@core/drawing'
-import { categoryName, isAnnotationCategory, NO_CATEGORY } from './filters'
+import type { DrawingElement, DrawingPage, DrawItem } from '@core/drawing'
 import { buildPageHitIndex, hitItem, pageHitIndexSteps, type Measure, type PageHitIndex } from './hit'
 
 // ───────────── element card logic (pure) ─────────────
@@ -156,39 +155,33 @@ export function elementAt(page: DrawingPage, x: number, y: number, tol: number, 
   return i < 0 ? null : page.items[i].el
 }
 
-/** Categories the eraser passes over without erasing: what lies under or across everything (rooms, floors, ...). */
-const ERASE_BACKGROUND = /^(rooms?|areas?|floors?|topography|building ?pad|<room separation>|<area boundary>)$/i
+/** An element must be hit at least this share of the times the most-hit element was, to be erased with it. */
+const ERASE_SHARE = 0.3
 
 /**
- * Host elements an eraser path hits on a page (M3-03 delete over a `.drawing`), each once, in path order. The
- * path is walked every tol/2 with the Select tool's hit test (radius `tol`, sheet points). Annotation (grids,
- * dimensions, tags, ...) and background elements (rooms, floors, ...) are skipped, so a pass across a wall does not
- * also take the grid crossing it or the room it bounds; so are items `skip` hides (already erased, filtered out).
+ * Host elements an eraser path erases on a page (M3-03 delete over a `.drawing`, any category), each once, in path
+ * order. The path is walked every tol/2 with the Select tool's hit test (radius `tol`, sheet points) and each
+ * element's hits are counted:
+ *  - lines and text win over fills: when the pass touched any line, fills (rooms, floors, cut walls' insides) only
+ *    count for elements that also have line hits; a pass over open floor, touching no line, erases the fill's element;
+ *  - an element hit far less than the most-hit one (a grid line crossed while scrubbing a wall) is left alone.
+ * Items without an element, and items `skip` hides (already erased, filtered out), are never erased.
  */
-export function elementsAlong(
-  page: DrawingPage,
-  doc: Pick<DrawingDocument, 'elements'>,
-  pts: readonly { x: number; y: number }[],
-  tol: number,
-  skip?: ((it: DrawItem) => boolean) | null,
-): string[] {
-  const protectedEl = (el: string | null) => {
-    if (el === null) return true
-    const name = categoryName(doc.elements[el])
-    return isAnnotationCategory(name) || ERASE_BACKGROUND.test(name) || name === NO_CATEGORY
-  }
-  const ignore = (it: DrawItem) => protectedEl(it.el) || !!skip?.(it)
+export function elementsAlong(page: DrawingPage, pts: readonly { x: number; y: number }[], tol: number, skip?: ((it: DrawItem) => boolean) | null): string[] {
+  const ignore = (it: DrawItem) => it.el === null || !!skip?.(it)
   const ix = pageHitIndex(page)
-  const out: string[] = []
-  const seen = new Set<string>()
+  const lineHits = new Map<string, number>()
+  const fillHits = new Map<string, number>()
+  const order: string[] = []
   const step = Math.max(tol / 2, 0.5)
   const hit = (x: number, y: number) => {
     const i = hitItem(ix, x, y, tol, ignore)
-    const el = i < 0 ? null : page.items[i].el
-    if (el !== null && !seen.has(el)) {
-      seen.add(el)
-      out.push(el)
-    }
+    if (i < 0) return
+    const it = page.items[i]
+    const el = it.el!
+    const m = it.t === 'fill' ? fillHits : lineHits
+    m.set(el, (m.get(el) ?? 0) + 1)
+    if (!order.includes(el)) order.push(el)
   }
   for (let k = 0; k < pts.length; k++) {
     const a = pts[k]
@@ -200,7 +193,12 @@ export function elementsAlong(
     const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / step))
     for (let j = 0; j < n; j++) hit(a.x + ((b.x - a.x) * j) / n, a.y + ((b.y - a.y) * j) / n)
   }
-  return out
+  // lines decide when there are any; an element's fill hits then add to its line hits
+  const counts = new Map<string, number>()
+  if (lineHits.size) for (const [el, n] of lineHits) counts.set(el, n + (fillHits.get(el) ?? 0))
+  else for (const [el, n] of fillHits) counts.set(el, n)
+  const max = Math.max(0, ...counts.values())
+  return order.filter((el) => (counts.get(el) ?? 0) >= Math.max(1, ERASE_SHARE * max))
 }
 
 // ───────────── store ─────────────

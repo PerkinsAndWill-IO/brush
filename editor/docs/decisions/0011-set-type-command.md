@@ -28,9 +28,9 @@ Consumers updated in the same change: the command file accepts the op (`app/sour
 sidecar keeps `set_type` commands although they have no stroke (`app/session.ts`), the Revit panel pins its result at
 the element (`anchorOf`), and the board marks each pending change on the sheet (`app/select/SelectLayers.tsx`).
 
-The Revit plugin (`revit/`, another lane) does not know the op yet. The protocol already says unknown ops are reported
-as failed without breaking the batch, so a linked sheet shows the change as failed until the plugin implements it
-(`ChangeTypeId` on the element, finding the type by family and name).
+The Revit plugin (`revit/`) applies the op since S1-06 (`ChangeTypeId` on the element, the type found among its valid
+types by family and name or the sheet's "Family: Type" key; revert puts the old type back). An older plugin reports it
+as failed without breaking the batch, as the protocol says for unknown ops.
 
 ## Alternatives considered
 

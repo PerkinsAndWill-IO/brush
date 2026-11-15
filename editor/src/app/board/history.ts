@@ -231,20 +231,40 @@ export class StrokeHistory {
     this.cmds = commands.slice()
     this.undoStack = []
     this.redoStack = []
+    this.seen = highestNumber(this.cmds)
   }
+
+  /**
+   * The highest command number this history ever held, undone ones included: a command undone while Revit has it
+   * waits for its revert under that id, so the id must never be handed out again (nextCommandId's floor).
+   */
+  highestCommandNumber(): number {
+    return Math.max(this.seen, highestNumber(this.cmds))
+  }
+
+  private seen = 0
 
   private push(op: HistoryOp) {
     this.undoStack.push(op)
     this.redoStack = []
+    this.seen = Math.max(this.seen, highestNumber(this.cmds))
   }
 }
 
-/** Next command id after the ones in `commands` (`cmd-0001`, ... like core/commands CommandLog). */
-export function nextCommandId(commands: readonly Command[], prefix = 'cmd'): string {
+function highestNumber(commands: readonly Command[]): number {
   let n = 0
   for (const c of commands) {
     const m = /-(\d+)$/.exec(c.id)
     if (m) n = Math.max(n, Number(m[1]))
   }
+  return n
+}
+
+/**
+ * Next command id after the ones in `commands` (`cmd-0001`, ... like core/commands CommandLog). `floor`: the highest
+ * number ever issued (StrokeHistory.highestCommandNumber), so the id of an undone command is not handed out again.
+ */
+export function nextCommandId(commands: readonly Command[], prefix = 'cmd', floor = 0): string {
+  const n = Math.max(floor, highestNumber(commands))
   return `${prefix}-${String(n + 1).padStart(4, '0')}`
 }

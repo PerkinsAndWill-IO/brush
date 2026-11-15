@@ -193,6 +193,21 @@ public sealed class LinkHub : IAsyncDisposable
             case Ping:
                 await conn.SendAsync(ServerMessages.Pong(msg.RequestId), ct);
                 break;
+            case ListTypes lt:
+            {
+                TypeList types;
+                try
+                {
+                    types = await Gated(c => host.ListTypesAsync(lt.ElementId, c), ct);
+                }
+                catch (KeyNotFoundException e)
+                {
+                    await conn.SendAsync(ServerMessages.Error(msg.RequestId, ErrorCodes.UnknownElement, e.Message), ct);
+                    break;
+                }
+                await conn.SendAsync(ServerMessages.Types(msg.RequestId, types), ct);
+                break;
+            }
         }
     }
 

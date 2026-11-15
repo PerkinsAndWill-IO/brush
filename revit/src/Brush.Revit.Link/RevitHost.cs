@@ -109,6 +109,21 @@ internal sealed class RevitHost : ILinkHost, IDisposable
         }
     }, ct);
 
+    /// <summary>S1-07: the element's valid types (<c>Element.GetValidTypes()</c>) and its current type.</summary>
+    public Task<TypeList> ListTypesAsync(string elementId, CancellationToken ct) => dispatcher.InvokeAsync(app =>
+    {
+        var doc = ActiveDocument(app);
+        var element = (SheetReader.ParseId(elementId) is { } id ? doc.GetElement(id) : null)
+            ?? throw new KeyNotFoundException($"no element '{elementId}' in {doc.Title}");
+        static TypeInfo Info(ElementType t) => new(string.IsNullOrEmpty(t.FamilyName) ? null : t.FamilyName, t.Name, SheetReader.IdOf(t));
+        var current = doc.GetElement(element.GetTypeId()) as ElementType;
+        var types = element.GetValidTypes().Select(doc.GetElement).OfType<ElementType>()
+            .OrderBy(t => t.FamilyName, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(Info).ToList();
+        if (current is not null && !types.Exists(t => t.TypeId == SheetReader.IdOf(current))) types.Insert(0, Info(current));
+        return new TypeList(elementId, current is null ? null : Info(current), types);
+    }, ct);
+
     public Task ShowSheetAsync(string sheetId, CancellationToken ct) => dispatcher.InvokeAsync(app =>
     {
         var uidoc = app.ActiveUIDocument ?? throw new InvalidOperationException("no model is open in Revit");

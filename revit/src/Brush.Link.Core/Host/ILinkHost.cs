@@ -26,6 +26,12 @@ public interface ILinkHost
     /// <summary>Undo earlier commands of this link: delete the elements they created. Used for the editor's undo.</summary>
     Task<IReadOnlyList<CommandResult>> RevertAsync(IReadOnlyList<string> commandIds, CancellationToken ct);
 
+    /// <summary>
+    /// S1-07: the types <paramref name="elementId"/> can switch to, as the host lists them, and its current type.
+    /// Throws <see cref="KeyNotFoundException"/> for an unknown element.
+    /// </summary>
+    Task<TypeList> ListTypesAsync(string elementId, CancellationToken ct);
+
     /// <summary>Make the sheet the active view in the host. Throws <see cref="KeyNotFoundException"/> for an unknown sheet.</summary>
     Task ShowSheetAsync(string sheetId, CancellationToken ct);
 
@@ -40,6 +46,11 @@ public interface ILinkHost
 }
 
 public sealed record DocumentInfo(string Title, string? Path, string? Project, IReadOnlyList<SheetSummary> Sheets);
+
+/// <summary>S1-07: a type an element can take. <see cref="TypeId"/> is the host's id for it.</summary>
+public sealed record TypeInfo(string? Family, string TypeName, string TypeId);
+
+public sealed record TypeList(string ElementId, TypeInfo? Current, IReadOnlyList<TypeInfo> Types);
 
 public sealed record SheetSummary(string Id, string? Number, string Name);
 

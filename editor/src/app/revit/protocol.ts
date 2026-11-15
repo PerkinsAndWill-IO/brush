@@ -40,8 +40,24 @@ export type ClientMessage =
   | { type: 'apply'; sheetId: string; baseVersion?: number; commands: Command[]; requestId?: string }
   | { type: 'revert'; sheetId: string; commandIds: string[]; requestId?: string }
   | { type: 'ping'; requestId?: string }
+  | { type: 'list_types'; elementId: string; requestId?: string } // S1-07
 
 // ─────────────── plugin → editor ───────────────
+
+/** S1-07: a type an element can take, as the plugin lists it (Element.GetValidTypes()). */
+export interface LinkTypeInfo {
+  family: string | null
+  typeName: string
+  typeId: string
+}
+
+export interface TypesMessage {
+  type: 'types'
+  requestId?: string
+  elementId: string
+  current: LinkTypeInfo | null
+  types: LinkTypeInfo[]
+}
 
 export interface WelcomeMessage {
   type: 'welcome'
@@ -100,10 +116,11 @@ export type ServerMessage =
   | AppliedMessage
   | RevertedMessage
   | ErrorMessage
+  | TypesMessage
   | { type: 'shown'; requestId?: string; sheetId: string }
   | { type: 'pong'; requestId?: string }
 
-const SERVER_TYPES = new Set(['welcome', 'sheets', 'sheet', 'applied', 'reverted', 'shown', 'error', 'pong'])
+const SERVER_TYPES = new Set(['welcome', 'sheets', 'sheet', 'applied', 'reverted', 'shown', 'error', 'pong', 'types'])
 
 /** Parse one text frame; null for anything that is not a known server message. */
 export function parseServerMessage(text: string): ServerMessage | null {

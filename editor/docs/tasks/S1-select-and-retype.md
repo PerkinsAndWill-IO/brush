@@ -12,8 +12,10 @@ Revit sheet, and change their type from a menu at the pointer.
 | S1-03 | For host elements the menu offers every type their category uses in the document (doors named "Family Type" as the palette names them). Several elements of one category change together; elements of different categories show a note instead of types. The element's own type is marked "original"; picking it drops the pending change. | Unit tests of `documentTypes`, `sheetElementType`; E2E |
 | S1-04 | A type change of a host element goes in the command log as `set_type` (decision 0011), is saved with the session and exported in the command file, and is marked on every sheet that draws the element ("→ new type"). | Unit test of the command file; E2E |
 | S1-05 | Every change from the menu is one undo step; undo puts the old elements and commands back where they were. | Unit tests of `StrokeHistory.replace`; E2E |
+| S1-06 | The Revit plugin applies `set_type` (`ChangeTypeId` among the element's valid types, matched by family + name or the sheet's "Family: Type" key, see `revit/docs/protocol.md`), and its revert puts the old type back on elements that still have the new one. | `revit/tests/Brush.Link.Core.Tests`; live: `revit/tests/live/type-switcher.live.mjs` |
+| S1-07 | With Revit connected, the menu of a host element on a linked sheet lists every type Revit allows for it (`list_types`), not only the ones the document uses; an older plugin, an error or a 5 s silence keeps the document's types. | `tests/unit/revit/types.test.ts` |
 
-**Not yet.** The Revit plugin does not apply `set_type` (reported as failed on a linked sheet). A multi-stroke gesture
+**Not yet.** A multi-stroke gesture
 (M3-11) read again as another kind is read from its last stroke only. The sheet is not redrawn with the new type
 until the linked model sends a new version; a `.drawing` without a link only shows the marker.
 

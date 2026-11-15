@@ -67,20 +67,16 @@ let cur: Current | null = null
 
 /**
  * What an eraser pass erases on a sheet drawn from host vectors: the elements under its path, hit-tested on their
- * real lines like the Select tool (not only the items the context classed as walls or furniture), mapped to the
- * sheet's context items. Undefined when the sheet has no vectors (plain PDF).
+ * real lines like the Select tool, any category (walls, doors, grids, dimensions, rooms, ...). Each element is named
+ * by its context item when the sheet has one, else by its element id itself (which the delete command and the Revit
+ * link take as is). Undefined when the sheet has no vectors (plain PDF).
  */
 function eraserTargets(c: Current): string[] | undefined {
   const vp = getDocState().source?.vectorPage?.(c.sheet.id)
   if (!vp) return undefined
   const tol = Math.max((c.stroke.size ?? 8) / 2, 1)
-  const els = elementsAlong(vp.page, vp, c.session.stroke.points, tol, hiddenPredicate({ elements: vp.elements }, getFilters()))
-  const out: string[] = []
-  for (const el of els) {
-    const item = c.ctx.items.find((i) => i.hostRef === el)
-    if (item) out.push(item.id)
-  }
-  return out
+  const els = elementsAlong(vp.page, c.session.stroke.points, tol, hiddenPredicate({ elements: vp.elements }, getFilters()))
+  return els.map((el) => c.ctx.items.find((i) => i.hostRef === el)?.id ?? el)
 }
 
 const liveOn = () => getSession().settings.live
@@ -137,7 +133,7 @@ function commitNow(c: Current, d = c.session.commit(Date.now())) {
   }
   // an eraser pass that reads as delete is kept (as an inkless eraser stroke) so the element has a source
   if (eraser && !getSession().strokes.some((s) => s.id === c.stroke.id)) doc.addStroke({ ...c.session.stroke, points: c.session.stroke.points.slice() })
-  const command = commandFromDecision(d, nextCommandId(getSession().commands, getSession().commandPrefix), c.ctx)
+  const command = commandFromDecision(d, nextCommandId(getSession().commands, getSession().commandPrefix, getSession().commandSeq), c.ctx)
   doc.commitDecision(d, command)
   const shown = [c.applied, c.session.current, getLive().hypothesis].find((h) => h?.kind === d.kind) ?? getLive().hypothesis
   setLive({ phase: 'committed', decision: d, chips: [], hypothesis: shown && { ...shown, stable: true } })

@@ -24,6 +24,7 @@ import { matchFile, type FileFacts } from './match'
 import { sheetLabel, type LinkSheetSummary, type ServerMessage, type SheetMessage } from './protocol'
 import { RevitSource } from './source'
 import { CommandSync, type SyncEntry } from './sync'
+import { requestTypesFor, type RevitTypes } from './types'
 import { elementAnchor } from '../select/selection'
 
 export const APPLY_DEBOUNCE_MS = 300
@@ -190,6 +191,15 @@ export const revit = {
   },
   clearError() {
     set({ error: undefined, stale: false })
+  },
+  /**
+   * S1-07: the types Revit allows for element `elementId` of linked sheet `pageId`; null when not connected, when the
+   * page is not a sheet of the open model, or when Revit cannot say (the menu then keeps the document's types).
+   */
+  listTypes(elementId: string, pageId: string): Promise<RevitTypes | null> {
+    if (!link || link.state !== 'on') return Promise.resolve(null)
+    const linked = current && getDocState().source === current ? new Set(current.sheetIds()) : new Set<string>()
+    return requestTypesFor(link, linked, pageId, elementId)
   },
   /** Send pending commands now instead of after the debounce, also while streaming is off (tests, the panel's "Send now"). */
   flush() {

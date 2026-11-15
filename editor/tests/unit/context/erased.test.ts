@@ -13,3 +13,11 @@ describe('M3-03 erasing drawing elements', () => {
     expect([...erasedElements(acc, ctxOf)]).toEqual(['1'])
   })
 })
+
+describe('M3-03 erasing elements the context has no item for', () => {
+  it('M3-03: a bare element id target on a package sheet is that element; on an inferred sheet it names nothing', () => {
+    expect([...erasedElements([del('plan', ['42', 'cmd-0001'])], ctxOf)]).toEqual(['42'])
+    const inferred: SheetContext = { sheetId: 'pdf', origin: 'inferred', items: [] }
+    expect([...erasedElements([del('pdf', ['42'])], () => inferred)]).toEqual([])
+  })
+})
