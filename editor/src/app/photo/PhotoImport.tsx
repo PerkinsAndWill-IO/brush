@@ -197,7 +197,7 @@ export function PhotoImportDialog() {
               <input
                 ref={input}
                 type="file"
-                accept="image/*"
+                accept="image/*,.heic,.heif"
                 hidden
                 data-testid="photo-file"
                 onChange={(e) => {

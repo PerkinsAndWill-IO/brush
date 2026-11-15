@@ -161,7 +161,9 @@ export default defineConfig(({ mode }) => {
     },
   },
   // the photo worker's OpenCV build (11 MB, CommonJS): pre-bundle it up front so its first use does not reload the page
-  optimizeDeps: { include: ['@techstark/opencv-js'] },
+  // both are loaded only by the photo worker, on first use: prebundled at start-up, so the dev server does not stop
+  // to optimise them in the middle of an import (and reload the page)
+  optimizeDeps: { include: ['@techstark/opencv-js', 'libheif-js/libheif-wasm/libheif-bundle.mjs'] },
   clearScreen: false,
   server: {
     port: 5173,
