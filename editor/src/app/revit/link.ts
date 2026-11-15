@@ -138,6 +138,11 @@ export class RevitLink {
     this.update({ state: 'off', detail: undefined, welcome: null, attempt: 0 })
   }
 
+  /** True when something answers on the health URL: Revit with the add-in (or the DevHost) is running. */
+  reachable(): Promise<boolean> {
+    return this.probe(healthUrlFor(this.url))
+  }
+
   /** Send a message when the link is on. Returns its requestId, or null when not connected. */
   send(msg: ClientMessage): string | null {
     if (!this.ws || this.snap.state !== 'on') return null

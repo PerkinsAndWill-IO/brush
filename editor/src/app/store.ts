@@ -8,7 +8,7 @@ import { layoutSheets, type Placement } from './board/layout'
 import type { OpenedFile } from './platform'
 import { closeSession, openEphemeralSession, openSession } from './session'
 import { closeContexts, openContexts, refreshContexts, type ContextProvider } from './brain/contextStore'
-import { DrawingFileSource, openSource, type DrawingSource, type PageRenderer } from './source'
+import { DrawingFileSource, openSource, watchPages, type DrawingSource, type PageRenderer } from './source'
 import { resetLive } from './brain/live'
 import { startConversion, ConversionCancelled, type Conversion } from './convertClient'
 import type { ConvertProgress } from './convertProgress'
@@ -29,6 +29,8 @@ export interface DocState {
   error?: string
   /** While a Revit model converts (status 'loading'): where the conversion stands. */
   progress?: ConvertProgress
+  /** Bytes downloaded so far while a document opens by URL. */
+  openedBytes?: number
   /** Bumped per load so views can re-render pages. */
   loadId: number
 }
@@ -48,6 +50,26 @@ export function getDocState(): DocState {
 export function subscribeDoc(l: () => void): () => void {
   listeners.add(l)
   return () => listeners.delete(l)
+}
+
+/**
+ * Sheets of the open `.drawing` ready to show, of all, while the rest load in the background. Kept apart from DocState:
+ * a change per sheet must not re-render the board.
+ */
+let sheetsLoading: [number, number] | undefined
+const loadingListeners = new Set<() => void>()
+function setSheetsLoading(v: [number, number] | undefined) {
+  sheetsLoading = v
+  loadingListeners.forEach((l) => l())
+}
+export function useSheetsLoading(): [number, number] | undefined {
+  return useSyncExternalStore(
+    (l) => {
+      loadingListeners.add(l)
+      return () => loadingListeners.delete(l)
+    },
+    () => sheetsLoading,
+  )
 }
 
 export function useDocState(): DocState {
@@ -128,14 +150,19 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
   const prev = state.source
   const size = opts.size ?? (typeof input === 'string' ? 0 : input.byteLength)
   if (!opts.progress) supersedeConversion()
-  set({ status: 'loading', fileName, fileSize: size, loadId, error: undefined, progress: opts.progress })
+  set({ status: 'loading', fileName, fileSize: size, loadId, error: undefined, openedBytes: undefined, progress: opts.progress })
+  setSheetsLoading(undefined)
   let source: DrawingSource | undefined
+  // the download, shown on the start page; a set per 256 kB is enough
+  const onBytes = (n: number) => {
+    if (loadId === state.loadId && n - (state.openedBytes ?? 0) >= 1 << 18) set({ openedBytes: n })
+  }
   try {
     // copy: pdf.js may transfer (detach) the buffer it is given
     const bytes = typeof input === 'string' ? null : input instanceof Uint8Array ? input.slice() : new Uint8Array(input.slice(0))
     // own copy for the context worker: PdfDrawingSource hands the same buffer to pdf.js, which detaches it
     const ctxBytes = bytes?.slice()
-    source = await openSource(bytes ? { name: fileName, bytes } : (input as string))
+    source = await openSource(bytes ? { name: fileName, bytes } : (input as string), {}, onBytes)
     const { sheets, pages } = source instanceof DrawingFileSource ? source.loadFirst() : await source.load()
     if (sheets.length === 0) throw new Error(`“${fileName}” has no sheets.`)
     if (loadId !== state.loadId) {
@@ -155,6 +182,12 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
       placements: layoutSheets(sheets),
       destroy: () => source!.close(),
     })
+    if (source instanceof DrawingFileSource) {
+      const src = source
+      watchPages(src.doc, (done, total) => {
+        if (state.source === src) setSheetsLoading(done < total ? [done, total] : undefined)
+      })
+    }
     const ids = sheets.map((s) => s.id)
     if (source.kind === 'pdf') void openContexts(ctxBytes ?? (input as string), ids) // inferred in the context worker
     else {
@@ -167,6 +200,8 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
     return loadId
   } catch (e) {
     void source?.close()
+    // a later open took over while this one loaded: leave it be
+    if (loadId !== state.loadId) throw e
     void prev?.close()
     closeSession()
     closeContexts()
@@ -270,8 +305,36 @@ async function openRevitModel(file: OpenedFile): Promise<void> {
   await openDocument(bytes, file.name.replace(/\.(rvt|rfa)$/i, '.drawing'), { size: bytes.byteLength, progress: opening }).catch(() => {})
 }
 
+/**
+ * M6-11: asked before a `.rvt` goes to the conversion server. Resolves true when that model is open in Revit and the
+ * live link took it instead. Set by the Revit controller (kept as a hook so the store does not import it).
+ */
+let revitModelHook: ((fileName: string) => Promise<boolean>) | null = null
+export function setRevitModelHook(hook: typeof revitModelHook) {
+  revitModelHook = hook
+}
+
+/** The model is open in Revit: show the start page, where the link panel lists its sheets. */
+async function takeRevitModel(file: OpenedFile): Promise<boolean> {
+  if (!revitModelHook || !/\.rvt$/i.test(file.name)) return false
+  const loadId = state.loadId + 1
+  set({ status: 'loading', fileName: `${file.name}, looking for it in Revit`, fileSize: file.size, loadId, error: undefined })
+  const taken = await revitModelHook(file.name).catch(() => false)
+  if (loadId !== state.loadId) return true // another file was opened meanwhile
+  if (!taken) return false
+  void state.source?.close()
+  closeSession()
+  closeContexts()
+  resetLive()
+  set({ status: 'empty', fileName: undefined, fileSize: undefined, pages: undefined, source: undefined, destroy: undefined, sheets: [], placements: [] })
+  return true
+}
+
 /** Open a file the user picked or dropped: a PDF, a `.drawing`, or a Revit model (converted first). Swallows the error (it is shown inline). */
 export async function openFile(file: OpenedFile): Promise<void> {
-  if (/\.(rvt|rfa)$/i.test(file.name)) return openRevitModel(file)
+  if (/\.(rvt|rfa)$/i.test(file.name)) {
+    if (await takeRevitModel(file)) return
+    return openRevitModel(file)
+  }
   await openDocument(file.bytes, file.name, { size: file.size, path: file.path }).catch(() => {})
 }

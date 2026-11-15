@@ -323,7 +323,7 @@ export function drawingPageType(page: DrawingPage): SheetType {
   return classifySheet({ number: page.number ?? undefined, name: page.name }).sheetType
 }
 
-interface PageAnalysis {
+export interface PageAnalysis {
   ctx: SheetContext
   /** Scale per view id (stated or estimated). */
   viewScales: Map<string, number>
@@ -332,6 +332,19 @@ interface PageAnalysis {
 }
 
 const cache = new WeakMap<DrawingPage, PageAnalysis>()
+
+/**
+ * Context and scales of one page, from its items and the document's elements (nothing else of the document). Lets a
+ * worker that decoded the page analyse it too; `rememberAnalysis` then hands the result to the page on the main thread.
+ */
+export function analysePage(elements: DrawingDocument['elements'], page: DrawingPage): PageAnalysis {
+  return analyse({ source: {}, pages: [page], elements }, page)
+}
+
+/** Use `a` (from `analysePage` on this page's content elsewhere) as this page's analysis. */
+export function rememberAnalysis(page: DrawingPage, a: PageAnalysis): void {
+  if (!cache.has(page)) cache.set(page, a)
+}
 
 function analyse(doc: DrawingDocument, page: DrawingPage): PageAnalysis {
   const hit = cache.get(page)

@@ -21,7 +21,7 @@ import {
 import { DrawingFormatError, type DrawingDocument, type DrawingElement, type DrawingPage } from '@core/drawing'
 import type { Sheet, SheetContext } from '@core/types'
 import type { LoadedPdf, PdfSource as PdfInput } from '../pdf/pdfjs'
-import { pageDecoded, parseDrawingFile } from './drawing-file'
+import { openDrawingUrl, pageAvailable, pageDecoded, parseDrawingFile } from './drawing-file'
 import { PackageError, parsePackage, sniffBytes, type PackagePdfRef } from './package-file'
 
 /** Paints one page of a source into a canvas (pdf.js for PDFs, the vector renderer for `.drawing`). */
@@ -215,10 +215,24 @@ export class DrawingFileSource implements DrawingSource {
     if (doc.source.file) this.project = doc.source.file.replace(/\.[^.]+$/, '')
   }
 
+  /** The document with only the pages that can be read now (all but those still downloading), and whether that is all. */
+  private readable(): { doc: DrawingDocument; all: boolean } {
+    const pages = this.doc.pages.filter((_, i) => pageAvailable(this.doc, i))
+    return pages.length === this.doc.pages.length ? { doc: this.doc, all: true } : { doc: { ...this.doc, pages }, all: false }
+  }
+
+  /** Built from what can be read, and kept once every page can. */
+  private whole<T>(make: (doc: DrawingDocument) => T, keep: (v: T) => void): T {
+    const { doc, all } = this.readable()
+    const v = make(doc)
+    if (all) keep(v)
+    return v
+  }
+
   private palette_?: TypePalette
   /** Measured on every page, so built when first asked: opening a file reads only its first page. */
   get palette(): TypePalette {
-    return (this.palette_ ??= paletteFromDrawing(this.doc))
+    return this.palette_ ?? this.whole(paletteFromDrawing, (v) => (this.palette_ = v))
   }
 
   async load(): Promise<LoadedSource> {
@@ -251,25 +265,28 @@ export class DrawingFileSource implements DrawingSource {
   }
 
   async contextFor(sheetId: string): Promise<SheetContext> {
-    await pageDecoded(this.doc, this.doc.pages.findIndex((p) => p.id === sheetId))
-    return contextFromDrawing(this.doc, sheetId)
+    const i = this.doc.pages.findIndex((p) => p.id === sheetId)
+    await pageDecoded(this.doc, i)
+    const ctx = contextFromDrawing(this.doc, sheetId)
+    // count the page for the filter list now, one page per idle slot, rather than every page at once later
+    if (i >= 0) (await import('../drawing/filters')).pageCategories(this.doc, this.doc.pages[i])
+    return ctx
   }
 
   vectorPage(sheetId: string): VectorPage | null {
-    const page = this.doc.pages.find((p) => p.id === sheetId)
-    return page ? { page, elements: this.doc.elements } : null
+    const i = this.doc.pages.findIndex((p) => p.id === sheetId)
+    // a page still downloading has nothing to pick yet
+    return i >= 0 && pageAvailable(this.doc, i) ? { page: this.doc.pages[i], elements: this.doc.elements } : null
   }
 
   private symbols?: Map<string, FurnitureSymbol>
   furnitureSymbols(): ReadonlyMap<string, FurnitureSymbol> {
-    this.symbols ??= furnitureSymbolsFromDrawing(this.doc)
-    return this.symbols
+    return this.symbols ?? this.whole(furnitureSymbolsFromDrawing, (v) => (this.symbols = v))
   }
 
   private walls?: Map<string, WallStyle>
   wallStyles(): ReadonlyMap<string, WallStyle> {
-    this.walls ??= wallStylesFromDrawing(this.doc)
-    return this.walls
+    return this.walls ?? this.whole(wallStylesFromDrawing, (v) => (this.walls = v))
   }
 
   async close(): Promise<void> {}
@@ -285,17 +302,26 @@ export type SourceInput = string | File | { name: string; bytes: ArrayBuffer | U
 
 /**
  * Open a file, a dropped/dialog OpenedFile (`{name, bytes}`) or a URL; sniffs PDF vs package by content.
- * A URL ending in `.pdf` is handed to pdf.js as a URL (range requests); anything else is fetched and sniffed.
+ * A URL ending in `.pdf` is handed to pdf.js as a URL (range requests); a zstd `.drawing` is read by range requests when
+ * the server has them (`openDrawingUrl`); anything else is fetched and sniffed. `onBytes` reports the download.
  */
-export async function openSource(input: SourceInput, opts: PackageDrawingSourceOptions = {}): Promise<DrawingSource> {
+export async function openSource(input: SourceInput, opts: PackageDrawingSourceOptions = {}, onBytes?: (n: number) => void): Promise<DrawingSource> {
   let name: string
   let bytes: Uint8Array
   if (typeof input === 'string') {
     name = decodeURIComponent(input.split(/[?#]/)[0].split('/').pop() || 'drawing')
     if (/\.pdf$/i.test(name)) return new PdfDrawingSource(name, input)
-    const res = await fetch(input)
-    if (!res.ok) throw new SourceError(`could not fetch ${input}: ${res.status}`)
-    bytes = new Uint8Array(await res.arrayBuffer())
+    // a zstd .drawing on a server with range requests opens from its first sheet; anything else comes whole
+    let got: Awaited<ReturnType<typeof openDrawingUrl>>
+    try {
+      got = await openDrawingUrl(input, onBytes)
+    } catch (e) {
+      if (e instanceof DrawingFormatError) throw new SourceError(`${name}: ${e.message}`)
+      throw e
+    }
+    if ('status' in got) throw new SourceError(`could not fetch ${input}: ${got.status}`)
+    if ('doc' in got) return new DrawingFileSource(name, got.doc)
+    bytes = got.bytes
     const base = input.slice(0, input.split(/[?#]/)[0].lastIndexOf('/') + 1)
     const baseUrl = new URL(base, globalThis.location?.href ?? 'http://localhost/')
     opts = {
