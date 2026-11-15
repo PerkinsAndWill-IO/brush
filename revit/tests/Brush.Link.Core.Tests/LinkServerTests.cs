@@ -377,6 +377,7 @@ public sealed class EditRefreshTests
         public Task<IReadOnlyList<CommandResult>> ApplyAsync(string sheetId, IReadOnlyList<Command> commands, CancellationToken ct) => inner.ApplyAsync(sheetId, commands, ct);
         public Task<IReadOnlyList<CommandResult>> RevertAsync(IReadOnlyList<string> commandIds, CancellationToken ct) => inner.RevertAsync(commandIds, ct);
         public Task ShowSheetAsync(string sheetId, CancellationToken ct) => inner.ShowSheetAsync(sheetId, ct);
+        public Task<TypeList> ListTypesAsync(string elementId, CancellationToken ct) => inner.ListTypesAsync(elementId, ct);
         public Task<bool> ApproveOriginAsync(string origin, CancellationToken ct) => inner.ApproveOriginAsync(origin, ct);
     }
 
