@@ -118,13 +118,27 @@ export const revit = {
   },
   /** M6-02: open a Revit sheet next to the ones already open from the same model (or as a new document). */
   openSheet(sheetId: string) {
+    revit.openSheets([sheetId])
+  },
+  /**
+   * M6-10: open several Revit sheets in one go. One `open_sheet` each, in this order (Revit answers them one at a
+   * time, so they land on the board in this order); only the first is brought up in Revit.
+   */
+  openSheets(sheetIds: readonly string[]) {
     const l = ensureLink()
-    if (state.opening.includes(sheetId) || current?.has(sheetId)) return revit.showSheet(sheetId)
-    const requestId = l.send({ type: 'open_sheet', sheetId })
-    if (!requestId) return set({ error: 'Not connected to Revit.' })
-    pending.set(requestId, { kind: 'open', sheetId })
-    set({ opening: [...state.opening, sheetId], error: undefined })
-    revit.showSheet(sheetId)
+    const ids = [...new Set(sheetIds)]
+    const fresh = ids.filter((id) => !state.opening.includes(id) && !current?.has(id))
+    if (!fresh.length) return ids.length ? revit.showSheet(ids[0]) : undefined
+    const sent: string[] = []
+    for (const sheetId of fresh) {
+      const requestId = l.send({ type: 'open_sheet', sheetId })
+      if (!requestId) break
+      pending.set(requestId, { kind: 'open', sheetId })
+      sent.push(sheetId)
+    }
+    if (!sent.length) return set({ error: 'Not connected to Revit.' })
+    set({ opening: [...state.opening, ...sent], error: undefined })
+    revit.showSheet(sent[0])
   },
   /** Make the sheet the active view in Revit, so Revit follows what the user opened in the editor. */
   showSheet(sheetId: string) {

@@ -143,7 +143,12 @@ test.describe('M6 with the DevHost', () => {
 const fixturePkg = () => JSON.parse(readFileSync(FIXTURE, 'utf8')) as { sheets: { id: string }[] }
 
 /** A scripted plugin: welcome, the fixture as the sheet, and `answer` for each apply. */
-function mockPlugin(page: Page, answer: (cmds: { id: string; op: string }[]) => unknown[], seen: { type: string; sheetId?: string }[] = []) {
+function mockPlugin(
+  page: Page,
+  answer: (cmds: { id: string; op: string }[]) => unknown[],
+  seen: { type: string; sheetId?: string }[] = [],
+  sheets: { id: string; number: string; name: string }[] = [{ id: SHEET, number: 'A-201', name: 'Level 2 Floor Plan' }],
+) {
   const version = 1
   return page.routeWebSocket(/:47821\/link$/, (ws: WebSocketRoute) => {
     ws.onMessage((raw) => {
@@ -156,9 +161,9 @@ function mockPlugin(page: Page, answer: (cmds: { id: string; op: string }[]) => 
           protocol: 1,
           server: { name: 'brush-revit-link', version: '0.1.0', host: 'Revit 2026', epoch: 'mock' },
           document: { title: 'Tower A' },
-          sheets: [{ id: SHEET, number: 'A-201', name: 'Level 2 Floor Plan' }],
+          sheets,
         })
-      else if (m.type === 'open_sheet') reply({ type: 'sheet', sheetId: SHEET, version, reason: 'open', package: fixturePkg() })
+      else if (m.type === 'open_sheet') reply({ type: 'sheet', sheetId: m.sheetId, version, reason: 'open', package: fixturePkg() })
       else if (m.type === 'show_sheet') reply({ type: 'shown', sheetId: m.sheetId })
       else if (m.type === 'apply') reply({ type: 'applied', sheetId: SHEET, baseVersion: m.baseVersion, stale: false, results: answer(m.commands) })
     })
@@ -217,6 +222,43 @@ test('M6-09: opening a sheet in the editor shows it in Revit; clicking an open s
   expect(seen.filter((m) => m.type === 'open_sheet')).toHaveLength(1)
   expect((await snap(page)).error).toBeUndefined()
   await page.screenshot({ path: screenPath('m6-show-sheet-in-revit') })
+})
+
+test('M6-10: tick several sheets in the panel and open them together; only the first is shown in Revit', async ({ page }) => {
+  const seen: { type: string; sheetId?: string }[] = []
+  const sheets = [
+    { id: '101', number: 'A-101', name: 'Ground Floor' },
+    { id: '201', number: 'A-201', name: 'Level 2 Floor Plan' },
+    { id: '301', number: 'A-301', name: 'Level 3 Floor Plan' },
+  ]
+  await mockPlugin(page, () => [], seen, sheets)
+  await openApp(page)
+  await page.evaluate(() => window.__brushDev!.revitConnect())
+  await page.waitForFunction(() => window.__brushDev!.revit().state === 'on')
+
+  const start = page.getByTestId('revit-start')
+  await expect(start.getByTestId('revit-open-selected')).toHaveCount(0)
+  await start.locator('li[data-sheet-id="101"]').getByTestId('revit-pick-sheet').check()
+  await start.locator('li[data-sheet-id="301"]').getByTestId('revit-pick-sheet').check()
+  await expect(start.getByTestId('revit-open-selected')).toHaveText('Open 2 sheets')
+  await page.screenshot({ path: screenPath('m6-pick-several') })
+  await start.getByTestId('revit-open-selected').click()
+
+  await expect(page.locator('[data-testid="sheet"][data-rendered="true"]')).toHaveCount(2)
+  expect((await snap(page)).open.map((o) => o.id)).toEqual(['101', '301'])
+  expect(seen.filter((m) => m.type === 'open_sheet').map((m) => m.sheetId)).toEqual(['101', '301'])
+  expect(seen.filter((m) => m.type === 'show_sheet').map((m) => m.sheetId)).toEqual(['101'])
+
+  // the rest can be added the same way from the top-bar panel
+  await page.getByTestId('revit-button').click()
+  const panel = page.getByTestId('revit-panel')
+  await expect(panel.getByTestId('revit-select-all')).toHaveCount(0) // one sheet left: no bulk bar
+  await panel.locator('li[data-sheet-id="201"]').getByTestId('revit-pick-sheet').check()
+  await expect(panel.getByTestId('revit-open-selected')).toHaveText('Add 1 sheet')
+  await panel.getByTestId('revit-open-selected').click()
+  await expect(page.locator('[data-testid="sheet"][data-rendered="true"]')).toHaveCount(3)
+  expect((await snap(page)).open.map((o) => o.id)).toEqual(['101', '301', '201'])
+  await page.screenshot({ path: screenPath('m6-several-open') })
 })
 
 test('M6-08: a deployed (https) editor explains the local-network prompt before the first connect', async ({ page, baseURL }) => {

@@ -17,6 +17,7 @@ the fixture sheet shows `applied` for it, and the board reloads the sheet at ver
 | M6-06 | Undo of a stroke whose commands were applied sends `revert` with their ids. | E2E: undo, version 3 has no wall |
 | M6-07 | Pushes with `reason: "model_changed"` (edited in Revit) reload the sheet. In-flight strokes stay. | E2E: DevHost `rm`, board updates |
 | M6-08 | Before the first connect from a deployed (https) editor, explain Chrome's local-network prompt and the Revit "allow this page" dialog. | Screenshot |
+| M6-10 | **Open several sheets at once**: the panel's sheet list has a checkbox per sheet that is not open yet (and "Select all"); "Open N sheets" (or "Add N sheets" when some are open) sends one `open_sheet` per sheet, and all of them land on one board in list order. Only the first is shown in Revit. | E2E with a mocked socket: pick 2 of 3, both open |
 
 Notes:
 
@@ -34,7 +35,7 @@ button and panel, start-page entry, M6-08 explainer, M6-05 results HUD). Tests: 
 
 How it behaves:
 
-- Several Revit sheets can be open at once (panel → Add). A `sheet` push replaces only that sheet: the other
+- Several Revit sheets can be open at once (panel → Add, or tick several and "Open N sheets", M6-10). A `sheet` push replaces only that sheet: the other
   sheets, the camera, the tool and the strokes stay; contexts of the replaced sheet are rebuilt.
 - The command log is the truth. Commands in the log the model has not seen are applied; applied commands that left
   the log (undo, erase) are reverted; redo applies them again. Failed commands stay failed until removed.
