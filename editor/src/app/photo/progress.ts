@@ -37,10 +37,13 @@ export function sheetOfLine(line: string): string | undefined {
   return label.length > 32 ? label.split(' ')[0] : label
 }
 
-/** Typical share of the whole import spent in each stage (measured on the KRO photo, 3 sheets: about 2, 58, 16 and 4 s). */
-const SHARE: Record<ImportStage, number> = { develop: 0.05, find: 0.55, align: 0.28, trace: 0.12 }
+/**
+ * Typical share of the whole import spent in each stage (measured on a 12 MP photo of the KRO plan, 3 sheets
+ * compared, headless Chrome on 4 cores: about 1, 10, 8 and 6 s).
+ */
+const SHARE: Record<ImportStage, number> = { develop: 0.04, find: 0.4, align: 0.32, trace: 0.24 }
 /** Typical seconds in each stage, for the creep inside a stage. */
-const TYPICAL_S: Record<ImportStage, number> = { develop: 2, find: 30, align: 12, trace: 5 }
+const TYPICAL_S: Record<ImportStage, number> = { develop: 1, find: 10, align: 8, trace: 6 }
 
 /**
  * How far along the import is, 0..0.97: the stages done, plus a creep inside the current one that slows down the
