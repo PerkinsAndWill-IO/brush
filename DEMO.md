@@ -15,9 +15,9 @@ measured on the dev laptop, so the talk fits around them.
 | Time | Beat | On screen | Say |
 |---|---|---|---|
 | 0:00 | **Hook** | The start page | "Architects think with a pen. Revit makes them think in dialog boxes." |
-| 0:20 | **Setup** [1 Kickoff demo] | Picker: A102–A105 ticked, Open 4 sheets, zoom into Live/Work Unit 205 (~20 s) | "Revit is open with the real model, Snowdon Towers. I take four floors." Keep talking while they arrive. |
+| 0:20 | **Setup** [1 Kickoff demo] | Picker: A102–A104 ticked, Open 3 sheets, zoom into Live/Work Unit 205 (~20 s) | "Revit is open with the real model, Snowdon Towers. I take three floors." Keep talking while they arrive. |
 | 0:45 | **The loop** [2 Sketch a wall, a door and a table] | Wall, door, table; the timer counts each home; the table turns round from the type menu (~20 s) | "A wall… a door… a table." Then, as it swaps: "Not that table: right-click, another type." |
-| 1:15 | **It reads the building** [3 What is it?, 4 Every floor, 5 Back] | The facade wall's card with its Revit parameters; zoom out: lit up on all four floors (~5 s) | "That's a real Revit wall, with its parameters. One wall, four floors." |
+| 1:15 | **It reads the building** [3 What is it?, 4 Every floor, 5 Back] | The facade wall's card with its Revit parameters; zoom out: lit up on all three floors (~5 s) | "That's a real Revit wall, with its parameters. One wall, three floors." |
 | 1:45 | **Hand over the pen** (optional) | A judge draws one wall | "You've never opened Revit. Draw a wall." Skip it if the clock is tight. |
 | 2:15 | **No Revit license?** [6 No Revit license?, 7 Sketch in the kitchen] | Drop `racbasicsampleproject.rvt`: 13 sheets in ~8 s; the kitchen: a wall, and the missing bar stool (~15 s) | "No Revit license? Drop the .rvt: Brush reads the model itself. And you sketch the same way." |
 | 2:55 | **A colleague's sketch** [8 A colleague's sketch, 9 Make it real] | The photo drops in, the import dialog reads it (~18 s), the trace paper unrolls with the marker on it; Make elements: 6 walls and 4 doors (~1 s) | "My colleague sketched on a print with a marker. A photo is enough: Brush finds the sheet and traces the ink. Then make it real." |
@@ -57,9 +57,9 @@ Live/Work Unit **205**, the empty top half of the room, below the north wall:
   moment after it opens. A dashed mark with "→ new type" shows until Revit has redrawn it.
 - **Inspector:** select tool, hover the new wall between its top end and the door. The card shows *Walls*, its type,
   *level L2* and its Revit parameters (base and top constraint, height, length, area, volume…).
-- **One wall, four sheets:** the long exterior rainscreen wall along the north facade (Revit id `1919205`) is drawn on
-  A102, A103, A104 and A105. Click it on A102 between windows (a window on top of it picks the window), then press
-  **0** (fit) to zoom out to the four sheets. With the browser full screen the highlight reads from the back of the room.
+- **One wall, three sheets:** the long exterior rainscreen wall along the north facade (Revit id `1919205`) is drawn on
+  A102, A103 and A104 (and A105, not opened: three sheets load faster). Click it on A102 between windows (a window on top of it picks the window), then press
+  **0** (fit) to zoom out to the three sheets. With the browser full screen the highlight reads from the back of the room.
 
 Use the **Mode** buttons (Wall, Door, Furniture) to force each reading on stage, so a wobbly stroke can't be read
 as something else. Set the mode back to **Auto** for the judge's turn: it's more impressive when Brush guesses.
@@ -73,10 +73,10 @@ right corner, saying what it will do next. Each click plays one step in the real
 
 | # | Button says | What happens |
 |---|---|---|
-| 1 | Kickoff demo | Connects to Revit, ticks A102–A105 in the picker, opens them, **cleans the stage** (takes back anything an earlier run left in Live/Work Unit 205, or stops and says so), zooms into the room. |
+| 1 | Kickoff demo | Connects to Revit, ticks A102–A104 in the picker, opens them, **cleans the stage** (takes back anything an earlier run left in Live/Work Unit 205, or stops and says so), zooms into the room. |
 | 2 | Sketch a wall, a door and a table | Draws all three, waits for the table to be in Revit, then right-clicks it and picks the 60" round dining table. |
 | 3 | What is it? | Still zoomed in, **clicks** the north facade wall along the room to select it, then opens the **element panel** from the rail on the left (the ⓘ icon, with a dot once something is selected): its card, with its Revit parameters. |
-| 4 | Every floor | Zooms out: the selected wall is lit up on all four floors. |
+| 4 | Every floor | Zooms out: the selected wall is lit up on all three floors. |
 | 5 | Back to the room | Zooms back in. |
 | 6 | No Revit license? | Disconnects from Revit and drops `racbasicsampleproject.rvt` on Brush (a file chip flies in): the conversion server turns it into a `.drawing` in about 7 s, and it zooms to the kitchen. If you dragged the file in by hand, it only zooms. Clears that file's sketches from earlier runs first. |
 | 7 | Sketch in the kitchen | Draws a partition wall between the dining table and the island, and the stool missing from the row along the island: it comes in as a **Bar Chair**, like its neighbours. |

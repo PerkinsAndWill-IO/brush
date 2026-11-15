@@ -88,8 +88,9 @@ export const SNOWDON_SPOTS: DemoSpots = {
   retypeTo: 'Table-Dining Round w Chairs: 60" Diameter',
   // the wall just sketched, between its top and the door: "that is a real Revit wall now"
   inspect: [0.5039, 0.329],
-  // floors 3 to 5: the north facade's long exterior wall is drawn on A102, A103, A104 and A105
-  alsoOpen: ['A103', 'A104', 'A105'],
+  // floors 3 and 4 (three sheets load faster than four): the north facade's long exterior wall is drawn on A102,
+  // A103 and A104 (and A105)
+  alsoOpen: ['A103', 'A104'],
   everywhere: { element: '1919205', label: 'the north facade wall' },
 }
 
@@ -827,7 +828,7 @@ export interface RunOptions {
 
 const SAY = {
   hook: 'Architects think with a pen. Revit makes them think in dialog boxes.',
-  setup: 'Revit is open with the real model. Brush lists its sheets: pick four floors.',
+  setup: 'Revit is open with the real model. Brush lists its sheets: pick three floors.',
   opening: 'Revit sends each sheet as it is now: the PDF plus every element on it.',
   everywhere: 'Zoom out: Brush lights the selected wall up on every sheet it is on.',
   wall: 'Sketch a wall…',
