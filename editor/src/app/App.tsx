@@ -95,6 +95,13 @@ function EmptyState({ error, loading }: { error?: string; loading?: string }) {
       <div className="landing-stack">
         <img className="landing-logo" src={brushLogoRed} alt="Brush" />
         <div className="dropzone">
+          {/* hand-drawn outline instead of a dashed border; stretched to the box, the stroke keeps its width */}
+          <svg className="dropzone-outline" viewBox="0 0 1000 400" preserveAspectRatio="none" aria-hidden="true">
+            <path
+              d="M58 14 C 260 4, 610 20, 942 9 C 978 8, 993 30, 990 62 C 984 150, 997 262, 987 342 C 984 379, 963 393, 926 390 C 648 383, 302 398, 62 387 C 24 386, 9 368, 11 334 C 15 250, 5 138, 13 52 C 16 21, 36 9, 74 12 C 98 13, 118 15, 140 17"
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
           <h1>Drop a PDF to start</h1>
           <div className="cta">
             <button type="button" className="btn landing-cta" title="Choose file (Ctrl+O)" onClick={() => void chooseFile()} disabled={!!loading}>
