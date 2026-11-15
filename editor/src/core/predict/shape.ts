@@ -151,9 +151,16 @@ function shapeDoor(ev: Evidence, _s: BrushSettings, palette: TypePalette, hostId
   const a: Point = pts[0]
   const b: Point = pts[pts.length - 1]
   const isArc = (ev.fit.arc?.score ?? 0) > (ev.fit.line?.score ?? 0) && ev.straightness < 0.97
-  const host = hostIds?.length && ev.hasContext ? ev.pc.lines.getItem(hostIds[0]) : undefined
   // width: tick length, or the swing radius (chord / sqrt 2 for a quarter arc)
   const widthPt = isArc ? dist(a, b) / Math.SQRT2 : dist(a, b)
+  const mid: Point = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+  // A door always sits in a wall: when the scorer named no host (drawn beside the wall rather than
+  // across it, or the reading was forced), take the wall nearest the hinge / middle of the stroke.
+  let host = hostIds?.length && ev.hasContext ? ev.pc.lines.getItem(hostIds[0]) : undefined
+  if (!host) {
+    host = nearestDoorWall(ev, isArc ? [a, b] : [mid, a, b], DOOR_SNAP_M * ev.ptPerM)
+    if (host) evidence.push(`snapped to nearest wall ${host.id}`)
+  }
   const fam = nearestDoorFamily(palette, widthPt / ev.ptPerM)
   const famPt = fam ? (fam.widthMm / 1000) * ev.ptPerM : widthPt
   if (!host) {
@@ -161,7 +168,7 @@ function shapeDoor(ev: Evidence, _s: BrushSettings, palette: TypePalette, hostId
   }
   // host wall segment nearest to the stroke
   const gp = host.geometry.points
-  const ref = isArc ? (dist(a, closestOn(gp, a)) < dist(b, closestOn(gp, b)) ? a : b) : crossingPoint(ev, host.id) ?? a
+  const ref = isArc ? (dist(a, closestOn(gp, a)) < dist(b, closestOn(gp, b)) ? a : b) : crossingPoint(ev, host.id) ?? mid
   let bestSeg = 0
   let bestD = Infinity
   for (let i = 0; i + 1 < gp.length; i++) {
@@ -189,6 +196,24 @@ function shapeDoor(ev: Evidence, _s: BrushSettings, palette: TypePalette, hostId
   }
   evidence.push(`placed on host wall ${host.id}`)
   return { geometry: { points: [start, end], closed: false }, type: fam?.name, targets: [host.id], evidence }
+}
+
+/** How far (m) a door's hinge / middle may sit from a wall and still be put into it. */
+const DOOR_SNAP_M = 0.4
+
+/** Nearest wall to any of the probe points, within `radius` (pt). */
+function nearestDoorWall(ev: Evidence, probes: Point[], radius: number): ContextItem | undefined {
+  if (!ev.hasContext) return undefined
+  let best: ContextItem | undefined
+  let bd = Infinity
+  for (const p of probes) {
+    const hit = ev.pc.lines.itemsNear(p, radius, (i) => i.kind === 'wall')[0]
+    if (hit && hit.distance < bd) {
+      bd = hit.distance
+      best = hit.item
+    }
+  }
+  return best
 }
 
 function closestOn(gp: Point[], p: Point): Point {
