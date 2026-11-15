@@ -335,3 +335,44 @@ test('M6-13: on the start page, a linked model with many sheets turns the drop c
     await page.evaluate(() => window.__brushDev!.revitDisconnect())
   }
 })
+
+test('M6-14: the inspector works on a linked Revit sheet: hovering a wall shows its data and highlights it', async ({ page }) => {
+  await mockPlugin(page, () => [])
+  await openApp(page)
+  await page.evaluate(() => window.__brushDev!.revitConnect())
+  await page.waitForFunction(() => window.__brushDev!.revit().state === 'on')
+  await page.getByTestId('revit-start').locator(`li[data-sheet-id="${SHEET}"]`).getByTestId('revit-open-sheet').click()
+  await expect(page.locator(`[data-sheet-id="${SHEET}"][data-rendered="true"]`)).toBeVisible()
+  await page.keyboard.press('v')
+
+  // a point on a wall of the package, found through the app's own modules
+  const target = await page.evaluate(async (sheetId) => {
+    const load = (p: string) => import(/* @vite-ignore */ p)
+    const { getDocState } = await load('/src/app/store.ts')
+    const { getCamera } = await load('/src/app/camera.ts')
+    const { elementAt } = await load('/src/app/drawing/inspect.ts')
+    const st = getDocState()
+    const vp = st.source.vectorPage(sheetId)
+    if (!vp) return null
+    const pl = st.placements.find((p: { sheetId: string }) => p.sheetId === sheetId)
+    const cam = getCamera()
+    const r = document.querySelector('[data-testid="board"]')!.getBoundingClientRect()
+    for (const it of vp.page.items as { t: string; el: string; xy: Float32Array }[]) {
+      if (it.t !== 'path' || vp.elements[it.el]?.category !== 'Walls') continue
+      const x = (it.xy[0] + it.xy[2]) / 2, y = (it.xy[1] + it.xy[3]) / 2
+      if (elementAt(vp.page, x, y, 4 / cam.z) !== it.el) continue
+      return { el: it.el, type: vp.elements[it.el].type as string, x: r.left + (x + pl.x + cam.x) * cam.z, y: r.top + (y + pl.y + cam.y) * cam.z }
+    }
+    return null
+  }, SHEET)
+  expect(target).not.toBeNull()
+
+  await page.mouse.move(target!.x, target!.y)
+  await page.mouse.move(target!.x + 0.5, target!.y)
+  const card = page.getByTestId('left-sidebar').getByTestId('inspect-panel')
+  await expect(card).toHaveAttribute('data-element', target!.el)
+  await expect(card).toContainText('Walls')
+  await expect(card).toContainText(target!.type)
+  await expect(page.getByTestId('inspect-highlight')).toHaveAttribute('data-element', target!.el)
+  await page.screenshot({ path: screenPath('m6-inspect-revit-sheet') })
+})

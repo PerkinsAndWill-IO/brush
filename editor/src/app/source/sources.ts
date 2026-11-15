@@ -13,6 +13,7 @@ import {
   paletteFromPackage,
   sheetsFromDrawing,
   sheetsFromPackage,
+  vectorPageFromPackage,
   type DrawingManifest,
   type FurnitureSymbol,
   type TypePalette,
@@ -190,6 +191,22 @@ export class PackageDrawingSource implements DrawingSource {
 
   async contextFor(sheetId: string): Promise<SheetContext> {
     return contextFromPackage(this.manifest, sheetId)
+  }
+
+  private vectors = new Map<string, VectorPage>()
+  /**
+   * The manifest's elements as a pickable page (the package has no vector items of its own): what makes the
+   * inspector, selection and hover work on a Revit link sheet. Built once per sheet; the same object every call, as
+   * the hit index and overlays are keyed by page.
+   */
+  vectorPage(sheetId: string): VectorPage | null {
+    const hit = this.vectors.get(sheetId)
+    if (hit) return hit
+    const sheet = this.manifest.sheets.find((s) => s.id === sheetId)
+    if (!sheet) return null
+    const vp = vectorPageFromPackage(sheet)
+    this.vectors.set(sheetId, vp)
+    return vp
   }
 
   async close(): Promise<void> {
