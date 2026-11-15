@@ -60,6 +60,13 @@ export function sheetsFromPackage(manifest: DrawingManifest): Sheet[] {
   })
 }
 
+/**
+ * Revit parameters the inspector leaves out: the ones its General group already shows (category, type), internal ids,
+ * and values that only mean "none".
+ */
+const HIDDEN_PARAMS = new Set(['Category', 'Type', 'Type Id', 'Family and Type'])
+const hiddenParam = (name: string, value: string) => HIDDEN_PARAMS.has(name) || (name === 'Design Option' && value === '-1')
+
 /** Under everything else when picking: a click inside a room picks the furniture on top, then the room. */
 const PICK_ORDER = ['Rooms', 'Casework', 'Furniture', 'Text', 'Walls', 'Windows', 'Doors', 'Grids']
 /** Stroke reach of an open footprint, sheet points: how close a pointer must come (the hit test adds its own tolerance). */
@@ -91,7 +98,9 @@ export function vectorPageFromPackage(sheet: ManifestSheet): { page: DrawingPage
     if (e.typeName) info.type = e.typeName
     if (e.label) info.name = e.label
     if (level ?? Level) info.level = level ?? Level
-    const params = Object.entries(rest).map(([name, value]) => ({ name, value: String(value) }))
+    const params = Object.entries(rest)
+      .map(([name, value]) => ({ name, value: String(value) }))
+      .filter((p) => !hiddenParam(p.name, p.value))
     if (params.length) info.params = params
     elements[e.id] = info
   }

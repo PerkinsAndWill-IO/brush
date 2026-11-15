@@ -107,4 +107,23 @@ describe('vectorPageFromPackage: a pickable page for a JSON package sheet (Revit
     expect(elementAt(page, 450, 300, 2)).toBe('r1')
     expect(elementAt(page, 900, 700, 2)).toBeNull()
   })
+
+  it("lists a Revit element's parameters, without the ones General shows or that only mean none", () => {
+    const { elements: els } = vectorPageFromPackage({
+      ...sheet,
+      elements: [
+        {
+          id: 'w9',
+          category: 'Walls',
+          typeName: 'Exterior',
+          footprint: [{ x: 0, y: 0 }, { x: 10, y: 0 }],
+          props: { level: 'L2', Category: 'Walls', Type: 'Exterior', 'Type Id': '12', 'Design Option': '-1', 'Unconnected Height': "57' - 11\"", 'Top Constraint': 'Up to level: Parapet' },
+        },
+      ],
+    })
+    expect(els.w9.params).toEqual([
+      { name: 'Unconnected Height', value: "57' - 11\"" },
+      { name: 'Top Constraint', value: 'Up to level: Parapet' },
+    ])
+  })
 })
