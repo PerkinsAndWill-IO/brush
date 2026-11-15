@@ -200,8 +200,12 @@ const samePlacement = (a: Placement, b: Placement) => a.sheetId === b.sheetId &&
  */
 export async function refreshSource(source: DrawingSource, changed: readonly string[]): Promise<void> {
   if (state.source !== source || state.status !== 'ready') return
-  const { sheets, pages } = await source.load()
+  const loaded = await source.load()
   if (state.source !== source) return
+  // a sheet whose fields did not change keeps its object, so its page is not rendered again
+  const was = new Map(state.sheets.map((s) => [s.id, s]))
+  const sheets = loaded.sheets.map((s) => (JSON.stringify(was.get(s.id)) === JSON.stringify(s) ? was.get(s.id)! : s))
+  const pages = loaded.pages
   const old = new Map(state.placements.map((p) => [p.sheetId, p]))
   const placements = layoutSheets(sheets).map((p) => {
     const o = old.get(p.sheetId)
