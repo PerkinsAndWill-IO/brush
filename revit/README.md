@@ -117,7 +117,9 @@ first on a real project:
 
 Known limits:
 
-- Only plan viewports take edits. Sections, elevations and 3D views are exported in the PDF only.
+- Only plan viewports take edits (S2 moves and copies too). Sections, elevations and 3D views are exported in the PDF only.
+- A moved element without a straight location line or a location point (a curved wall) cannot be put back exactly by
+  an undo from the editor; use Undo in Revit. A wall copied to another level keeps its height with an unconnected top.
 - For a view with a split crop region, only the first region's transform is used.
 - Walls are straight segments. Arcs in the editor path come through as their polyline.
 - A `delete` cannot be reverted from the editor (use Undo in Revit). Element ids and replaced types recorded per command
