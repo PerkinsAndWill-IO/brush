@@ -185,8 +185,72 @@ function withViewType(page: DrawingPage, header: unknown): DrawingPage {
   return page
 }
 
-/** Lazy pages of parsed documents: hands one the page its frame decodes to, decoded elsewhere (a worker). */
-const fillers = new WeakMap<DrawingPage, (decoded: DrawingPage) => void>()
+/** A lazy page's frame: where it is in the file, its header entry, and the name its errors carry (`pages[3]`). */
+export interface LazyFrame {
+  at: [number, number]
+  header: unknown
+  name: string
+}
+
+/** Lazy pages of parsed documents: their frame, and how to hand one the page that frame decodes to elsewhere. */
+const lazyPages = new WeakMap<DrawingPage, LazyFrame & { fill: (decoded: DrawingPage) => void }>()
+
+/** The frame of a lazy page that is not decoded yet, or undefined. */
+export function lazyFrame(page: DrawingPage): LazyFrame | undefined {
+  return lazyPages.get(page)
+}
+
+/**
+ * Decode a lazy page's frame from its compressed bytes alone (e.g. in a worker, or fetched by range). Throws
+ * DrawingFormatError named like the reader's own (`pages[3].frame: does not decompress`).
+ */
+export function decodeLazyFrame(compressed: Uint8Array, f: Pick<LazyFrame, 'header' | 'name'>): DrawingPage {
+  try {
+    return parsePageFrame(unzstd(compressed, [0, compressed.length], 'frame'), f.header)
+  } catch (e) {
+    if (e instanceof DrawingFormatError) throw new DrawingFormatError(`${f.name}.${e.message}`)
+    throw e
+  }
+}
+
+/** The elements table from its compressed frame alone. Throws DrawingFormatError named `elements.frame`. */
+export function decodeElementsFrame(compressed: Uint8Array): Record<string, DrawingElement> {
+  try {
+    const body = utf8Json(unzstd(compressed, [0, compressed.length], 'frame'), 'frame')
+    if (!isObject(body)) fail('frame', 'expected a JSON object of elements')
+    return body as Record<string, DrawingElement>
+  } catch (e) {
+    if (e instanceof DrawingFormatError) throw new DrawingFormatError(`elements.${e.message}`)
+    throw e
+  }
+}
+
+/** Bytes from the start of a file up to the end of its JSON header, from its first 16 bytes. Null if it is not this format. */
+export function drawingHeaderEnd(prefix: Uint8Array): number | null {
+  if (prefix.length < PREAMBLE || !isDrawingPayload(prefix)) return null
+  return PREAMBLE + new DataView(prefix.buffer, prefix.byteOffset, prefix.byteLength).getUint32(12, true)
+}
+
+/**
+ * Where the frames of a file are, from its first `drawingHeaderEnd` bytes: each page's (in `parseDrawingPayload`'s page
+ * order), the elements table's, and the file size they add up to. Lets a reader fetch only the frames it needs (HTTP
+ * range requests) into a buffer of that size. Throws on a bad header like `parseDrawingPayload`; a bad frame reference
+ * reads as [0, 0] here and fails in `parseDrawingPayload`.
+ */
+export function drawingFrames(head: Uint8Array): { pages: [number, number][]; elements?: [number, number]; size: number } {
+  const h = readHeader(head)
+  const rawPages = h.pages as unknown[]
+  const ref = (v: unknown): [number, number] =>
+    Array.isArray(v) && v.length === 2 && v.every((n) => Number.isInteger(n) && n >= 0) ? (v as [number, number]) : [0, 0]
+  const pages = viewerOrder(rawPages).map((i) => ref((rawPages[i] as { frame?: unknown } | null)?.frame))
+  const elements = h.elements !== undefined && h.elements !== null ? ref(h.elements) : undefined
+  const size = Math.max(head.length, ...[...pages, elements ?? [0, 0]].map(([o, l]) => o + l))
+  return { pages, elements, size }
+}
+
+/** Sheets first (the viewer's order), so the page that is shown first is decoded first. */
+const viewerOrder = (rawPages: unknown[]): number[] =>
+  rawPages.map((_, i) => i).sort((a, b) => Number((rawPages[a] as { kind?: unknown })?.kind !== 'sheet') - Number((rawPages[b] as { kind?: unknown })?.kind !== 'sheet') || a - b)
 
 /**
  * Give a lazy page (from `parseDrawingPayload(bytes, { lazy: true })`) its decoded frame, so reading its `items`,
@@ -194,17 +258,11 @@ const fillers = new WeakMap<DrawingPage, (decoded: DrawingPage) => void>()
  * copy of the bytes. No effect on a page that is not lazy or already decoded.
  */
 export function fillLazyPage(page: DrawingPage, decoded: Pick<DrawingPage, 'items' | 'boxes' | 'views'>): void {
-  fillers.get(page)?.(decoded as DrawingPage)
+  lazyPages.get(page)?.fill(decoded as DrawingPage)
 }
 
-/**
- * Parse the bytes of a `.drawing` file (raw, not gzipped). Pages are decoded sheets first, the first sheet first.
- * With `lazy`, only the first page is decoded now (so a file that cannot show its first page still fails here); every
- * other page comes from its header entry and decompresses its frame when its `items`, `boxes` or `views` are first read
-(or takes it from `fillLazyPage`). A broken
- * frame then throws from that read, with the same message.
- */
-export function parseDrawingPayload(bytes: Uint8Array, opts: { lazy?: boolean } = {}): DrawingDocument {
+/** Preamble and JSON header of a file, checked. `bytes` needs to hold at least the header (`drawingHeaderEnd`). */
+function readHeader(bytes: Uint8Array): Record<string, unknown> {
   if (bytes.length < PREAMBLE) throw new DrawingFormatError(`not a .drawing file: ${bytes.length} bytes is shorter than the ${PREAMBLE}-byte preamble`)
   if (!isDrawingPayload(bytes)) throw new DrawingFormatError('not a .drawing file: bad magic (expected DRAWING\\0)')
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
@@ -226,6 +284,17 @@ export function parseDrawingPayload(bytes: Uint8Array, opts: { lazy?: boolean } 
     throw new DrawingFormatError(`header.version ${JSON.stringify(h.version)} disagrees with the preamble version ${version}`)
   if (h.unitsPerFoot !== UNITS_PER_FOOT) throw new DrawingFormatError(`header.unitsPerFoot: expected ${UNITS_PER_FOOT}, got ${JSON.stringify(h.unitsPerFoot)}`)
   if (!Array.isArray(h.pages)) throw new DrawingFormatError('header.pages: expected an array')
+  return h
+}
+
+/**
+ * Parse the bytes of a `.drawing` file (raw, not gzipped). Pages are decoded sheets first, the first sheet first.
+ * With `lazy`, only the first page is decoded now (so a file that cannot show its first page still fails here); every
+ * other page comes from its header entry and decompresses its frame when its `items`, `boxes` or `views` are first read
+ * (or takes it from `fillLazyPage`). A broken frame then throws from that read, with the same message.
+ */
+export function parseDrawingPayload(bytes: Uint8Array, opts: { lazy?: boolean } = {}): DrawingDocument {
+  const h = readHeader(bytes)
 
   const named = <T>(what: string, run: () => T): T => {
     try {
@@ -236,9 +305,8 @@ export function parseDrawingPayload(bytes: Uint8Array, opts: { lazy?: boolean } 
     }
   }
 
-  // Sheets first (the viewer's order), so the page that is shown first is decoded first.
   const rawPages = h.pages as unknown[]
-  const order = rawPages.map((_, i) => i).sort((a, b) => Number((rawPages[a] as { kind?: unknown })?.kind !== 'sheet') - Number((rawPages[b] as { kind?: unknown })?.kind !== 'sheet') || a - b)
+  const order = viewerOrder(rawPages)
   const pages = order.map((i, n) =>
     named(`pages[${i}]`, () => {
       const raw = rawPages[i]
@@ -249,15 +317,24 @@ export function parseDrawingPayload(bytes: Uint8Array, opts: { lazy?: boolean } 
       // header fields now; what the frame holds (items, boxes, views) on first read
       const page = withViewType(parsePage({ ...(raw as object), items: [] }, () => undefined as never), raw)
       let full: DrawingPage | undefined
-      const load = () => (full ??= named(`pages[${i}]`, decode))
+      const load = () => {
+        full ??= named(`pages[${i}]`, decode)
+        lazyPages.delete(page)
+        return full
+      }
       Object.defineProperties(page, {
         items: { get: () => load().items, enumerable: true },
         boxes: { get: () => load().boxes, enumerable: true },
         views: { get: () => load().views, enumerable: true },
       })
-      fillers.set(page, (decoded) => {
-        full ??= decoded
-        fillers.delete(page)
+      lazyPages.set(page, {
+        at: ref,
+        header: raw,
+        name: `pages[${i}]`,
+        fill: (decoded) => {
+          full ??= decoded
+          lazyPages.delete(page)
+        },
       })
       return page
     }),
@@ -266,11 +343,8 @@ export function parseDrawingPayload(bytes: Uint8Array, opts: { lazy?: boolean } 
   // The elements table comes after the pages; a viewer that paints page 0 first could load it later.
   let elements: Record<string, DrawingElement> = {}
   if (h.elements !== undefined && h.elements !== null) {
-    elements = named('elements', () => {
-      const body = utf8Json(unzstd(bytes, frameRef(h.elements, 'frame', bytes.length), 'frame'), 'frame')
-      if (!isObject(body)) fail('frame', 'expected a JSON object of elements')
-      return body as Record<string, DrawingElement>
-    })
+    const ref = named('elements', () => frameRef(h.elements, 'frame', bytes.length))
+    elements = decodeElementsFrame(bytes.subarray(ref[0], ref[0] + ref[1]))
   }
 
   const src = isObject(h.source) ? (h.source as Record<string, unknown>) : {}
