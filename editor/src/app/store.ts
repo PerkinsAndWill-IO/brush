@@ -8,8 +8,10 @@ import { layoutSheets, type Placement } from './board/layout'
 import type { OpenedFile } from './platform'
 import { closeSession, openEphemeralSession, openSession } from './session'
 import { closeContexts, openContexts, refreshContexts, type ContextProvider } from './brain/contextStore'
-import { DrawingFileSource, openSource, type DrawingSource, type PageRenderer } from './source'
+import { DrawingFileSource, openSource, watchPages, type DrawingSource, type PageRenderer } from './source'
 import { resetLive } from './brain/live'
+import { startConversion, ConversionCancelled, type Conversion } from './convertClient'
+import type { ConvertProgress } from './convertProgress'
 
 export type DocStatus = 'empty' | 'loading' | 'ready' | 'error'
 
@@ -25,6 +27,10 @@ export interface DocState {
   sheets: Sheet[]
   placements: Placement[]
   error?: string
+  /** While a Revit model converts (status 'loading'): where the conversion stands. */
+  progress?: ConvertProgress
+  /** Bytes downloaded so far while a document opens by URL. */
+  openedBytes?: number
   /** Bumped per load so views can re-render pages. */
   loadId: number
 }
@@ -44,6 +50,26 @@ export function getDocState(): DocState {
 export function subscribeDoc(l: () => void): () => void {
   listeners.add(l)
   return () => listeners.delete(l)
+}
+
+/**
+ * Sheets of the open `.drawing` ready to show, of all, while the rest load in the background. Kept apart from DocState:
+ * a change per sheet must not re-render the board.
+ */
+let sheetsLoading: [number, number] | undefined
+const loadingListeners = new Set<() => void>()
+function setSheetsLoading(v: [number, number] | undefined) {
+  sheetsLoading = v
+  loadingListeners.forEach((l) => l())
+}
+export function useSheetsLoading(): [number, number] | undefined {
+  return useSyncExternalStore(
+    (l) => {
+      loadingListeners.add(l)
+      return () => loadingListeners.delete(l)
+    },
+    () => sheetsLoading,
+  )
 }
 
 export function useDocState(): DocState {
@@ -89,6 +115,15 @@ export function looksLikePdf(name: string, bytes?: ArrayBuffer | Uint8Array): bo
 export interface OpenOptions {
   size?: number
   path?: string
+  /** What to show while this opens, when it is the last step of a conversion. Other opens clear any progress. */
+  progress?: ConvertProgress
+}
+
+/** The conversion in flight, if any: opening anything else supersedes it. */
+let conversion: Conversion | undefined
+function supersedeConversion() {
+  conversion?.cancel()
+  conversion = undefined
 }
 
 /** Resolves once the main thread is idle (a timer where requestIdleCallback is missing), so background work waits for paint. */
@@ -114,14 +149,20 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
   const loadId = state.loadId + 1
   const prev = state.source
   const size = opts.size ?? (typeof input === 'string' ? 0 : input.byteLength)
-  set({ status: 'loading', fileName, fileSize: size, loadId, error: undefined })
+  if (!opts.progress) supersedeConversion()
+  set({ status: 'loading', fileName, fileSize: size, loadId, error: undefined, openedBytes: undefined, progress: opts.progress })
+  setSheetsLoading(undefined)
   let source: DrawingSource | undefined
+  // the download, shown on the start page; a set per 256 kB is enough
+  const onBytes = (n: number) => {
+    if (loadId === state.loadId && n - (state.openedBytes ?? 0) >= 1 << 18) set({ openedBytes: n })
+  }
   try {
     // copy: pdf.js may transfer (detach) the buffer it is given
     const bytes = typeof input === 'string' ? null : input instanceof Uint8Array ? input.slice() : new Uint8Array(input.slice(0))
     // own copy for the context worker: PdfDrawingSource hands the same buffer to pdf.js, which detaches it
     const ctxBytes = bytes?.slice()
-    source = await openSource(bytes ? { name: fileName, bytes } : (input as string))
+    source = await openSource(bytes ? { name: fileName, bytes } : (input as string), {}, onBytes)
     const { sheets, pages } = source instanceof DrawingFileSource ? source.loadFirst() : await source.load()
     if (sheets.length === 0) throw new Error(`“${fileName}” has no sheets.`)
     if (loadId !== state.loadId) {
@@ -133,6 +174,7 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
     await openSession({ name: source.name, size, path: opts.path }, sheets.map((s) => s.id))
     set({
       status: 'ready',
+      progress: undefined,
       fileName: source.name,
       pages: pages ?? undefined,
       source,
@@ -140,6 +182,12 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
       placements: layoutSheets(sheets),
       destroy: () => source!.close(),
     })
+    if (source instanceof DrawingFileSource) {
+      const src = source
+      watchPages(src.doc, (done, total) => {
+        if (state.source === src) setSheetsLoading(done < total ? [done, total] : undefined)
+      })
+    }
     const ids = sheets.map((s) => s.id)
     if (source.kind === 'pdf') void openContexts(ctxBytes ?? (input as string), ids) // inferred in the context worker
     else {
@@ -152,6 +200,8 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
     return loadId
   } catch (e) {
     void source?.close()
+    // a later open took over while this one loaded: leave it be
+    if (loadId !== state.loadId) throw e
     void prev?.close()
     closeSession()
     closeContexts()
@@ -160,7 +210,7 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
     const error = /not a PDF/i.test(msg)
       ? `“${fileName}” is not a PDF or a .drawing package. Choose a .pdf or .drawing file.`
       : `Could not read “${fileName}”. It may be damaged. (${msg})`
-    set({ status: 'error', pages: undefined, source: undefined, destroy: undefined, sheets: [], placements: [], error })
+    set({ status: 'error', progress: undefined, pages: undefined, source: undefined, destroy: undefined, sheets: [], placements: [], error })
     throw e
   }
 }
@@ -172,7 +222,8 @@ export async function openDocument(input: string | ArrayBuffer | Uint8Array, fil
 export async function openLinkedSource(source: DrawingSource, opts: { size?: number } = {}): Promise<number> {
   const loadId = state.loadId + 1
   const prev = state.source
-  set({ status: 'loading', fileName: source.name, fileSize: opts.size ?? 0, loadId, error: undefined })
+  supersedeConversion()
+  set({ status: 'loading', fileName: source.name, fileSize: opts.size ?? 0, loadId, error: undefined, progress: undefined })
   const { sheets, pages } = await source.load()
   if (loadId !== state.loadId) return loadId
   if (prev && prev !== source) void prev.close()
@@ -180,6 +231,7 @@ export async function openLinkedSource(source: DrawingSource, opts: { size?: num
   await openEphemeralSession()
   set({
     status: 'ready',
+    progress: undefined,
     fileName: source.name,
     pages: pages ?? undefined,
     source,
@@ -217,39 +269,72 @@ export async function refreshSource(source: DrawingSource, changed: readonly str
 
 /**
  * Where a Revit model goes to become a `.drawing`: a conversion server you run yourself, which answers `POST` (the
- * model's bytes, its URI-encoded name in `X-Filename`) with the `.drawing` file. `VITE_RVT_CONVERT_URL` moves it.
+ * model's bytes, its URI-encoded name in `X-Filename`) with the `.drawing` file, or (asked with `Prefer:
+ * respond-async`) with where to follow the conversion's progress (`convertClient.ts`). `VITE_RVT_CONVERT_URL` moves it.
  */
 const RVT_CONVERT_URL: string = import.meta.env.VITE_RVT_CONVERT_URL ?? 'http://127.0.0.1:4100/convert'
 
-/** Send a Revit model to the conversion server and open the `.drawing` it answers with. Same states as openDocument. */
+/** Send a Revit model to the conversion server and open the `.drawing` it answers with. Same states as openDocument, plus `progress` while it converts. */
 async function openRevitModel(file: OpenedFile): Promise<void> {
+  supersedeConversion()
   const loadId = state.loadId + 1
-  set({ status: 'loading', fileName: `${file.name}, converting to .drawing`, fileSize: file.size, loadId, error: undefined })
+  set({ status: 'loading', fileName: `${file.name}, converting to .drawing`, fileSize: file.size, loadId, error: undefined, progress: undefined })
+  const running = startConversion({ url: RVT_CONVERT_URL, name: file.name, bytes: file.bytes }, (progress) => {
+    // another file was opened meanwhile: its late progress is not shown, and the conversion stops
+    if (loadId !== state.loadId) return running.cancel()
+    set({ progress })
+  })
+  conversion = running
   let bytes: ArrayBuffer
   try {
-    const res = await fetch(RVT_CONVERT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': encodeURIComponent(file.name) },
-      body: file.bytes,
-    })
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`)
-    bytes = await res.arrayBuffer()
+    bytes = await running.result
   } catch (e) {
-    if (loadId !== state.loadId) return // another file was opened meanwhile
+    if (e instanceof ConversionCancelled || loadId !== state.loadId) return // another file was opened meanwhile
+    if (conversion === running) conversion = undefined
     void state.source?.close()
     closeSession()
     closeContexts()
     resetLive()
     const error = `Could not convert “${file.name}” to a .drawing at ${RVT_CONVERT_URL}. Is the conversion server running? (${(e as Error).message})`
-    set({ status: 'error', pages: undefined, source: undefined, destroy: undefined, sheets: [], placements: [], error })
+    set({ status: 'error', progress: undefined, pages: undefined, source: undefined, destroy: undefined, sheets: [], placements: [], error })
     return
   }
+  if (conversion === running) conversion = undefined
   if (loadId !== state.loadId) return
-  await openFile({ name: file.name.replace(/\.(rvt|rfa)$/i, '.drawing'), size: bytes.byteLength, bytes })
+  const opening: ConvertProgress = { phase: 'open', label: 'Opening', fraction: 0.99, elapsedMs: state.progress?.elapsedMs ?? 0 }
+  await openDocument(bytes, file.name.replace(/\.(rvt|rfa)$/i, '.drawing'), { size: bytes.byteLength, progress: opening }).catch(() => {})
+}
+
+/**
+ * M6-11: asked before a `.rvt` goes to the conversion server. Resolves true when that model is open in Revit and the
+ * live link took it instead. Set by the Revit controller (kept as a hook so the store does not import it).
+ */
+let revitModelHook: ((fileName: string) => Promise<boolean>) | null = null
+export function setRevitModelHook(hook: typeof revitModelHook) {
+  revitModelHook = hook
+}
+
+/** The model is open in Revit: show the start page, where the link panel lists its sheets. */
+async function takeRevitModel(file: OpenedFile): Promise<boolean> {
+  if (!revitModelHook || !/\.rvt$/i.test(file.name)) return false
+  const loadId = state.loadId + 1
+  set({ status: 'loading', fileName: `${file.name}, looking for it in Revit`, fileSize: file.size, loadId, error: undefined })
+  const taken = await revitModelHook(file.name).catch(() => false)
+  if (loadId !== state.loadId) return true // another file was opened meanwhile
+  if (!taken) return false
+  void state.source?.close()
+  closeSession()
+  closeContexts()
+  resetLive()
+  set({ status: 'empty', fileName: undefined, fileSize: undefined, pages: undefined, source: undefined, destroy: undefined, sheets: [], placements: [] })
+  return true
 }
 
 /** Open a file the user picked or dropped: a PDF, a `.drawing`, or a Revit model (converted first). Swallows the error (it is shown inline). */
 export async function openFile(file: OpenedFile): Promise<void> {
-  if (/\.(rvt|rfa)$/i.test(file.name)) return openRevitModel(file)
+  if (/\.(rvt|rfa)$/i.test(file.name)) {
+    if (await takeRevitModel(file)) return
+    return openRevitModel(file)
+  }
   await openDocument(file.bytes, file.name, { size: file.size, path: file.path }).catch(() => {})
 }

@@ -15,13 +15,37 @@ const MIME: Record<string, string> = {
   '.txt': 'text/plain',
 }
 
+/** Send a file, honouring a single `Range: bytes=a-b` (206) like a static host does, so range loading can be tested. */
+function sendFile(req: { headers?: Record<string, string | string[] | undefined> }, res: import('node:http').ServerResponse, file: string) {
+  const size = statSync(file).size
+  res.setHeader('Accept-Ranges', 'bytes')
+  const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers?.range ?? ''))
+  if (!m || (!m[1] && !m[2])) {
+    res.setHeader('Content-Length', size)
+    createReadStream(file).pipe(res)
+    return
+  }
+  const start = m[1] ? Number(m[1]) : Math.max(0, size - Number(m[2]))
+  const end = m[1] && m[2] ? Math.min(Number(m[2]), size - 1) : size - 1
+  if (start > end) {
+    res.statusCode = 416
+    res.setHeader('Content-Range', `bytes */${size}`)
+    res.end()
+    return
+  }
+  res.statusCode = 206
+  res.setHeader('Content-Range', `bytes ${start}-${end}/${size}`)
+  res.setHeader('Content-Length', end - start + 1)
+  createReadStream(file, { start, end }).pipe(res)
+}
+
 /**
  * Serves ./fixtures at /fixtures/* in `vite dev` and `vite preview` only.
  * Tests call `window.__brush.loadPdf('/fixtures/pdfs/office-1-sheet.pdf')`.
  * Fixtures are never copied into a production build.
  */
 function serveFixtures(): Plugin {
-  const handler = (req: { url?: string }, res: import('node:http').ServerResponse, next: () => void) => {
+  const handler = (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse, next: () => void) => {
     const url = decodeURIComponent((req.url ?? '').split('?')[0])
     if (!url.startsWith('/fixtures/')) return next()
     const file = resolve(fixturesDir, '.' + url.slice('/fixtures'.length))
@@ -32,7 +56,7 @@ function serveFixtures(): Plugin {
     }
     res.setHeader('Content-Type', MIME[extname(file)] ?? 'application/octet-stream')
     res.setHeader('Cache-Control', 'no-store')
-    createReadStream(file).pipe(res)
+    sendFile(req, res, file)
   }
   return {
     name: 'brush-serve-fixtures',
@@ -97,14 +121,14 @@ function listRemoteSamples(): SampleEntry[] {
 function sampleDrawings(): Plugin {
   const VIRTUAL = 'virtual:brush-samples'
   const RESOLVED = '\0' + VIRTUAL
-  const handler = (req: { url?: string }, res: import('node:http').ServerResponse, next: () => void) => {
+  const handler = (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse, next: () => void) => {
     const url = decodeURIComponent((req.url ?? '').split('?')[0])
     if (!url.startsWith('/samples/')) return next()
     const sample = listSamples().find((s) => s.name === url.slice('/samples/'.length))
     if (!sample) return next()
     res.setHeader('Content-Type', 'application/octet-stream')
     res.setHeader('Cache-Control', 'no-store')
-    createReadStream(resolve(samplesDir, sample.name)).pipe(res)
+    sendFile(req, res, resolve(samplesDir, sample.name))
   }
   return {
     name: 'brush-sample-drawings',
@@ -136,12 +160,56 @@ function sampleDrawings(): Plugin {
   }
 }
 
+/**
+ * P1-11 in dev: answer /api/photo-relay with the real function (api/photo-relay.ts), so sending a photo from a phone
+ * can be tried locally. Only when editor/.env.local has BLOB_READ_WRITE_TOKEN (a private store; the token stays on
+ * the dev server). Without it the dialog says sending from a phone is not set up, as before. A phone cannot open
+ * `localhost`: start with `pnpm dev:phone` and open the app at the computer's network address (see AGENTS.md).
+ */
+function photoRelayDev(token: string | undefined): Plugin {
+  return {
+    name: 'brush-photo-relay-dev',
+    configureServer(server) {
+      if (!token) return
+      process.env.BLOB_READ_WRITE_TOKEN = token
+      server.middlewares.use('/api/photo-relay', (req, res, next) => {
+        const chunks: Buffer[] = []
+        req.on('data', (c: Buffer) => chunks.push(c))
+        req.on('error', next)
+        req.on('end', async () => {
+          try {
+            type Handler = (r: Request) => Promise<Response>
+            const fn = (await server.ssrLoadModule('/api/photo-relay.ts')) as Record<string, Handler | undefined>
+            const handler = fn[req.method ?? 'GET']
+            if (!handler) {
+              res.statusCode = 405
+              res.end()
+              return
+            }
+            const headers = new Headers()
+            for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string') headers.set(k, v)
+            const body = chunks.length && req.method !== 'GET' && req.method !== 'HEAD' ? Buffer.concat(chunks) : undefined
+            // mounted at /api/photo-relay, so req.url is only the rest ("?id=...")
+            const r = await handler(new Request(`http://${req.headers.host}/api/photo-relay${req.url === '/' ? '' : req.url}`, { method: req.method, headers, body }))
+            res.statusCode = r.status
+            r.headers.forEach((v, k) => res.setHeader(k, v))
+            res.end(Buffer.from(await r.arrayBuffer()))
+          } catch (e) {
+            next(e)
+          }
+        })
+      })
+    },
+  }
+}
+
 // Tauri expects a fixed port; tests override with --port.
 export default defineConfig(({ mode }) => {
   // The AI Gateway key stays on the dev server (no VITE_ prefix => never in the bundle).
   // The app's hosted second pass targets /api/ai-gateway; in dev this proxy adds the key,
   // in production the Vercel Function api/ai-gateway.ts does.
-  const gatewayKey = loadEnv(mode, root, '').VERCEL_AI_GATEWAY_API_KEY
+  const env = loadEnv(mode, root, '')
+  const gatewayKey = env.VERCEL_AI_GATEWAY_API_KEY
   const proxy = gatewayKey
     ? {
         '/api/ai-gateway': {
@@ -153,7 +221,7 @@ export default defineConfig(({ mode }) => {
       }
     : undefined
   return {
-  plugins: [react(), serveFixtures(), sampleDrawings()],
+  plugins: [react(), serveFixtures(), sampleDrawings(), photoRelayDev(env.BLOB_READ_WRITE_TOKEN)],
   resolve: {
     alias: {
       '@core': resolve(root, 'src/core'),

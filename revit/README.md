@@ -1,7 +1,7 @@
 # revit: Brush Link for Revit
 
 A Revit add-in that the Brush Editor connects to while you sketch. The editor sends its commands (walls, doors,
-furniture, deletes) and Revit applies them to the open model. The sheet then goes back to the editor as a new
+furniture, deletes, type changes) and Revit applies them to the open model. The sheet then goes back to the editor as a new
 `.drawing` version, and edits made in Revit itself are pushed the same way.
 
 ```text
@@ -118,8 +118,8 @@ Known limits:
 - Only plan viewports take edits. Sections, elevations and 3D views are exported in the PDF only.
 - For a view with a split crop region, only the first region's transform is used.
 - Walls are straight segments. Arcs in the editor path come through as their polyline.
-- A `delete` cannot be reverted from the editor (use Undo in Revit). Element ids recorded per command are kept only for
-  the Revit session.
+- A `delete` cannot be reverted from the editor (use Undo in Revit). Element ids and replaced types recorded per command
+  are kept only for the Revit session.
 - Every model change re-exports every open sheet. Exports that did not change are not pushed, but they still cost
   Revit time.
 - The sheet goes back as the editor's JSON-envelope package (manifest + PDF), which the editor now treats as legacy.

@@ -9,17 +9,21 @@ import { installBrain } from './brain'
 import { registerSheetOverlay } from './board/SheetView'
 import { MeasureOverlay } from './board/viewAidLayers'
 import { InspectOverlay } from './drawing/InspectLayers'
+import { SelectionOverlay, TypeMenu } from './select/SelectLayers'
 import { useView } from './view'
 import { getPlatform } from './platform'
 import { fileToOpened } from './platform/browser'
-import { getDocState, openFile, useDocState } from './store'
+import { formatDuration, formatEta, type ConvertProgress } from './convertProgress'
+import { getDocState, openDocument, openFile, useDocState } from './store'
 import brushLogoRed from './ui/assets/brush-logo-red.png'
 import { chooseFile, LeftSidebar, RightSidebar, ToolCapsule, TopBar } from './ui/Chrome'
 import { RevitHud, RevitStart } from './revit/RevitPanel'
 import { isPhotoFile, photoImport, PhotoImportDialog } from './photo/PhotoImport'
+import { TraceControl } from './photo/TracePaper'
 
 installBrain()
 registerSheetOverlay(MeasureOverlay) // above the brain overlays
+registerSheetOverlay(SelectionOverlay) // selection and type changes (S1)
 registerSheetOverlay(InspectOverlay) // element highlight (V3), on top
 
 const TldrawSmoke = lazy(() => import('./dev/TldrawSmoke'))
@@ -36,40 +40,24 @@ async function openDropped(e: DragEvent) {
 const formatSize = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} kB`)
 
 /**
- * Sample `.drawing` files from `schema/public/examples` (served by the `sampleDrawings` plugin in vite.config.ts).
- * Picking one fetches it and opens it like a chosen file. Hidden when there are no samples.
+ * Sample `.drawing` files: those in `schema/public/examples` (served by the `sampleDrawings` plugin in vite.config.ts)
+ * and remote ones. Picking one opens it by URL (a zstd file on a server with range requests opens from its first
+ * sheet). Hidden when there are no samples.
  */
 function SamplePicker({ disabled }: { disabled: boolean }) {
-  const [fetching, setFetching] = useState<string>()
-  const [fetchError, setFetchError] = useState<string>()
   if (!samples.length) return null
 
-  async function open(name: string) {
+  function open(name: string) {
     const sample = samples.find((s) => s.name === name)
-    if (!sample) return
-    setFetching(sample.name)
-    setFetchError(undefined)
-    // a file opened while the sample downloads (picker, Ctrl O, drop) bumps loadId; it wins over the late sample
-    const loadIdAtStart = getDocState().loadId
-    try {
-      const res = await fetch(sample.url)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const bytes = await res.arrayBuffer()
-      setFetching(undefined)
-      if (getDocState().loadId !== loadIdAtStart) return
-      await openFile({ name: sample.name, size: bytes.byteLength, bytes })
-    } catch (e) {
-      setFetching(undefined)
-      if (getDocState().loadId !== loadIdAtStart) return
-      setFetchError(`Could not download the sample “${sample.name}”. (${(e as Error).message})`)
-    }
+    // a failure is shown inline by the start page (load-error)
+    if (sample) void openDocument(sample.url, sample.name, { size: sample.size }).catch(() => {})
   }
 
   return (
     <>
       <label className="samples">
-        <span className="secondary">{fetching ? `Downloading ${fetching}…` : 'or open a sample'}</span>
-        <select data-testid="sample-picker" aria-label="Open a sample drawing" value="" disabled={disabled || !!fetching} onChange={(e) => void open(e.target.value)}>
+        <span className="secondary">or open a sample</span>
+        <select data-testid="sample-picker" aria-label="Open a sample drawing" value="" disabled={disabled} onChange={(e) => open(e.target.value)}>
           <option value="" disabled>
             Choose a sample…
           </option>
@@ -80,16 +68,32 @@ function SamplePicker({ disabled }: { disabled: boolean }) {
           ))}
         </select>
       </label>
-      {fetchError && (
-        <p className="error" role="alert" data-testid="sample-error">
-          {fetchError}
-        </p>
-      )}
     </>
   )
 }
 
-function EmptyState({ error, loading }: { error?: string; loading?: string }) {
+/** The bar of a Revit model converting: one `<progress>`, the step in words, time elapsed and time left. */
+function ConversionProgress({ name, progress }: { name: string; progress: ConvertProgress }) {
+  const percent = progress.fraction === null ? undefined : Math.floor(progress.fraction * 100)
+  const times = [progress.etaMs === undefined ? undefined : formatEta(progress.etaMs), `${formatDuration(progress.elapsedMs)} elapsed`].filter(Boolean).join(' · ')
+  return (
+    <div className="convert-progress" data-testid="convert-progress">
+      <progress
+        max={1}
+        value={progress.fraction ?? undefined}
+        aria-label={`Converting ${name}`}
+        aria-valuetext={percent === undefined ? progress.label : `${progress.label}, ${percent}%`}
+      />
+      <p className="convert-step" role="status">
+        {progress.label}
+        {percent !== undefined && <span className="convert-percent"> · {percent}%</span>}
+      </p>
+      <p className="convert-times secondary">{times}</p>
+    </div>
+  )
+}
+
+function EmptyState({ error, loading, bytes, progress }: { error?: string; loading?: string; bytes?: number; progress?: ConvertProgress }) {
   return (
     <div className="empty landing" data-testid="empty-state">
       <div className="landing-paper" aria-hidden="true" />
@@ -106,9 +110,10 @@ function EmptyState({ error, loading }: { error?: string; loading?: string }) {
           <h1>Drop a PDF to start</h1>
           <div className="cta">
             <button type="button" className="btn landing-cta" title="Choose file (Ctrl+O)" onClick={() => void chooseFile()} disabled={!!loading}>
-              {loading ? `Opening ${loading}…` : 'Choose file'}
+              {loading ? `Opening ${loading}…${bytes ? ` ${formatSize(bytes)}` : ''}` : 'Choose file'}
             </button>
           </div>
+          {loading && progress && <ConversionProgress name={loading} progress={progress} />}
           <div className="landing-more">
             <SamplePicker disabled={!!loading} />
             <RevitStart />
@@ -177,14 +182,21 @@ export function App() {
           {ready ? (
             <Board pages={st.pages} loadId={st.loadId} sheets={st.sheets} placements={st.placements} fileName={st.fileName ?? ''} />
           ) : (
-            <EmptyState error={st.status === 'error' ? st.error : undefined} loading={st.status === 'loading' ? st.fileName : undefined} />
+            <EmptyState
+              error={st.status === 'error' ? st.error : undefined}
+              loading={st.status === 'loading' ? st.fileName : undefined}
+              bytes={st.openedBytes}
+              progress={st.status === 'loading' ? st.progress : undefined}
+            />
           )}
           {ready && <RevitHud />}
+          {ready && <TraceControl />}
           <ToolCapsule disabled={!ready} />
         </main>
         {ready && <RightSidebar />}
       </div>
       <PhotoImportDialog />
+      <TypeMenu />
     </div>
   )
 }

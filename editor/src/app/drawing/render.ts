@@ -48,7 +48,20 @@ function boxOf(xy: ArrayLike<number>): Box {
  * order across kinds is kept. `newPath` exists for tests (Path2D is a browser API).
  */
 export function compile(page: DrawingPage, hide: ((it: DrawItem) => boolean) | null, newPath: () => Path2D = () => new Path2D()): Cmd[] {
+  const steps = compileSteps(page, hide, newPath)
+  for (;;) {
+    const r = steps.next()
+    if (r.done) return r.value
+  }
+}
+
+/** Items compiled between two chances to yield. */
+const ITEMS_PER_STEP = 256
+
+/** `compile`, pausing every ITEMS_PER_STEP items so a caller can yield to the browser in between. */
+function* compileSteps(page: DrawingPage, hide: ((it: DrawItem) => boolean) | null, newPath: () => Path2D): Generator<void, Cmd[]> {
   const cmds: Cmd[] = []
+  let n = 0
   const cw = page.sizePt.w / GRID
   const ch = page.sizePt.h / GRID
   let run = new Map<string, { cmd: Cmd & { k: 'stroke' }; cells: (Part | undefined)[] }>()
@@ -76,6 +89,7 @@ export function compile(page: DrawingPage, hide: ((it: DrawItem) => boolean) | n
     return p
   }
   for (const it of page.items) {
+    if (++n % ITEMS_PER_STEP === 0) yield
     if (hide?.(it)) continue
     if (it.t === 'path' || it.t === 'segs') {
       const key = `${it.w}|${it.c.join(',')}|${it.dash.join(',')}`
@@ -121,6 +135,26 @@ export function compile(page: DrawingPage, hide: ((it: DrawItem) => boolean) | n
   }
   flush()
   return cmds
+}
+
+/** Longest stretch of main-thread work a render takes before letting the browser handle input and frames. */
+const SLICE_MS = 8
+
+/** Resolves after the browser has had a turn (input, frames). */
+const yieldToBrowser = (): Promise<void> =>
+  (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler?.yield?.() ?? new Promise((r) => setTimeout(r, 0))
+
+/** A clock for slicing: `due()` is true once SLICE_MS have passed since the last `pause()`. */
+function slicer(signal?: AbortSignal) {
+  let since = performance.now()
+  return {
+    due: () => performance.now() - since > SLICE_MS,
+    async pause() {
+      await yieldToBrowser()
+      if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
+      since = performance.now()
+    },
+  }
 }
 
 const hits = (b: Box, r: Rect, pad: number) => b.x0 - pad < r.x + r.w && b.x1 + pad > r.x && b.y0 - pad < r.y + r.h && b.y1 + pad > r.y
@@ -206,8 +240,15 @@ export async function renderDrawingPage(
   region?: { x: number; y: number; w: number; h: number },
 ): Promise<void> {
   const key = filter?.key ?? -1
+  // compiling and drawing a heavy page takes hundreds of ms: both are sliced so pan, zoom and ink stay smooth meanwhile
+  const slice = slicer(signal)
   let entry = compiled.get(page)
-  if (!entry || entry.key !== key) compiled.set(page, (entry = { key, cmds: compile(page, filter?.hide ?? null) }))
+  if (!entry || entry.key !== key) {
+    const steps = compileSteps(page, filter?.hide ?? null, () => new Path2D())
+    let r = steps.next()
+    for (; !r.done; r = steps.next()) if (slice.due()) await slice.pause()
+    compiled.set(page, (entry = { key, cmds: r.value }))
+  }
   const cmds = entry.cmds
   const images = new Map<DrawItem, ImageBitmap | null>()
   await Promise.all(cmds.filter((c) => c.k === 'image').map(async (c) => images.set(c.item, await bitmap(c.item.png))))
@@ -230,13 +271,17 @@ export async function renderDrawingPage(
   g.lineCap = 'butt'
   const minPx = 1 / pxPerPt // one device pixel in points
   for (const c of cmds) {
+    if (slice.due()) await slice.pause()
     if (c.k === 'stroke') {
       const parts = partsIn(c, r0, minPx)
       if (!parts.length) continue
       g.lineWidth = Math.max(c.w, minPx)
       g.strokeStyle = c.css
       g.setLineDash(c.dash)
-      for (const p of parts) g.stroke(p.path)
+      for (const p of parts) {
+        g.stroke(p.path)
+        if (slice.due()) await slice.pause()
+      }
       g.setLineDash([])
     } else if (c.k === 'fill') {
       if (!hits(c.box, r0, minPx)) continue

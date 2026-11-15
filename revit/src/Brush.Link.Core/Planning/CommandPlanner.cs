@@ -28,6 +28,12 @@ public sealed record InstanceOp(string CommandId, string ViewId, string? LevelId
 /// </summary>
 public sealed record DeleteOp(string CommandId, IReadOnlyList<string> HostIds, IReadOnlyList<string> CommandIds, IReadOnlyList<string> Unresolved) : ModelOp(CommandId);
 
+/// <summary>
+/// Set type: give each of <see cref="HostIds"/> (Revit element ids) the type named <see cref="TypeName"/>, of
+/// <see cref="Family"/> when given. <see cref="Unresolved"/> are targets that name no element.
+/// </summary>
+public sealed record SetTypeOp(string CommandId, IReadOnlyList<string> HostIds, IReadOnlyList<string> Unresolved, string TypeName, string? Family) : ModelOp(CommandId);
+
 /// <summary>A command the planner could not translate; the reason goes back to the editor.</summary>
 public sealed record RejectedOp(string CommandId, string Reason) : ModelOp(CommandId);
 
@@ -53,6 +59,7 @@ public static partial class CommandPlanner
                 PlaceDoor c => PlanDoor(c, sheet, isKnownCommand),
                 PlaceInstance c => PlanInstance(c, sheet),
                 DeleteElements c => PlanDelete(c, isKnownCommand),
+                SetType c => PlanSetType(c),
                 UnknownCommand c => new RejectedOp(c.Id, $"unknown op '{c.RawOp}'"),
                 _ => new RejectedOp(command.Id, $"unsupported op '{command.Op}'"),
             };
@@ -130,6 +137,28 @@ public static partial class CommandPlanner
         if (host.Count == 0 && cmds.Count == 0) return new RejectedOp(c.Id, $"no target names a Revit element or an earlier command: {string.Join(", ", c.Targets)}");
         return new DeleteOp(c.Id, host, cmds, unresolved);
     }
+
+    private static ModelOp PlanSetType(SetType c)
+    {
+        var host = new List<string>();
+        var unresolved = new List<string>();
+        foreach (var t in c.Targets)
+        {
+            if (HostId(t) is { } id) { if (!host.Contains(id)) host.Add(id); }
+            else unresolved.Add(t);
+        }
+        if (host.Count == 0)
+            return new RejectedOp(c.Id, c.Targets.Count == 0 ? "set_type has no targets" : $"no target names a Revit element: {string.Join(", ", c.Targets)}");
+        return new SetTypeOp(c.Id, host, unresolved, c.TypeName, c.Family);
+    }
+
+    /// <summary>
+    /// The type name and family to look for. The sheet names a family type <c>Family: Type</c> (and the editor may
+    /// send that as <c>typeName</c> with or without <c>family</c>), so a <c>typeName</c> that starts with
+    /// <c>family + ": "</c> is cut to the type name.
+    /// </summary>
+    public static (string Name, string? Family) TypeQuery(string typeName, string? family) =>
+        family is { Length: > 0 } f && typeName.StartsWith(f + ": ", StringComparison.Ordinal) ? (typeName[(f.Length + 2)..], f) : (typeName, family);
 
     /// <summary>A Revit element id from a hostRef ("123456") or a package context item id ("wall-123456"); null otherwise.</summary>
     public static string? HostId(string? reference)
