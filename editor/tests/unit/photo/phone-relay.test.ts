@@ -68,11 +68,29 @@ describe('P1-11 the photo relay (server)', () => {
     expect(await (await relay.GET(req('GET', ''))).json()).toEqual({ available: true })
   })
 
-  it('P1-11: knows JPEG, PNG and HEIC by their first bytes', () => {
-    expect(relay.imageType(JPEG)).toBe('image/jpeg')
-    expect(relay.imageType(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10]))).toBe('image/png')
-    expect(relay.imageType(new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112, 104, 101, 105, 99]))).toBe('image/heic')
-    expect(relay.imageType(new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]))).toBeNull() // GIF
+  it('P1-11: knows JPEG, PNG and HEIC by their first bytes, the same way as the phone page', async () => {
+    const { imageType: pageImageType } = await import('../../../src/app/photo/imageType')
+    const cases: [Uint8Array, string | null][] = [
+      [JPEG, 'image/jpeg'],
+      [new Uint8Array([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10]), 'image/png'],
+      [new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112, 104, 101, 105, 99]), 'image/heic'],
+      [new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112, 109, 105, 102, 49]), 'image/heic'], // mif1
+      [new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]), null], // GIF
+      [new Uint8Array([0xff, 0xd8]), null],
+    ]
+    for (const [bytes, type] of cases) {
+      expect(relay.imageType(bytes)).toBe(type)
+      expect(pageImageType(bytes)).toBe(type)
+    }
+  })
+
+  it('P1-11: function files import only packages (Vercel runs them as plain ES modules)', async () => {
+    const { readdirSync, readFileSync } = await import('node:fs')
+    const dir = new URL('../../../api/', import.meta.url)
+    for (const name of readdirSync(dir).filter((n) => n.endsWith('.ts'))) {
+      const source = readFileSync(new URL(name, dir), 'utf8')
+      expect([...source.matchAll(/^\s*(?:import|export)\b[^'"\n]*from\s+['"](\.[^'"]*)['"]/gm)].map((m) => m[1]), name).toEqual([])
+    }
   })
 })
 
