@@ -1,5 +1,5 @@
 /**
- * The import's progress as the dialog tells it (P1-11): four stages read off the import's own progress lines, a
+ * The import's progress as the dialog tells it (P1-13): four stages read off the import's own progress lines, a
  * rotating line of patter per stage, and an estimate of how far along it is. PURE: no DOM.
  */
 

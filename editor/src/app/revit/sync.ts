@@ -88,6 +88,14 @@ export class CommandSync {
     return this.all().some((e) => !inLog.has(e.id) && (e.status === 'failed' || ((e.status === 'applied' || e.status === 'skipped') && linkedSheets.has(e.sheetId))))
   }
 
+  /** How many commands `plan` would send now (applies plus reverts), for "N edits waiting" while streaming is paused. */
+  pendingCount(log: readonly Command[], linkedSheets: ReadonlySet<string>): number {
+    const inLog = new Set(log.map((c) => c.id))
+    const apply = log.filter((c) => linkedSheets.has(c.sheetId) && !this.entries.has(c.id)).length
+    const revert = this.all().filter((e) => !inLog.has(e.id) && (e.status === 'applied' || e.status === 'skipped') && linkedSheets.has(e.sheetId)).length
+    return apply + revert
+  }
+
   /** The plugin's `applied` reply. */
   onApplied(results: readonly CommandResult[]): void {
     for (const r of results) {

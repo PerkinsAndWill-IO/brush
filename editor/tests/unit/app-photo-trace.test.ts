@@ -1,12 +1,12 @@
 /**
- * P1-10 (trace paper over the sheet after an import) and P1-11 (the import's progress, told in stages):
+ * P1-12 (trace paper over the sheet after an import) and P1-13 (the import's progress, told in stages):
  * app/photo/trace.ts and progress.ts (docs/tasks/P1-photo-import.md).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { STAGES, advanceStage, clock, patter, progressFraction, sheetOfLine, stageOfLine } from '../../src/app/photo/progress'
 import { ROLL_UP_MS, UNROLL_MS, tracePaper } from '../../src/app/photo/trace'
 
-describe('P1-11 progress stages', () => {
+describe('P1-13 progress stages', () => {
   // the lines an import actually logs, in order (the KRO photo)
   const LOG = [
     'Reading the photo…',
@@ -22,7 +22,7 @@ describe('P1-11 progress stages', () => {
     'layer black: rgb(28,0,17), 43 strokes (median width 2.3 mm on the sheet)',
   ]
 
-  it('P1-11 reads the stage off the import lines, forward only', () => {
+  it('P1-13 reads the stage off the import lines, forward only', () => {
     const seen = LOG.reduce<string[]>((acc, l) => [...acc, advanceStage((acc.at(-1) ?? 'develop') as never, l)], [])
     expect(seen).toEqual(['develop', 'develop', 'find', 'find', 'align', 'align', 'align', 'align', 'trace', 'trace', 'trace'])
     // a late line of an earlier stage does not take it back
@@ -30,7 +30,7 @@ describe('P1-11 progress stages', () => {
     expect(stageOfLine('  tiles not used: {}')).toBeUndefined()
   })
 
-  it('P1-11 names the sheet being compared, short', () => {
+  it('P1-13 names the sheet being compared, short', () => {
     expect(sheetOfLine('Looking for the sheet: A-201 Level 2…')).toBe('A-201 Level 2')
     expect(sheetOfLine(LOG[2])).toBe('KRO-APD-ARC-PLN-A1A-N01-0001-007')
     expect(sheetOfLine('Photo 2000 × 1500 px')).toBeUndefined()
@@ -38,7 +38,7 @@ describe('P1-11 progress stages', () => {
     expect(patter('find', 100)).not.toContain('{sheet}')
   })
 
-  it('P1-11 progress only grows, never reaches the end before the import does', () => {
+  it('P1-13 progress only grows, never reaches the end before the import does', () => {
     let last = -1
     for (const s of STAGES)
       for (const t of [0, 1, 5, 30, 600]) {
@@ -51,14 +51,14 @@ describe('P1-11 progress stages', () => {
   })
 })
 
-describe('P1-10 trace paper', () => {
+describe('P1-12 trace paper', () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => {
     tracePaper.clear()
     vi.useRealTimers()
   })
 
-  it('P1-10 unrolls, settles, rolls up and goes', () => {
+  it('P1-12 unrolls, settles, rolls up and goes', () => {
     tracePaper.unroll('sheet-0')
     expect(tracePaper.get('sheet-0')?.phase).toBe('unrolling')
     vi.advanceTimersByTime(UNROLL_MS)
@@ -69,7 +69,7 @@ describe('P1-10 trace paper', () => {
     expect(tracePaper.get('sheet-0')).toBeUndefined()
   })
 
-  it('P1-10 unrolling again while it rolls up brings it back', () => {
+  it('P1-12 unrolling again while it rolls up brings it back', () => {
     tracePaper.unroll('sheet-0')
     vi.advanceTimersByTime(UNROLL_MS)
     tracePaper.rollUp('sheet-0')
@@ -82,7 +82,7 @@ describe('P1-10 trace paper', () => {
     expect(tracePaper.get('sheet-0')?.phase).toBe('shown')
   })
 
-  it('P1-10 opacity is clamped to 0..1', () => {
+  it('P1-12 opacity is clamped to 0..1', () => {
     tracePaper.setOpacity(1.4)
     expect(tracePaper.opacity()).toBe(1)
     tracePaper.setOpacity(-1)

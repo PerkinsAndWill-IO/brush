@@ -209,7 +209,7 @@ export async function importPhotoMarkup(photo: Blob, opts: PhotoImportOptions = 
       session.addStrokes(strokes)
       session.setActiveSheet(sheet.id)
       if (!opts.keepCamera) boardView.focusSheet(sheet.pageIndex)
-      // P1-10: the strokes arrive on a sheet of trace paper, unrolled over the drawing once the sheet has been
+      // P1-12: the strokes arrive on a sheet of trace paper, unrolled over the drawing once the sheet has been
       // drawn at the new zoom (pdf.js renders on the main thread and would make the roll stutter)
       void unrollWhenDrawn(sheet.id)
     }

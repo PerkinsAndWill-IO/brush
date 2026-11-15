@@ -1,5 +1,5 @@
 /**
- * The import dialog while a photo is read (P1-11): the photo on a little light table, acted out per stage
+ * The import dialog while a photo is read (P1-13): the photo on a little light table, acted out per stage
  * (it develops, a loupe looks for the sheet, pins hold it flat, a pencil traces it), four steps, a bar that
  * never stalls, a rotating line of patter and, when asked for, the model's first glance at the sketch.
  * The import's own progress lines stay one click away under Details.

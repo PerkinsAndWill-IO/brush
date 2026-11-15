@@ -5,7 +5,7 @@
  */
 import { useSyncExternalStore } from 'react'
 import { DEFAULT_BRUSH_SETTINGS, SESSION_SCHEMA_VERSION, type AcceptedDecision, type BrushSettings, type Command, type SessionFile, type Stroke } from '@core/types'
-import { StrokeHistory, type Removed } from './board/history'
+import { StrokeHistory, type Removed, type Replacement } from './board/history'
 import { getPlatform, type SidecarKey } from './platform'
 
 export type Tool = 'select' | 'brush' | 'eraser' | 'pan' | 'measure'
@@ -108,6 +108,12 @@ export const session = {
   commitDecisions(items: readonly { decision: AcceptedDecision; command: Command | null }[]) {
     if (!items.length) return
     history.commitMany(items)
+    syncStrokes()
+  },
+  /** Swap elements for others as one undo step (S1: the type menu). */
+  replaceElements(changes: readonly Replacement[]) {
+    if (!changes.length) return
+    history.replace(changes)
     syncStrokes()
   },
   /** Remove strokes (with their elements and commands) as one undo step (a photo import, P1-07). */
@@ -229,7 +235,8 @@ export async function openSession(key: SidecarKey, sheetIds: readonly string[]):
       restored = file.strokes.filter((s) => ids.has(s.sheetId) && Array.isArray(s.points))
       const strokeIds = new Set(restored.map((s) => s.id))
       accepted = (file.accepted ?? []).filter((d) => strokeIds.has(d.strokeId))
-      commands = (file.commands ?? []).filter((c) => strokeIds.has(c.strokeId))
+      // a type set on a sheet element (S1) has no stroke of its own
+      commands = (file.commands ?? []).filter((c) => strokeIds.has(c.strokeId) || (c.op === 'set_type' && ids.has(c.sheetId)))
     }
   } catch (e) {
     console.warn('could not read sidecar', e)

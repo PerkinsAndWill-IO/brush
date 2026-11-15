@@ -133,7 +133,7 @@ export const SheetView = memo(function SheetView({ sheet, placement, pages, load
   const filterVersion = useFilters().version
   const [renderedFilter, setRenderedFilter] = useState(-1)
   const overlayComponents = useOverlays()
-  // P1-10: trace paper over the sheet after a photo import; the ink is revealed as it unrolls
+  // P1-12: trace paper over the sheet after a photo import; the ink is revealed as it unrolls
   const trace = useSheetTrace(sheet.id)
 
   useLayoutEffect(() => {

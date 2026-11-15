@@ -9,6 +9,7 @@ import { getDocState, useDocState } from '../store'
 import { makeElements } from './groupActions'
 import { PhotoImportError, importPhotoMarkup, type PhotoImportSummary } from './import'
 import type { InkChoice } from './pipeline'
+import { PhoneQr } from './PhoneQr'
 import { MAX_AUTO_SHEETS, knownSheetId, sheetLabel } from './plan'
 import { firstGlance, peekPreference } from './peek'
 import { PhotoProgress } from './PhotoProgress'
@@ -29,8 +30,10 @@ interface DialogState {
   /** The last import matched no open sheet: offer to match the printed file instead (P1-09). */
   askPrinted: boolean
   ink: InkChoice
+  /** P1-11: the QR code for sending the photo from a phone is shown. */
+  phone: boolean
   lines: string[]
-  /** P1-11: where the running import is, as the dialog tells it. */
+  /** P1-13: where the running import is, as the dialog tells it. */
   stage: ImportStage
   startedAt: number
   stageAt: number
@@ -44,7 +47,7 @@ interface DialogState {
   error?: string
 }
 
-const CLOSED: DialogState = { open: false, phase: 'pick', file: null, sheetId: '', sheetDoc: 0, printed: null, askPrinted: false, ink: 'both', lines: [], stage: 'develop', startedAt: 0, stageAt: 0, peek: peekPreference.get() }
+const CLOSED: DialogState = { open: false, phase: 'pick', file: null, sheetId: '', sheetDoc: 0, printed: null, askPrinted: false, ink: 'both', phone: false, lines: [], stage: 'develop', startedAt: 0, stageAt: 0, peek: peekPreference.get() }
 let state: DialogState = CLOSED
 let abort: AbortController | null = null
 const listeners = new Set<() => void>()
@@ -91,7 +94,7 @@ export const photoImport = {
     abort = ac
     const t0 = performance.now()
     set({ phase: 'running', lines: [], error: undefined, summary: undefined, stage: 'develop', startedAt: t0, stageAt: t0, probing: undefined, glance: state.peek ? null : undefined })
-    // P1-11: the first glance runs beside the import and never holds it up
+    // P1-13: the first glance runs beside the import and never holds it up
     if (state.peek)
       void firstGlance(file, ac.signal).then((g) => {
         if (!ac.signal.aborted && state.phase === 'running') set({ glance: g ?? undefined })
@@ -209,7 +212,7 @@ export function PhotoImportDialog() {
 
   if (!st.open || !ready) return null
   const running = st.phase === 'running'
-  // P1-10: after an import that added strokes the dialog steps aside to a card, so the trace can be seen unrolling
+  // P1-12: after an import that added strokes the dialog steps aside to a card, so the trace can be seen unrolling
   const aside = st.phase === 'done' && !!st.summary?.strokes
   return (
     <div className={`modal-backdrop${aside ? ' aside' : ''}`} onPointerDown={(e) => e.target === e.currentTarget && !running && photoImport.close()}>
@@ -223,13 +226,25 @@ export function PhotoImportDialog() {
             </p>
             <div className="field">
               <span>Photo</span>
-              <button type="button" className="btn soft" data-testid="photo-choose" onClick={() => input.current?.click()}>
-                {st.file ? st.file.name : 'Choose photo…'}
-              </button>
+              <span className="field-pair">
+                <button type="button" className="btn soft" data-testid="photo-choose" onClick={() => input.current?.click()}>
+                  {st.file ? st.file.name : 'Choose photo…'}
+                </button>
+                <button
+                  type="button"
+                  className={`btn soft phone-toggle${st.phone ? ' on' : ''}`}
+                  aria-pressed={st.phone}
+                  data-testid="photo-phone"
+                  title="Send the photo from your phone: scan a QR code"
+                  onClick={() => set({ phone: !st.phone })}
+                >
+                  From phone
+                </button>
+              </span>
               <input
                 ref={input}
                 type="file"
-                accept="image/*"
+                accept="image/*,.heic,.heif"
                 hidden
                 data-testid="photo-file"
                 onChange={(e) => {
@@ -239,6 +254,7 @@ export function PhotoImportDialog() {
                 }}
               />
             </div>
+            {st.phone && <PhoneQr onPhoto={(f) => set({ file: f, phone: false, error: undefined })} />}
             {/* P1-09: asked for only after the photo matched none of the open sheets */}
             <input
               ref={printedInput}

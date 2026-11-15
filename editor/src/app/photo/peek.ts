@@ -1,5 +1,5 @@
 /**
- * "First glance" (P1-11): while the photo is read, a small preview of it goes to the hosted model (the same
+ * "First glance" (P1-13): while the photo is read, a small preview of it goes to the hosted model (the same
  * AI Gateway proxy as the second pass) for one short line about what the markup seems to show, to read while you wait.
  *
  * Opt-in from the import dialog: the pipeline itself keeps photos on the machine (decision 0009), so this is the only

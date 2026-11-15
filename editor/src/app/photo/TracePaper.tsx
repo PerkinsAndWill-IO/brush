@@ -1,5 +1,5 @@
 /**
- * Trace paper (P1-10): the layer laid over a sheet after a photo import, and the floating control for it.
+ * Trace paper (P1-12): the layer laid over a sheet after a photo import, and the floating control for it.
  * State is in ./trace.ts. The look follows the "Trace paper" roll of docs/design (v2 Minimal board): a canary
  * roll glides across the sheet and the paper unrolls behind it; the strokes on it are revealed with the paper.
  */

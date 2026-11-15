@@ -18,6 +18,8 @@ the fixture sheet shows `applied` for it, and the board reloads the sheet at ver
 | M6-07 | Pushes with `reason: "model_changed"` (edited in Revit) reload the sheet. In-flight strokes stay. | E2E: DevHost `rm`, board updates |
 | M6-08 | Before the first connect from a deployed (https) editor, explain Chrome's local-network prompt and the Revit "allow this page" dialog. | Screenshot |
 | M6-10 | **Open several sheets at once**: the panel's sheet list has a checkbox per sheet that is not open yet (and "Select all"); "Open N sheets" (or "Add N sheets" when some are open) sends one `open_sheet` per sheet, and all of them land on one board in list order. Only the first is shown in Revit. | E2E with a mocked socket: pick 2 of 3, both open |
+| M6-11 | **Connect by itself**: opening a `.drawing` of the model open in Revit (same name as the Revit document or its `source.file`, or every sheet has the same id and number in Revit) connects the link and opens those sheets live. A `.rvt` of that model skips the conversion server and shows its sheets to pick. Another model leaves the link as it was. Nothing probes 127.0.0.1 before the M6-08 explainer was read. | E2E with a mocked socket and health; unit `match.test.ts` |
+| M6-12 | **Pause streaming**: a "Stream edits to Revit" toggle in the panel (remembered). Off: commands wait in the editor, the button shows `paused · N`, and "Send now" sends them; turning it on sends what waited. | E2E with a mocked socket |
 
 Notes:
 
@@ -45,5 +47,9 @@ How it behaves:
   (`cmd-k3f9x2-0001`), because the plugin remembers applied ids for as long as Revit runs.
 - Drawn while disconnected: commands wait and go out on reconnect. Replies lost in a drop are resent (the plugin
   answers `skipped` for ids it already has). A new server `epoch` resets versions and re-opens the sheets.
+- Auto-connect (M6-11) compares against the **active** Revit document only: the welcome describes that one. Matching
+  rules are in `src/app/revit/match.ts`; Revit's project name alone never matches (new models are all "Project Name").
+- Streaming paused (M6-12): the command log stays the truth, so undoing a stroke before sending it means it never goes
+  to Revit, and undoing one already applied queues a revert.
 - DevHost limit: it sends the same PDF every version (only the manifest changes), so a landed wall is in the
   context but not drawn. Revit re-exports the PDF.

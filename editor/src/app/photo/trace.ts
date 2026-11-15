@@ -1,5 +1,5 @@
 /**
- * Trace paper (P1-10): after a photo import, a roll of trace paper unrolls over the sheet the markup landed on, and
+ * Trace paper (P1-12): after a photo import, a roll of trace paper unrolls over the sheet the markup landed on, and
  * the imported strokes sit on it, the way they were drawn. Its opacity is a slider; rolling it up leaves the strokes.
  *
  * State only, per sheet. The layer is ./TracePaper.tsx (inside each sheet), the control floats over the board.

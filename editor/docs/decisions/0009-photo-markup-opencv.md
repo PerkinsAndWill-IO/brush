@@ -27,7 +27,7 @@ The editor is a web app (decision 0007). sharp and mupdf's Node build do not run
 4. **mupdf is replaced by the document's own `PageRenderer`** (pdf.js for PDFs, the vector renderer for `.drawing`),
    run on the main thread; the pixels are transferred to the worker. A `.drawing` therefore works the same as a PDF.
 5. **The photo is decoded by the browser** (`createImageBitmap` in the worker, EXIF orientation applied). No HEIC
-   decoder is bundled.
+   decoder is bundled. (Superseded for HEIC by decision 0010: libheif decodes it where the browser cannot.)
 6. **`StrokeHistory.addMany`**: an import is one undo step. `core/types` is unchanged; an imported stroke is an
    ordinary `Stroke`.
 
