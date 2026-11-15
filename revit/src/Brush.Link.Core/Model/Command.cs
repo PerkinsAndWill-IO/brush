@@ -56,6 +56,20 @@ public sealed record DeleteElements : Command
     public required IReadOnlyList<string> Targets { get; init; }
 }
 
+/// <summary>
+/// S1: switch host elements to another type (editor decision 0011). <see cref="TypeId"/> is the Revit type id when the
+/// editor got its list from Revit; otherwise the type is found by <see cref="Family"/> + <see cref="TypeName"/>.
+/// </summary>
+public sealed record SetType : Command
+{
+    public override string Op => "set_type";
+    public required IReadOnlyList<string> Targets { get; init; }
+    public string? Family { get; init; }
+    public required string TypeName { get; init; }
+    public string? TypeId { get; init; }
+    public string? PreviousTypeName { get; init; }
+}
+
 /// <summary>An op this plugin does not know. Kept so the reply can say "skipped" for it instead of failing the batch.</summary>
 public sealed record UnknownCommand : Command
 {
@@ -77,6 +91,7 @@ public sealed class CommandJsonConverter : JsonConverter<Command>
             "place_door" => root.Deserialize<PlaceDoorDto>(options)?.ToCommand(),
             "place_instance" => root.Deserialize<PlaceInstanceDto>(options)?.ToCommand(),
             "delete" => root.Deserialize<DeleteDto>(options)?.ToCommand(),
+            "set_type" => root.Deserialize<SetTypeDto>(options)?.ToCommand(),
             _ => root.Deserialize<BaseDto>(options) is { } b ? new UnknownCommand { Id = b.Id ?? "", SheetId = b.SheetId ?? "", StrokeId = b.StrokeId, RawOp = op } : null,
         };
         return cmd ?? throw new JsonException($"command with op '{op}' is empty");
@@ -90,6 +105,7 @@ public sealed class CommandJsonConverter : JsonConverter<Command>
             PlaceDoor c => new PlaceDoorDto { Op = c.Op, Id = c.Id, SheetId = c.SheetId, StrokeId = c.StrokeId, At = PointDto.Of(c.At), WidthPt = c.WidthPt, AngleRad = c.AngleRad, HostWallRef = c.HostWallRef, FamilyType = c.FamilyType },
             PlaceInstance c => new PlaceInstanceDto { Op = c.Op, Id = c.Id, SheetId = c.SheetId, StrokeId = c.StrokeId, At = PointDto.Of(c.At), Bbox = RectDto.Of(c.Bbox), AngleRad = c.AngleRad, Family = c.Family },
             DeleteElements c => new DeleteDto { Op = c.Op, Id = c.Id, SheetId = c.SheetId, StrokeId = c.StrokeId, Targets = c.Targets.ToList() },
+            SetType c => new SetTypeDto { Op = c.Op, Id = c.Id, SheetId = c.SheetId, StrokeId = c.StrokeId, Targets = c.Targets.ToList(), Family = c.Family, TypeName = c.TypeName, TypeId = c.TypeId, PreviousTypeName = c.PreviousTypeName },
             _ => new BaseDto { Op = value.Op, Id = value.Id, SheetId = value.SheetId, StrokeId = value.StrokeId },
         };
         JsonSerializer.Serialize(writer, dto, dto.GetType(), options);
@@ -203,6 +219,26 @@ public sealed class CommandJsonConverter : JsonConverter<Command>
         {
             var (id, sheet) = Ids();
             return new DeleteElements { Id = id, SheetId = sheet, StrokeId = StrokeId, Targets = Need(Targets, "targets", id) };
+        }
+    }
+
+    private sealed class SetTypeDto : BaseDto
+    {
+        public List<string>? Targets { get; set; }
+        public string? Family { get; set; }
+        public string? TypeName { get; set; }
+        public string? TypeId { get; set; }
+        public string? PreviousTypeName { get; set; }
+
+        public SetType ToCommand()
+        {
+            var (id, sheet) = Ids();
+            return new SetType
+            {
+                Id = id, SheetId = sheet, StrokeId = StrokeId, Targets = Need(Targets, "targets", id), Family = Family,
+                TypeName = string.IsNullOrEmpty(TypeName) ? throw new JsonException($"{id}: missing typeName") : TypeName,
+                TypeId = TypeId, PreviousTypeName = PreviousTypeName,
+            };
         }
     }
 }

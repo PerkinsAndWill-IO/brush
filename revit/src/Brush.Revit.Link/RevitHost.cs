@@ -60,7 +60,8 @@ internal sealed class RevitHost : ILinkHost, IDisposable
     {
         var doc = ActiveDocument(app);
         var sheets = SheetReader.Sheets(doc).Select(s => new SheetSummary(SheetReader.IdOf(s), s.SheetNumber, s.Name)).ToList();
-        return new DocumentInfo(doc.Title, string.IsNullOrEmpty(doc.PathName) ? null : doc.PathName, ProjectName(doc), sheets);
+        var views = SheetReader.Views(doc).Select(v => new ViewSummary(SheetReader.IdOf(v), v.Name, v.ViewType.ToString())).ToList();
+        return new DocumentInfo(doc.Title, string.IsNullOrEmpty(doc.PathName) ? null : doc.PathName, ProjectName(doc), sheets, views);
     }, ct);
 
     public Task<SheetExport> ExportSheetAsync(string sheetId, CancellationToken ct) => dispatcher.InvokeAsync(app =>
@@ -77,12 +78,13 @@ internal sealed class RevitHost : ILinkHost, IDisposable
     public Task<IReadOnlyList<CommandResult>> ApplyAsync(string sheetId, IReadOnlyList<Command> commands, CancellationToken ct) => dispatcher.InvokeAsync(app =>
     {
         var doc = ActiveDocument(app);
-        var sheet = SheetReader.FindSheet(doc, sheetId);
+        // S1-06: a sheet, or a view page (only delete and change_type apply there)
+        var page = SheetReader.FindSheetOrView(doc, sheetId);
         applying = true;
         try
         {
-            var results = new CommandApplier(doc, LedgerOf(doc)).Apply(sheet, sheetId, commands);
-            log.Info($"applied {results.Count(r => r.Status == CommandStatus.Applied)}/{results.Count} commands to {sheet.SheetNumber}");
+            var results = new CommandApplier(doc, LedgerOf(doc)).Apply(page as ViewSheet, sheetId, commands);
+            log.Info($"applied {results.Count(r => r.Status == CommandStatus.Applied)}/{results.Count} commands to {(page is ViewSheet s ? s.SheetNumber : page.Name)}");
             return results;
         }
         finally
@@ -103,6 +105,21 @@ internal sealed class RevitHost : ILinkHost, IDisposable
         {
             applying = false;
         }
+    }, ct);
+
+    /// <summary>S1-06: the element's valid types (<c>Element.GetValidTypes()</c>) and its current type.</summary>
+    public Task<TypeList> ListTypesAsync(string elementId, CancellationToken ct) => dispatcher.InvokeAsync(app =>
+    {
+        var doc = ActiveDocument(app);
+        var element = (SheetReader.ParseId(elementId) is { } id ? doc.GetElement(id) : null)
+            ?? throw new KeyNotFoundException($"no element '{elementId}' in {doc.Title}");
+        static TypeInfo Info(ElementType t) => new(string.IsNullOrEmpty(t.FamilyName) ? null : t.FamilyName, t.Name, SheetReader.IdOf(t));
+        var current = doc.GetElement(element.GetTypeId()) as ElementType;
+        var types = element.GetValidTypes().Select(doc.GetElement).OfType<ElementType>()
+            .OrderBy(t => t.FamilyName, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(Info).ToList();
+        if (current is not null && !types.Exists(t => t.TypeId == SheetReader.IdOf(current))) types.Insert(0, Info(current));
+        return new TypeList(elementId, current is null ? null : Info(current), types);
     }, ct);
 
     public Task ShowSheetAsync(string sheetId, CancellationToken ct) => dispatcher.InvokeAsync(app =>

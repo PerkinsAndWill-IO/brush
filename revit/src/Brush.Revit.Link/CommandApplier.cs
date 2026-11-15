@@ -22,9 +22,10 @@ internal sealed class CommandApplier(Document doc, CommandLedger ledger)
     /// <summary>Wall height when the level has no level above it.</summary>
     public const double DefaultWallHeightFt = 10.0;
 
-    public IReadOnlyList<CommandResult> Apply(ViewSheet sheet, string sheetId, IReadOnlyList<Command> commands)
+    /// <param name="sheet">The sheet; null for a view page (S1-06), where only delete and change_type apply.</param>
+    public IReadOnlyList<CommandResult> Apply(ViewSheet? sheet, string sheetId, IReadOnlyList<Command> commands)
     {
-        var geometry = SheetReader.GeometryOf(sheet);
+        var geometry = sheet is null ? null : SheetReader.GeometryOf(sheet);
         var results = new List<CommandResult>();
         using var group = new TransactionGroup(doc, $"Brush: {commands.Count} edit{(commands.Count == 1 ? "" : "s")} from the editor");
         group.Start();
@@ -60,6 +61,15 @@ internal sealed class CommandApplier(Document doc, CommandLedger ledger)
                 results.Add(CommandResult.Skipped(id, "not a command of this link session"));
                 continue;
             }
+            // S1-06: a type change goes back to the previous types; the elements stay
+            var typeChanges = ledger.TypeChangesOf(id);
+            if (typeChanges.Count > 0)
+            {
+                var back = InTransaction($"Brush: undo {id}", () => RestoreTypes(typeChanges));
+                if (back.Status == CommandStatus.Applied) ledger.Forget(id);
+                results.Add(back with { Id = id });
+                continue;
+            }
             var created = ledger.ElementsOf(id).Select(SheetReader.ParseId).OfType<ElementId>().Where(e => doc.GetElement(e) is not null).ToList();
             if (created.Count == 0)
             {
@@ -82,6 +92,16 @@ internal sealed class CommandApplier(Document doc, CommandLedger ledger)
 
     private CommandResult Run(string id, ModelOp op)
     {
+        if (op is ChangeTypeOp ct)
+        {
+            // work already done (sent again after Revit restarted, or a session reloaded): skipped, like other ops
+            if (AllAlreadyOfType(ct)) return CommandResult.Skipped(id, "the elements already have that type");
+            // S1-06: remember each element's previous type so revert can set it back
+            var previous = new List<(string ElementId, string PreviousTypeId)>();
+            var changed = InTransaction($"Brush: {id}", () => ChangeTypes(ct, previous)) with { Id = id };
+            if (changed.Status == CommandStatus.Applied) ledger.RecordTypeChange(id, previous);
+            return changed;
+        }
         var r = InTransaction($"Brush: {id}", () => op switch
         {
             WallOp w => Walls(w),
@@ -170,6 +190,86 @@ internal sealed class CommandApplier(Document doc, CommandLedger ledger)
         if (Math.Abs(op.RotationRad) > 1e-6)
             ElementTransformUtils.RotateElement(doc, fi.Id, Line.CreateBound(at, at + XYZ.BasisZ), op.RotationRad);
         return ([SheetReader.IdOf(fi)], notes);
+    }
+
+    /// <summary>
+    /// S1-06: switch each target to the type <see cref="ChangeTypeOp.TypeId"/>, else the valid type named family + type
+    /// name. Elements already of that type are noted, not failed; a type the element cannot take fails the command.
+    /// </summary>
+    private (List<string>, List<string>) ChangeTypes(ChangeTypeOp op, List<(string ElementId, string PreviousTypeId)> previous)
+    {
+        var notes = new List<string>();
+        var changed = new List<string>();
+        foreach (var hostId in op.HostIds)
+        {
+            if (SheetReader.ParseId(hostId) is not { } eid || doc.GetElement(eid) is not { } element)
+            {
+                notes.Add($"element {hostId} is not in the model");
+                continue;
+            }
+            var valid = element.GetValidTypes();
+            var target = SheetReader.ParseId(op.TypeId) is { } tid && valid.Contains(tid)
+                ? tid
+                : valid.Select(doc.GetElement).OfType<ElementType>()
+                    .FirstOrDefault(t => Names(t, op.Family, op.TypeName))?.Id
+                  ?? throw new InvalidOperationException($"no type '{(op.Family is null ? "" : op.Family + ": ")}{op.TypeName}' that element {hostId} can take");
+            var before = element.GetTypeId();
+            if (before == target)
+            {
+                notes.Add($"element {hostId} already has that type");
+                continue;
+            }
+            element.ChangeTypeId(target);
+            previous.Add((hostId, before.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            changed.Add(hostId);
+        }
+        if (changed.Count == 0) throw new InvalidOperationException(notes.Count > 0 ? string.Join("; ", notes) : "nothing to change");
+        return (changed, notes);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="t"/> is the type the editor named: its bare name (with the family when given, as a .drawing
+    /// names it), or "Family: Type" (how a linked sheet's manifest names loadable types), or "Family Type" (the menu label).
+    /// </summary>
+    private static bool Names(ElementType t, string? family, string typeName) =>
+        (t.Name == typeName && (family is null || t.FamilyName == family))
+        || typeName == $"{t.FamilyName}: {t.Name}"
+        || typeName == $"{t.FamilyName} {t.Name}";
+
+    /// <summary>True when every target exists and already has the requested type (read-only check, no transaction).</summary>
+    private bool AllAlreadyOfType(ChangeTypeOp op)
+    {
+        var any = false;
+        foreach (var hostId in op.HostIds)
+        {
+            if (SheetReader.ParseId(hostId) is not { } eid || doc.GetElement(eid) is not { } element) return false;
+            var current = doc.GetElement(element.GetTypeId()) as ElementType;
+            var matches = current is not null && (SheetReader.ParseId(op.TypeId) is { } tid
+                ? current.Id == tid
+                : Names(current, op.Family, op.TypeName));
+            if (!matches) return false;
+            any = true;
+        }
+        return any;
+    }
+
+    /// <summary>S1-06: set elements back to the types they had before a change_type. Elements gone since are noted.</summary>
+    private (List<string>, List<string>) RestoreTypes(IReadOnlyList<(string ElementId, string PreviousTypeId)> changes)
+    {
+        var notes = new List<string>();
+        var restored = new List<string>();
+        foreach (var (elementId, previousTypeId) in changes)
+        {
+            if (SheetReader.ParseId(elementId) is not { } eid || doc.GetElement(eid) is not { } element)
+            {
+                notes.Add($"element {elementId} is gone");
+                continue;
+            }
+            if (SheetReader.ParseId(previousTypeId) is { } prev && element.GetTypeId() != prev) element.ChangeTypeId(prev);
+            restored.Add(elementId);
+        }
+        if (restored.Count == 0) throw new InvalidOperationException("the elements are gone");
+        return (restored, notes);
     }
 
     private (List<string>, List<string>) Delete(DeleteOp op)

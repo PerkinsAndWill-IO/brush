@@ -26,6 +26,12 @@ public interface ILinkHost
     /// <summary>Undo earlier commands of this link: delete the elements they created. Used for the editor's undo.</summary>
     Task<IReadOnlyList<CommandResult>> RevertAsync(IReadOnlyList<string> commandIds, CancellationToken ct);
 
+    /// <summary>
+    /// S1-06: the types <paramref name="elementId"/> can switch to, as the host lists them, and its current type.
+    /// Throws <see cref="KeyNotFoundException"/> for an unknown element.
+    /// </summary>
+    Task<TypeList> ListTypesAsync(string elementId, CancellationToken ct);
+
     /// <summary>Make the sheet the active view in the host. Throws <see cref="KeyNotFoundException"/> for an unknown sheet.</summary>
     Task ShowSheetAsync(string sheetId, CancellationToken ct);
 
@@ -39,7 +45,15 @@ public interface ILinkHost
     event Action<IReadOnlyCollection<string>?>? ModelChanged;
 }
 
-public sealed record DocumentInfo(string Title, string? Path, string? Project, IReadOnlyList<SheetSummary> Sheets);
+/// <param name="Views">S1-06: the model's views (plans, sections, elevations, 3D) that edits may be addressed to.</param>
+public sealed record DocumentInfo(string Title, string? Path, string? Project, IReadOnlyList<SheetSummary> Sheets, IReadOnlyList<ViewSummary>? Views = null);
+
+public sealed record ViewSummary(string Id, string Name, string Kind);
+
+/// <summary>S1-06: a type an element can take. <see cref="TypeId"/> is the host's id for it.</summary>
+public sealed record TypeInfo(string? Family, string TypeName, string TypeId);
+
+public sealed record TypeList(string ElementId, TypeInfo? Current, IReadOnlyList<TypeInfo> Types);
 
 public sealed record SheetSummary(string Id, string? Number, string Name);
 
@@ -95,6 +109,37 @@ public sealed class CommandLedger(Dictionary<string, List<string>> created)
 
     public void Forget(string commandId)
     {
-        lock (gate) created.Remove(commandId);
+        lock (gate)
+        {
+            created.Remove(commandId);
+            created.Remove(TypeChangeKey(commandId));
+        }
+    }
+
+    // S1-06: the previous type of each element a change_type switched, so revert can set it back. Kept in the same
+    // shared dictionary as the created elements (under a key no command id can have), so it survives a new ledger
+    // per call and a hot reload like the rest. Entries are "elementId|previousTypeId".
+    private const string TypeChangePrefix = "type-change:";
+
+    private static string TypeChangeKey(string commandId) => TypeChangePrefix + commandId;
+
+    /// <summary>Record an applied change_type: the command is known, and what each element's type was before.</summary>
+    public void RecordTypeChange(string commandId, IReadOnlyList<(string ElementId, string PreviousTypeId)> changes)
+    {
+        lock (gate)
+        {
+            created[commandId] = [];
+            created[TypeChangeKey(commandId)] = changes.Select(c => $"{c.ElementId}|{c.PreviousTypeId}").ToList();
+        }
+    }
+
+    /// <summary>The elements a change_type switched and their previous types; empty for any other command.</summary>
+    public IReadOnlyList<(string ElementId, string PreviousTypeId)> TypeChangesOf(string commandId)
+    {
+        lock (gate)
+        {
+            if (!created.TryGetValue(TypeChangeKey(commandId), out var l)) return [];
+            return l.Select(e => e.Split('|', 2)).Where(p => p.Length == 2).Select(p => (p[0], p[1])).ToList();
+        }
     }
 }

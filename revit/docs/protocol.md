@@ -55,6 +55,17 @@ Every message may carry a `requestId` (string). The reply, or the error, echoes 
 | `apply` | `sheetId`, `baseVersion?`, `commands: Command[]` | `applied`, then `sheet` (`reason: "apply"`) if anything changed |
 | `revert` | `sheetId`, `commandIds: string[]` | `reverted`, then `sheet` (`reason: "revert"`) if anything changed |
 | `ping` | | `pong` |
+| `list_types` | `elementId` | `types` (S1-06): the types the element can switch to, as the host lists them (Revit: `Element.GetValidTypes()`), and its current type. Error `unknown_element` for an id the model does not have. An older plugin answers `unknown_type`. |
+
+**Sheets and views (S1-06).** `apply` and `revert` take a sheet id **or a view id** (from `welcome.views`) as `sheetId`. On a
+view only ops that need no sheet geometry apply (`delete`, `set_type`); `create_wall`, `place_door` and
+`place_instance` fail with "not on a sheet". No `sheet` push follows a change made on a view.
+
+**`set_type` (editor decision 0011, S1-06).** `{ op: "set_type", id, sheetId, targets: string[], typeName, family?,
+typeId?, strokeId }`: the targets (Revit ids or package context ids) switch to the type `typeId` when given, else to the
+valid type (`Element.GetValidTypes()`) named `typeName` (with `family` when given), `"Family: Type"` or
+`"Family Type"`. Targets that already have that type answer `skipped`. `revert` sets each element back to the type it
+had before.
 
 `commands` are the editor's `Command` objects unchanged (`editor/src/core/types/index.ts`): `create_wall`,
 `place_door`, `place_instance` and `delete`, with coordinates in sheet points (1/72 in, origin top-left, y down) on the
@@ -66,7 +77,8 @@ sheet the package described. Unknown ops are reported as failed. They do not bre
 { "type": "welcome", "protocol": 1,
   "server": { "name": "brush-revit-link", "version": "0.1.0", "host": "Revit 2026", "epoch": "a1b2c3d4e5f6" },
   "document": { "title": "Tower A", "path": "C:\\…\\Tower A.rvt", "project": "Tower A" },
-  "sheets": [ { "id": "382617", "number": "A102", "name": "Plans" } ] }
+  "sheets": [ { "id": "382617", "number": "A102", "name": "Plans" } ],
+  "views": [ { "id": "960621", "name": "{3D}", "kind": "ThreeD" } ] }          // S1-06; also in `sheets`
 
 { "type": "sheets", "requestId": "…", "document": { … }, "sheets": [ … ] }   // also pushed, unasked, when the list changes
 
@@ -83,6 +95,9 @@ sheet the package described. Unknown ops are reported as failed. They do not bre
 { "type": "reverted", "requestId": "…", "sheetId": "382617", "results": [ … ] }
 { "type": "shown", "requestId": "…", "sheetId": "382617" }
 { "type": "pong", "requestId": "…" }
+{ "type": "types", "requestId": "…", "elementId": "198694",
+  "current": { "family": "Basic Wall", "typeName": "MUR_Cloison légère 18cm", "typeId": "88120" },
+  "types": [ { "family": "Basic Wall", "typeName": "MUR_Ext 25.0 cm", "typeId": "88131" } ] }
 { "type": "error", "requestId": "…", "code": "unknown_sheet", "message": "no sheet with id '1' in Tower A" }
 ```
 
@@ -104,7 +119,7 @@ sheet the package described. Unknown ops are reported as failed. They do not bre
 ## Error codes
 
 `bad_message` (not JSON or a field is missing, named in `message`), `unknown_type`, `hello_required`,
-`protocol_mismatch` (sent before the plugin closes the socket), `unknown_sheet`, `host_error` (the host threw an
+`protocol_mismatch` (sent before the plugin closes the socket), `unknown_sheet`, `unknown_element` (`list_types`), `host_error` (the host threw an
 exception; `message` holds its text). An error never closes the connection, except `protocol_mismatch`.
 
 ## How commands land in Revit

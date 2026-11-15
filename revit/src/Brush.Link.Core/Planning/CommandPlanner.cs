@@ -28,6 +28,9 @@ public sealed record InstanceOp(string CommandId, string ViewId, string? LevelId
 /// </summary>
 public sealed record DeleteOp(string CommandId, IReadOnlyList<string> HostIds, IReadOnlyList<string> CommandIds, IReadOnlyList<string> Unresolved) : ModelOp(CommandId);
 
+/// <summary>S1: switch <see cref="HostIds"/> to the type named by <see cref="TypeId"/>, else by family + type name.</summary>
+public sealed record ChangeTypeOp(string CommandId, IReadOnlyList<string> HostIds, string? Family, string TypeName, string? TypeId) : ModelOp(CommandId);
+
 /// <summary>A command the planner could not translate; the reason goes back to the editor.</summary>
 public sealed record RejectedOp(string CommandId, string Reason) : ModelOp(CommandId);
 
@@ -43,16 +46,20 @@ public static partial class CommandPlanner
     [GeneratedRegex(@"^(?:wall|opening|grid|label|fixture|unknown)-(\d+)$")]
     private static partial Regex ContextItemPattern();
 
-    public static ModelOp Plan(Command command, SheetGeometry sheet, Func<string, bool> isKnownCommand)
+    /// <param name="sheet">The sheet the command was drawn on; null for a view page (S1-06), where only ops that need no sheet
+    /// geometry (delete, set_type) can be planned.</param>
+    public static ModelOp Plan(Command command, SheetGeometry? sheet, Func<string, bool> isKnownCommand)
     {
         try
         {
             return command switch
             {
-                CreateWall c => PlanWall(c, sheet),
-                PlaceDoor c => PlanDoor(c, sheet, isKnownCommand),
-                PlaceInstance c => PlanInstance(c, sheet),
+                CreateWall or PlaceDoor or PlaceInstance when sheet is null => new RejectedOp(command.Id, NotOnASheet(command)),
+                CreateWall c => PlanWall(c, sheet!),
+                PlaceDoor c => PlanDoor(c, sheet!, isKnownCommand),
+                PlaceInstance c => PlanInstance(c, sheet!),
                 DeleteElements c => PlanDelete(c, isKnownCommand),
+                SetType c => PlanChangeType(c),
                 UnknownCommand c => new RejectedOp(c.Id, $"unknown op '{c.RawOp}'"),
                 _ => new RejectedOp(command.Id, $"unsupported op '{command.Op}'"),
             };
@@ -114,6 +121,17 @@ public static partial class CommandPlanner
         var my = vp.VectorToModel(uy * (c.Bbox.H / SheetFrame.PointsPerFoot));
         if (mx.Length <= 0 || my.Length <= 0) return new RejectedOp(c.Id, "instance footprint has no area");
         return new InstanceOp(c.Id, vp.ViewId, vp.LevelId, vp.ToModel(at), Math.Atan2(mx.Y, mx.X), mx.Length, my.Length, c.Family);
+    }
+
+    private static string NotOnASheet(Command c) =>
+        $"{c.Id}: not on a sheet: {c.Op} needs a plan viewport on a sheet; on a view page only delete and set_type apply";
+
+    private static ModelOp PlanChangeType(SetType c)
+    {
+        var host = c.Targets.Select(HostId).OfType<string>().Distinct(StringComparer.Ordinal).ToList();
+        if (host.Count == 0) return new RejectedOp(c.Id, $"no target names a Revit element: {string.Join(", ", c.Targets)}");
+        if (string.IsNullOrWhiteSpace(c.TypeName) && c.TypeId is null) return new RejectedOp(c.Id, "no type named");
+        return new ChangeTypeOp(c.Id, host, c.Family, c.TypeName, c.TypeId);
     }
 
     private static ModelOp PlanDelete(DeleteElements c, Func<string, bool> isKnownCommand)
