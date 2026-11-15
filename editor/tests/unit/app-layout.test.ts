@@ -92,7 +92,7 @@ describe('M1-04: camera', () => {
     expect(after.y).toBeCloseTo(before.y, 9)
   })
   it('zoom is clamped', () => {
-    expect(zoomAt({ x: 0, y: 0, z: 1 }, { x: 0, y: 0 }, 1000).z).toBe(8)
+    expect(zoomAt({ x: 0, y: 0, z: 1 }, { x: 0, y: 0 }, 1000).z).toBe(24)
     expect(zoomAt({ x: 0, y: 0, z: 1 }, { x: 0, y: 0 }, 0).z).toBe(0.05)
   })
   it('panBy moves content by the screen delta', () => {
