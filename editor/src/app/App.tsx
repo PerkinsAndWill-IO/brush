@@ -13,7 +13,7 @@ import { useView } from './view'
 import { getPlatform } from './platform'
 import { fileToOpened } from './platform/browser'
 import { getDocState, openFile, useDocState } from './store'
-import { EmptyIllustration } from './ui/icons'
+import brushLogoRed from './ui/assets/brush-logo-red.png'
 import { chooseFile, LeftSidebar, RightSidebar, ToolCapsule, TopBar } from './ui/Chrome'
 import { RevitHud, RevitStart } from './revit/RevitPanel'
 import { isPhotoFile, photoImport, PhotoImportDialog } from './photo/PhotoImport'
@@ -92,31 +92,25 @@ function SamplePicker({ disabled }: { disabled: boolean }) {
 function EmptyState({ error, loading }: { error?: string; loading?: string }) {
   return (
     <div className="empty landing" data-testid="empty-state">
-      <div className="dropzone">
-        <EmptyIllustration />
-        <div className="copy">
-          <h1>
-            Drop a <span className="mono">PDF</span> to start
-          </h1>
-          <p>
-            Each page opens here as a sheet, side by side, ready to sketch on. Exported <span className="mono">.drawing</span> packages open too.
-          </p>
+      <div className="landing-stack">
+        <img className="landing-logo" src={brushLogoRed} alt="Brush" />
+        <div className="dropzone">
+          <h1>Drop a PDF to start</h1>
+          <div className="cta">
+            <button type="button" className="btn landing-cta" title="Choose file (Ctrl+O)" onClick={() => void chooseFile()} disabled={!!loading}>
+              {loading ? `Opening ${loading}…` : 'Choose file'}
+            </button>
+          </div>
+          <div className="landing-more">
+            <SamplePicker disabled={!!loading} />
+            <RevitStart />
+          </div>
+          {error && (
+            <p className="error" role="alert" data-testid="load-error">
+              {error}
+            </p>
+          )}
         </div>
-        <div className="cta">
-          <button type="button" className="btn accent" onClick={() => void chooseFile()} disabled={!!loading}>
-            {loading ? `Opening ${loading}…` : 'Choose file'}
-          </button>
-          <span className="secondary">
-            or press <kbd>Ctrl O</kbd>
-          </span>
-        </div>
-        <SamplePicker disabled={!!loading} />
-        <RevitStart />
-        {error && (
-          <p className="error" role="alert" data-testid="load-error">
-            {error}
-          </p>
-        )}
       </div>
     </div>
   )
@@ -156,7 +150,7 @@ export function App() {
   const ready = st.status === 'ready'
   return (
     <div
-      className={`app${dragOver ? ' drag-over' : ''}`}
+      className={`app${dragOver ? ' drag-over' : ''}${ready ? '' : ' landing-app'}`}
       style={{ '--label-scale': labelScale } as CSSProperties}
       onDragOver={(e) => {
         e.preventDefault()

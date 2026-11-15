@@ -15,6 +15,9 @@
   --accent-hover: #012c57;
   --accent-soft: #62a1c0;
   --tool-selected: #f6dcd7;
+  --terracotta: #b64c3d;
+  --terracotta-hover: #9c3e31;
+  --ink-brown: #3e2e28;
   --error: #b42318;
   --ok: #17703d;
   --mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
@@ -157,8 +160,20 @@ input[type='range'] { width: 100%; margin: 0; accent-color: var(--accent); heigh
 
 /* ── empty state ── */
 .empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 32px 24px 96px; }
-/* Landing page: blue paper texture from the design canvas, over the light-blue tone while it loads. */
-.landing { background: var(--accent-soft) url('./ui/assets/landing-paper.jpg') center / cover no-repeat; }
+/* Landing page (design canvas "Editor — no drawing open (palette + logo) copy"): blue paper texture behind the
+   whole page, the top bar see-through with only its actions, the big red logo over a see-through drop box. */
+.app.landing-app { background: var(--accent-soft) url('./ui/assets/landing-paper.jpg') center / cover no-repeat; }
+.app.landing-app .topbar { background: transparent; border-bottom-color: transparent; }
+.app.landing-app .topbar .title { visibility: hidden; }
+.landing-stack { position: relative; width: min(100%, 680px); display: flex; flex-direction: column; align-items: center; gap: 22px; }
+.landing-logo { width: min(100%, 520px); height: 158px; object-fit: contain; display: block; }
+.landing .dropzone { width: 100%; gap: 18px; padding: 30px 32px 32px; border: 2.5px dashed var(--accent); border-radius: 28px; background: rgba(255, 253, 248, 0.72); }
+.landing .dropzone h1 { font-size: 19px; font-weight: 400; line-height: 1.45; letter-spacing: 0; color: var(--ink-brown); }
+.btn.landing-cta { min-height: 48px; padding: 0 28px; border-radius: 999px; background: var(--terracotta); color: #fffdf8; font-size: 17px; font-weight: 600; }
+.btn.landing-cta:hover:not(:disabled) { background: var(--terracotta-hover); }
+.landing-more { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.landing .dropzone .samples select { min-height: 40px; background: rgba(255, 255, 255, 0.7); }
+.app.landing-app.drag-over .dropzone { background: rgba(255, 253, 248, 0.92); }
 .dropzone { width: min(100%, 560px); display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 56px 40px; border: 2px dashed rgba(2, 63, 123, 0.45); border-radius: 20px; background: var(--surface); text-align: center; }
 .dropzone .copy { display: flex; flex-direction: column; gap: 6px; align-items: center; }
 .dropzone h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
