@@ -95,7 +95,7 @@ test('M6-11: a .rvt that is open in Revit skips the conversion server and lists 
   await chooseFile(page, 'Tower A.rvt', Buffer.from('not really a revit model'))
   await page.waitForFunction(() => window.__brushDev!.revit().state === 'on')
   await expect(page.getByTestId('revit-start').getByTestId('revit-auto-note')).toContainText('Tower A.rvt is open in Revit')
-  await expect(page.getByTestId('revit-start').getByTestId('revit-open-sheet')).toBeVisible()
+  await expect(page.getByTestId('revit-start').getByTestId('revit-pick-sheet')).toBeVisible()
   expect(converted).toBe(0)
   await page.screenshot({ path: screenPath('m6-11-rvt-open-in-revit') })
 })

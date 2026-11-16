@@ -19,7 +19,8 @@ import { getDocState, openFile, useDocState, useSheetsLoading } from '../store'
 import { DrawingFileSource, buildCommandFile, commandFileName, serializeCommandFile, writeCommandFile } from '../source'
 import { ITEM_KINDS, categoriesOf, filters, isAnnotationCategory, useFilters } from '../drawing/filters'
 import { useContexts } from '../brain/contextStore'
-import { BrushIcon, ChevronDown, ChevronRight, EraserIcon, MeasureIcon, MenuIcon, PanIcon, RedoIcon, SelectIcon, UndoIcon } from './icons'
+import { BrushIcon, ChevronDown, ChevronRight, EraserIcon, FilterIcon, InfoIcon, MeasureIcon, MenuIcon, PanIcon, ReadingIcon, RecordIcon, RedoIcon, SelectIcon, SessionIcon, UndoIcon } from './icons'
+import { SideDock, type PanelItem } from './SidePanels'
 import brushLogo from './assets/brush-logo.png'
 import selectToolIcon from './assets/tool-select.png'
 import brushToolIcon from './assets/tool-brush.png'
@@ -599,12 +600,26 @@ function CommitSection() {
   )
 }
 
+/**
+ * The left side panels: the active tool's options, and with the Select tool the selected element's card (a dot on its
+ * icon when something is selected). Collapsed to icons until clicked (./SidePanels.tsx).
+ */
 export function LeftSidebar() {
+  const { tool } = useSession()
+  const canInspect = useCanInspect()
+  const { pinned } = useInspect()
+  const meta = TOOL_META[tool]
+  const items: PanelItem[] = [{ id: 'tool', label: `${meta.label} options`, icon: meta.icon, content: <ToolOptions /> }]
+  if (tool === 'select' && canInspect) items.unshift({ id: 'element', label: 'Selected element', icon: <InfoIcon size={18} />, badge: pinned !== null, content: <ElementSection /> })
+  return <SideDock side="left" items={items} testId="left-sidebar" label="Tool panels" wide={tool === 'select' && pinned !== null} />
+}
+
+function ToolOptions() {
   const { tool, settings, eraserSize } = useSession()
   const canInspect = useCanInspect()
   const meta = TOOL_META[tool]
   return (
-    <aside className={`sidebar left${tool === 'select' && canInspect ? ' wide' : ''}`} aria-label={`${meta.label} options`} data-testid="left-sidebar">
+    <>
       <div className="tool-head">
         <span className="tool-badge" aria-hidden="true">
           {meta.icon}
@@ -637,7 +652,7 @@ export function LeftSidebar() {
           <p className="hint">Drag to move around the board. Ctrl-scroll or pinch to zoom.</p>
         </div>
       )}
-      {tool === 'select' && <ElementSection />}
+      {tool === 'select' && !canInspect && <ElementSection />}
 
       {tool === 'measure' && <MeasureSection />}
 
@@ -645,7 +660,7 @@ export function LeftSidebar() {
       <SnappingSection />
       <CommitSection />
       <ViewSection />
-    </aside>
+    </>
   )
 }
 
@@ -1039,6 +1054,8 @@ function ElementSection() {
         <p className="hint">Element data is available on .drawing files and Revit sheets. PDFs carry no elements.</p>
       </div>
     )
+  // the card is for a selected element only: nothing while nothing is selected
+  if (pinned === null) return null
   return (
     <section className="section element-section" data-testid="section-element" data-pinned={pinned}>
       <ElementPanel />
@@ -1046,16 +1063,25 @@ function ElementSection() {
   )
 }
 
+/** The right side panels: the stroke being read, the session, the filters (`.drawing` files), recordings (dev). */
 export function RightSidebar() {
   const { strokes } = useSession()
-  return (
-    <aside className="sidebar right" aria-label="Inspector" data-testid="right-sidebar">
-      <ReadingPanel />
-      <Section title="This session" aside={`${strokes.length} ${strokes.length === 1 ? 'stroke' : 'strokes'}`} testId="section-session">
-        <SessionList />
-      </Section>
-      <FiltersSection />
-      {recorderAvailable() && <RecordingsList />}
-    </aside>
-  )
+  const { source } = useDocState()
+  const items: PanelItem[] = [
+    { id: 'reading', label: 'Reading your stroke', icon: <ReadingIcon size={18} />, content: <ReadingPanel /> },
+    {
+      id: 'session',
+      label: 'This session',
+      icon: <SessionIcon size={18} />,
+      badge: strokes.length > 0,
+      content: (
+        <Section title="This session" aside={`${strokes.length} ${strokes.length === 1 ? 'stroke' : 'strokes'}`} testId="section-session">
+          <SessionList />
+        </Section>
+      ),
+    },
+  ]
+  if (source instanceof DrawingFileSource) items.push({ id: 'filters', label: 'Filters', icon: <FilterIcon size={18} />, content: <FiltersSection /> })
+  if (recorderAvailable()) items.push({ id: 'recordings', label: 'Recordings', icon: <RecordIcon size={18} />, content: <RecordingsList /> })
+  return <SideDock side="right" items={items} testId="right-sidebar" label="Panels" />
 }

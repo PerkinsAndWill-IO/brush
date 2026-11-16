@@ -10,6 +10,7 @@ import { useDocState } from '../store'
 import { anchorOf, entryFor, revit, useRevit } from './controller'
 import { ackExplainer, needsExplainer } from './lna'
 import { sheetLabel } from './protocol'
+import { formatSeconds, roundTrips, tripMs, tripStats, useRoundTrips, type Trip } from './roundtrip'
 
 
 const STATE_LABEL = { off: 'Revit', connecting: 'Connecting…', on: 'Revit', refused: 'Revit refused' } as const
@@ -44,7 +45,11 @@ function Explainer({ onConnect }: { onConnect: () => void }) {
   )
 }
 
-function PanelBody({ close }: { close: () => void }) {
+/**
+ * The link's panel. `start` is the start page's sheet picker: nothing is open yet, so it is only the list and one
+ * Open button; streaming, status and the per-sheet controls belong to the top-bar panel once sheets are open.
+ */
+function PanelBody({ close, start = false }: { close: () => void; start?: boolean }) {
   const rv = useRevit()
   const { state, detail, document, sheets, welcome } = rv.link
   const [explain, setExplain] = useState(needsExplainer)
@@ -104,10 +109,34 @@ function PanelBody({ close }: { close: () => void }) {
     setPicked(new Set())
     if (first) close()
   }
+  // double-click a sheet: open just that one, whatever else is selected
+  const openOne = (id: string) => {
+    const first = rv.open.length === 0
+    revit.openSheet(id)
+    setPicked((p) => {
+      const n = new Set(p)
+      n.delete(id)
+      return n
+    })
+    if (first) close()
+  }
+  const selectAll = () =>
+    setPicked((p) => {
+      const n = new Set(p)
+      if (chosenShown === closed.length) closed.forEach((s) => n.delete(s.id))
+      else closed.forEach((s) => n.add(s.id))
+      return n
+    })
+  const count = `${chosen.length} ${chosen.length === 1 ? 'sheet' : 'sheets'}`
   return (
     <div className="revit-body">
       <p className="revit-h">
-        {document?.title ?? 'Revit'} <span className="secondary">{welcome?.server.host}</span>
+        <span className="revit-title">{document?.title ?? 'Revit'}</span> <span className="secondary revit-host">{welcome?.server.host}</span>
+        {start && (
+          <button type="button" className="link-btn revit-h-end" data-testid="revit-disconnect" onClick={() => revit.disconnect()}>
+            Disconnect
+          </button>
+        )}
       </p>
       {rv.autoNote && (
         <p className="revit-auto" data-testid="revit-auto-note">
@@ -136,7 +165,7 @@ function PanelBody({ close }: { close: () => void }) {
               <input
                 type="search"
                 className="revit-search"
-                placeholder="A103, floor plan, sections…"
+                placeholder="Search sheets"
                 aria-label="Filter sheets"
                 data-testid="revit-sheet-search"
                 value={query}
@@ -162,20 +191,8 @@ function PanelBody({ close }: { close: () => void }) {
           )}
           {closed.length > 1 && (
             <div className="revit-row revit-pick-bar">
-              <span className="secondary">{chosen.length ? `${chosen.length} selected` : 'Tick sheets to open several at once.'}</span>
-              <button
-                type="button"
-                className="link-btn"
-                data-testid="revit-select-all"
-                onClick={() =>
-                  setPicked((p) => {
-                    const n = new Set(p)
-                    if (chosenShown === closed.length) closed.forEach((s) => n.delete(s.id))
-                    else closed.forEach((s) => n.add(s.id))
-                    return n
-                  })
-                }
-              >
+              <span className="secondary">{chosen.length ? `${chosen.length} selected` : start ? 'Select the sheets to sketch on' : 'Select sheets to add'}</span>
+              <button type="button" className="link-btn" data-testid="revit-select-all" onClick={selectAll}>
                 {chosenShown === closed.length ? 'Select none' : 'Select all'}
               </button>
             </div>
@@ -185,53 +202,39 @@ function PanelBody({ close }: { close: () => void }) {
             {shown.map((s) => {
               const v = open.get(s.id)
               const opening = rv.opening.includes(s.id)
-              return (
-                <li key={s.id} data-sheet-id={s.id} data-open={v !== undefined}>
-                  {v !== undefined ? (
+              if (v === undefined) {
+                // a closed sheet: the whole row selects it; a double-click opens it alone
+                return (
+                  <li key={s.id} data-sheet-id={s.id} data-open={false}>
                     <button
                       type="button"
-                      className="revit-sheet-name"
-                      title="Show this sheet in Revit"
-                      data-testid="revit-show-sheet"
-                      onClick={() => revit.showSheet(s.id)}
-                    >
-                      {sheetLabel(s)}
-                    </button>
-                  ) : (
-                    <label className="revit-sheet-name revit-pick">
-                      <input
-                        type="checkbox"
-                        data-testid="revit-pick-sheet"
-                        disabled={opening}
-                        checked={!opening && picked.has(s.id)}
-                        onChange={() => toggle(s.id)}
-                      />
-                      <span>{sheetLabel(s)}</span>
-                    </label>
-                  )}
-                  {v !== undefined ? (
-                    <>
-                      <span className="mono-num secondary" data-testid="revit-version">
-                        v{v}
-                      </span>
-                      {rv.open.length > 1 && (
-                        <button type="button" className="chip-btn" onClick={() => void revit.closeSheet(s.id)}>
-                          Close
-                        </button>
-                      )}
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      className="chip-btn"
-                      data-testid="revit-open-sheet"
+                      role="checkbox"
+                      aria-checked={!opening && picked.has(s.id)}
+                      className="revit-pick"
+                      data-testid="revit-pick-sheet"
                       disabled={opening}
-                      onClick={() => {
-                        revit.openSheet(s.id)
-                        if (rv.open.length === 0) close()
-                      }}
+                      onClick={() => toggle(s.id)}
+                      onDoubleClick={() => openOne(s.id)}
                     >
-                      {opening ? 'Opening…' : rv.open.length ? 'Add' : 'Open'}
+                      <span className="revit-check" aria-hidden="true" />
+                      {s.number && <span className="revit-num">{s.number}</span>}
+                      <span className="revit-sheet-name">{s.name}</span>
+                      {opening && <span className="secondary revit-opening">Opening…</span>}
+                    </button>
+                  </li>
+                )
+              }
+              return (
+                <li key={s.id} data-sheet-id={s.id} data-open>
+                  <button type="button" className="revit-sheet-name" title="Show this sheet in Revit" data-testid="revit-show-sheet" onClick={() => revit.showSheet(s.id)}>
+                    {sheetLabel(s)}
+                  </button>
+                  <span className="mono-num secondary" data-testid="revit-version">
+                    v{v}
+                  </span>
+                  {rv.open.length > 1 && (
+                    <button type="button" className="chip-btn" onClick={() => void revit.closeSheet(s.id)}>
+                      Close
                     </button>
                   )}
                 </li>
@@ -240,10 +243,18 @@ function PanelBody({ close }: { close: () => void }) {
           </ul>
         </>
       )}
+      {start ? (
+        <div className="revit-foot">
+          {!rv.streaming && rv.queued > 0 && <Queued queued={rv.queued} disabled={state !== 'on'} />}
+          <button type="button" className="btn accent revit-open-chosen" data-testid="revit-open-selected" disabled={!chosen.length} onClick={openChosen}>
+            {chosen.length ? `Open ${count}` : 'Open'}
+          </button>
+        </div>
+      ) : (
       <div className="revit-foot">
       {chosen.length > 0 && (
         <button type="button" className="btn accent revit-open-chosen" data-testid="revit-open-selected" onClick={openChosen}>
-          {`${rv.open.length ? 'Add' : 'Open'} ${chosen.length} ${chosen.length === 1 ? 'sheet' : 'sheets'}`}
+          {`${rv.open.length ? 'Add' : 'Open'} ${count}`}
         </button>
       )}
       <button
@@ -261,14 +272,8 @@ function PanelBody({ close }: { close: () => void }) {
           <span />
         </span>
       </button>
-      {!rv.streaming && rv.queued > 0 && (
-        <div className="revit-row revit-queued">
-          <span data-testid="revit-queued">{`${rv.queued} ${rv.queued === 1 ? 'edit' : 'edits'} waiting`}</span>
-          <button type="button" className="btn accent" data-testid="revit-send-now" disabled={state !== 'on'} onClick={() => revit.flush()}>
-            Send now
-          </button>
-        </div>
-      )}
+      {!rv.streaming && rv.queued > 0 && <Queued queued={rv.queued} disabled={state !== 'on'} />}
+      <TimerToggle />
       <div className="revit-row">
         <span className="secondary" data-testid="revit-inflight">
           {rv.inFlight
@@ -284,6 +289,107 @@ function PanelBody({ close }: { close: () => void }) {
         </button>
       </div>
       </div>
+      )}
+    </div>
+  )
+}
+
+function TimerToggle() {
+  const { enabled } = useRoundTrips()
+  return (
+    <button
+      type="button"
+      className="toggle-row revit-stream revit-timer-toggle"
+      aria-pressed={enabled}
+      data-testid="revit-timer-toggle"
+      onClick={() => roundTrips.setEnabled(!enabled)}
+    >
+      <span>
+        Round-trip timer
+        <span className="secondary revit-stream-sub">How long a sketch takes to come back modelled.</span>
+      </span>
+      <span className={`switch${enabled ? ' on' : ''}`} aria-hidden="true">
+        <span />
+      </span>
+    </button>
+  )
+}
+
+/** Ticks once a frame while `on`, so a running time counts up smoothly; returns performance.now(). */
+function useNow(on: boolean): number {
+  const [now, setNow] = useState(() => performance.now())
+  useEffect(() => {
+    if (!on) return
+    let raf = 0
+    const tick = () => {
+      setNow(performance.now())
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [on])
+  return on ? now : performance.now()
+}
+
+const STEPS: { key: 'committed' | 'applied' | 'landed'; label: string }[] = [
+  { key: 'committed', label: 'Sketched' },
+  { key: 'applied', label: 'In Revit' },
+  { key: 'landed', label: 'On the sheet' },
+]
+
+/**
+ * The round-trip stopwatch, top centre while linked: the newest trip counting up from pen-up until the sheet comes
+ * back with it, its three steps as they happen, and the best time so far.
+ */
+export function RoundTripTimer() {
+  const rv = useRevit()
+  const { enabled, trips } = useRoundTrips()
+  const live = trips.filter((t) => t.landed === undefined && !t.failed)
+  const now = useNow(enabled && live.length > 0)
+  if (!enabled || !rv.open.length) return null
+  // the trip on show: the oldest still on its way, else the newest
+  const t: Trip | undefined = live[0] ?? trips[trips.length - 1]
+  const stats = tripStats(trips)
+  const running = !!t && t.landed === undefined && !t.failed
+  return (
+    <div className={`roundtrip${running ? ' running' : ''}${t?.landed !== undefined ? ' done' : ''}${t?.failed ? ' failed' : ''}`} data-testid="roundtrip" aria-live="polite">
+      <span className="roundtrip-icon" aria-hidden="true" />
+      <span className="roundtrip-time" data-testid="roundtrip-time">
+        {t ? formatSeconds(tripMs(t, now)) : '0.0 s'}
+      </span>
+      {t ? (
+        <ol className="roundtrip-steps">
+          {STEPS.map((s) => {
+            const at = t[s.key]
+            return (
+              <li key={s.key} data-done={at !== undefined}>
+                <span className="roundtrip-dot" aria-hidden="true" />
+                {s.label}
+                {at !== undefined && <span className="mono-num">{formatSeconds(at - t.start)}</span>}
+              </li>
+            )
+          })}
+        </ol>
+      ) : (
+        <span className="roundtrip-hint">Sketch on the sheet</span>
+      )}
+      {stats.best !== undefined && stats.count > 1 && (
+        <span className="roundtrip-best" data-testid="roundtrip-best">
+          best <span className="mono-num">{formatSeconds(stats.best)}</span>
+        </span>
+      )}
+      {live.length > 1 && <span className="roundtrip-more">+{live.length - 1}</span>}
+    </div>
+  )
+}
+
+function Queued({ queued, disabled }: { queued: number; disabled: boolean }) {
+  return (
+    <div className="revit-row revit-queued">
+      <span data-testid="revit-queued">{`${queued} ${queued === 1 ? 'edit' : 'edits'} waiting`}</span>
+      <button type="button" className="btn accent" data-testid="revit-send-now" disabled={disabled} onClick={() => revit.flush()}>
+        Send now
+      </button>
     </div>
   )
 }
@@ -354,7 +460,7 @@ export function RevitStart() {
         </button>
       ) : (
         <div className="revit-inline">
-          <PanelBody close={() => {}} />
+          <PanelBody close={() => {}} start />
         </div>
       )}
     </div>
@@ -369,23 +475,28 @@ export function RevitHud() {
   const { commands, strokes, hidden } = useSession()
   const doc = useDocState()
   const cam = useCamera()
+  const timer = useRoundTrips()
   if (!rv.open.length) return null
   const linked = new Set(rv.open.map((o) => o.id))
   const pls = new Map(doc.placements.map((p) => [p.sheetId, p]))
+  // round-trip timer on: each element that just came back shows its time by its ink for a few seconds (CSS fades it)
+  const landedIn = new Map<string, number>()
+  if (timer.enabled) for (const t of timer.trips) if (t.landed !== undefined) landedIn.set(t.id, t.landed - t.start)
   const items = []
   for (const c of commands) {
     if (!linked.has(c.sheetId)) continue
     const e = entryFor(c.id)
     if (!e) continue
     const note = e.notes?.length && !rv.dismissed.has(c.id) ? e.notes.join(' · ') : undefined
-    const show = e.status === 'failed' || e.status === 'sending' || (e.status === 'applied' && !e.landed) || note
+    const took = e.status === 'applied' && e.landed ? landedIn.get(c.id) : undefined
+    const show = e.status === 'failed' || e.status === 'sending' || (e.status === 'applied' && !e.landed) || note || took !== undefined
     if (!show) continue
     const pl = pls.get(c.sheetId)
     const at = pl && anchorOf(c, strokes)
     if (!pl || !at) continue
     const s = sheetToScreen(cam, pl, at)
-    const kind = e.status === 'failed' ? 'failed' : note ? 'note' : 'pending'
-    const text = e.status === 'failed' ? (e.message ?? 'Revit could not apply this').replace(/^cmd-[\w-]+:\s*/, '') : note
+    const kind = e.status === 'failed' ? 'failed' : note ? 'note' : took !== undefined ? 'done' : 'pending'
+    const text = e.status === 'failed' ? (e.message ?? 'Revit could not apply this').replace(/^cmd-[\w-]+:\s*/, '') : note ?? (took !== undefined ? `Modelled in ${formatSeconds(took)}` : undefined)
     items.push(
       <div
         key={c.id}

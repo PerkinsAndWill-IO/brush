@@ -26,6 +26,7 @@ export function SelectionOverlay({ sheet }: { sheet: Sheet; placement: Placement
   const { accepted, strokes, commands, hidden } = useSession()
   const rv = useRevit()
   const { source } = useDocState()
+  const { resultsRev } = useRevit()
   const vp = source?.vectorPage?.(sheet.id) ?? null
 
   const drawn = useMemo(() => {
@@ -59,7 +60,8 @@ export function SelectionOverlay({ sheet }: { sheet: Sheet; placement: Placement
   }, [vp, hostIds, commands, sheet.id])
   const host = hostGroups.length ? hostGroups[0].shapes : null
 
-  // pending type changes on host elements, marked where each element is drawn on this sheet
+  // pending type changes on host elements, marked where each element is drawn on this sheet, until the linked model
+  // has redrawn the element with its new type
   const marks = useMemo(() => {
     if (!vp) return []
     const out: { id: string; box: { x: number; y: number; w: number; h: number }; label: string }[] = []
@@ -67,15 +69,18 @@ export function SelectionOverlay({ sheet }: { sheet: Sheet; placement: Placement
     for (let i = commands.length - 1; i >= 0; i--) {
       const c = commands[i]
       if (c.op !== 'set_type') continue
+      const landed = !!entryFor(c.id)?.landed
       for (const id of c.targets) {
         if (seen.has(id)) continue
         seen.add(id)
+        if (landed) continue
         const box = elementBox(itemsOf(vp.page, [id]))
         if (box) out.push({ id, box, label: typeLabel(c.family, c.typeName) })
       }
     }
     return out
-  }, [vp, commands])
+    // resultsRev: a set_type landing in the linked model clears its mark
+  }, [vp, commands, resultsRev])
 
   // S2-07: host moves and copies Revit has not redrawn yet, drawn where they go
   const ghosts = useMemo(() => {

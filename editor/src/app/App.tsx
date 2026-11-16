@@ -22,7 +22,7 @@ import { HandLoader } from './ui/HandLoader'
 import sampleSmallIcon from './ui/assets/sample-small.png'
 import sampleMediumIcon from './ui/assets/sample-medium.png'
 import sampleLargeIcon from './ui/assets/sample-large.png'
-import { RevitHud, RevitStart } from './revit/RevitPanel'
+import { RevitHud, RevitStart, RoundTripTimer } from './revit/RevitPanel'
 import { useRevit } from './revit/controller'
 import { isPhotoFile, photoImport, PhotoImportDialog } from './photo/PhotoImport'
 import { TraceControl } from './photo/TracePaper'
@@ -33,6 +33,9 @@ registerSheetOverlay(SelectionOverlay) // selection and type changes (S1)
 registerSheetOverlay(InspectOverlay) // element highlight (V3), on top
 
 const TldrawSmoke = lazy(() => import('./dev/TldrawSmoke'))
+/** The presenter's "Show more" button (DEMO.md), with `?demo` in the URL; loaded only then. */
+const Presenter = lazy(() => import('./demo/Presenter'))
+const DEMO_MODE = typeof location !== 'undefined' && new URLSearchParams(location.search).has('demo')
 
 async function openDropped(e: DragEvent) {
   e.preventDefault()
@@ -278,6 +281,7 @@ export function App() {
             />
           )}
           {ready && <RevitHud />}
+          {ready && <RoundTripTimer />}
           {ready && <TraceControl />}
           <ToolCapsule disabled={!ready} />
         </main>
@@ -285,6 +289,11 @@ export function App() {
       </div>
       <PhotoImportDialog />
       <TypeMenu />
+      {DEMO_MODE && (
+        <Suspense fallback={null}>
+          <Presenter />
+        </Suspense>
+      )}
       <SelectNotice />
     </div>
   )

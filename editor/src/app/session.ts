@@ -271,6 +271,9 @@ export async function openEphemeralSession(): Promise<void> {
   session.reset([], [], [], `cmd-${tag}`)
 }
 
+/** The file the session autosaves to, while one is open. */
+export const sidecarKeyNow = (): SidecarKey | null => sidecarKey
+
 export function closeSession() {
   sidecarKey = null
   session.reset()

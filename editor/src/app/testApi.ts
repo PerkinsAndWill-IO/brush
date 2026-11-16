@@ -217,4 +217,5 @@ export function installTestApi() {
   if (!testApiEnabled()) return
   window.__brush = createTestApi()
   window.__brushDev = createDevApi()
+  void import('./demo/rehearse').then((m) => (window.__brushDemo = m.createRehearsal()))
 }

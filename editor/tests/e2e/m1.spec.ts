@@ -4,7 +4,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { openApp, screenPath } from './helpers'
+import { openApp, screenPath, openPanel } from './helpers'
 import { boardCenter, camera, fixturePath, inkCount, line, openWith, openAppMenu, readRecording, replay, sampleInk, settle, strokes } from './m1-helpers'
 
 const SIX = 'office-6-sheets.pdf'
@@ -262,6 +262,7 @@ test('M1-06: the brush draws ink that follows the pointer, with size and smoothi
   await settle(page)
 
   // size + smoothing from the left sidebar, color from the capsule
+  await openPanel(page, 'tool')
   await page.locator('#brush-size').fill('6')
   await page.locator('#brush-smoothing').fill('60')
   await expect(page.getByTestId('left-sidebar')).toContainText('6 px')
@@ -455,6 +456,9 @@ test('M1-10: work autosaves to the sidecar and is restored when the same PDF is 
 test('M1-11: left sidebar shows the active tool’s options; sections collapse; Mode, Snapping, Commit present (enabled from M2/M3; Mode off with Live off)', async ({ page }) => {
   await openWith(page, SIX)
   const side = page.getByTestId('left-sidebar')
+  // the sidebars are collapsed to icon rails: open the tool's options
+  await expect(side).toHaveCount(0)
+  await openPanel(page, 'tool')
   await expect(side.locator('.tool-name')).toHaveText('Brush')
   await expect(side.locator('#brush-size')).toBeEnabled()
   await expect(side.locator('#brush-smoothing')).toBeEnabled()
@@ -467,7 +471,9 @@ test('M1-11: left sidebar shows the active tool’s options; sections collapse; 
   // Live off is the plain M1 surface: Mode is disabled and labeled, the Reading panel says so
   await expect(side.getByTestId('section-mode')).toContainText('Live off')
   for (const c of await side.locator('[data-testid="section-mode"] .section-body button').all()) await expect(c).toBeDisabled()
+  await openPanel(page, 'reading')
   await expect(page.getByTestId('section-reading')).toContainText('Live reading is off')
+  await openPanel(page, 'session')
   await expect(page.getByTestId('right-sidebar')).toContainText('This session')
   // turning Live on enables Mode (M3)
   await page.getByTestId('live-toggle').click()
@@ -504,6 +510,7 @@ test('M1-12: strokes can be recorded to fixture files from a dev-only toggle (wr
   src.points = src.points.map((p, i) => ({ ...p, p: 0.3 + i * 0.02 }))
   await replay(page, src, true)
   const [drawn] = await strokes(page)
+  await openPanel(page, 'recordings')
   await expect(page.getByTestId('recordings-list').locator('li')).toHaveCount(1)
   await page.screenshot({ path: screenPath('m1-12-recording') })
 

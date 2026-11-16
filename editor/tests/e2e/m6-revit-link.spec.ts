@@ -7,7 +7,7 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:chil
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test'
-import { openApp, screenPath } from './helpers'
+import { openApp, screenPath, openPanel } from './helpers'
 import { ROOT, line, settle } from './m1-helpers'
 
 const REVIT = resolve(ROOT, '..', 'revit')
@@ -75,7 +75,8 @@ test.describe('M6 with the DevHost', () => {
 
     // M6-02: open from Revit through the panel on the start page
     await page.screenshot({ path: screenPath('m6-start-connected') })
-    await page.getByTestId('revit-open-sheet').first().click()
+    await page.getByTestId('revit-pick-sheet').first().click()
+    await page.getByTestId('revit-open-selected').click()
     await expect(page.locator('[data-testid="sheet"][data-rendered="true"]')).toHaveCount(1)
     expect((await page.evaluate(() => window.__brush!.sheets())).map((s) => s.id)).toEqual([SHEET])
     expect(await versionOf(page)).toBe(1)
@@ -237,7 +238,7 @@ test('M6-10: tick several sheets in the panel and open them together; only the f
   await page.waitForFunction(() => window.__brushDev!.revit().state === 'on')
 
   const start = page.getByTestId('revit-start')
-  await expect(start.getByTestId('revit-open-selected')).toHaveCount(0)
+  await expect(start.getByTestId('revit-open-selected')).toBeDisabled()
   await start.locator('li[data-sheet-id="101"]').getByTestId('revit-pick-sheet').check()
   await start.locator('li[data-sheet-id="301"]').getByTestId('revit-pick-sheet').check()
   await expect(start.getByTestId('revit-open-selected')).toHaveText('Open 2 sheets')
@@ -278,7 +279,7 @@ test('M6-08: a deployed (https) editor explains the local-network prompt before 
   await page.screenshot({ path: screenPath('m6-lna-explainer') })
   await page.getByTestId('revit-connect').click()
   await page.waitForFunction(() => window.__brushDev!.revit().state === 'on')
-  await expect(page.getByTestId('revit-open-sheet')).toBeVisible()
+  await expect(page.getByTestId('revit-pick-sheet')).toBeVisible()
   // explained once: a reload goes straight to the connect button
   await page.reload()
   await page.waitForFunction(() => !!window.__brush)
@@ -319,7 +320,8 @@ test('M6-13: on the start page, a linked model with many sheets turns the drop c
     const box = (await card.boundingBox())!
     expect(box.y).toBeGreaterThanOrEqual(0)
     expect(box.y + box.height).toBeLessThanOrEqual(size.height)
-    await expect(card.getByTestId('revit-stream-toggle')).toBeInViewport()
+    await expect(card.getByTestId('revit-open-selected')).toBeInViewport()
+    await expect(card.getByTestId('revit-stream-toggle')).toHaveCount(0) // streaming is for once a sheet is open
 
     await card.locator('li[data-sheet-id="a3"]').getByTestId('revit-pick-sheet').check()
     await expect(card.getByTestId('revit-open-selected')).toBeInViewport()
@@ -336,12 +338,12 @@ test('M6-13: on the start page, a linked model with many sheets turns the drop c
   }
 })
 
-test('M6-14: the inspector works on a linked Revit sheet: hovering a wall shows its data and highlights it', async ({ page }) => {
+test('M6-14: the inspector works on a linked Revit sheet: hovering a wall highlights it, selecting it shows its data', async ({ page }) => {
   await mockPlugin(page, () => [])
   await openApp(page)
   await page.evaluate(() => window.__brushDev!.revitConnect())
   await page.waitForFunction(() => window.__brushDev!.revit().state === 'on')
-  await page.getByTestId('revit-start').locator(`li[data-sheet-id="${SHEET}"]`).getByTestId('revit-open-sheet').click()
+  await page.getByTestId('revit-start').locator(`li[data-sheet-id="${SHEET}"]`).getByTestId('revit-pick-sheet').dblclick()
   await expect(page.locator(`[data-sheet-id="${SHEET}"][data-rendered="true"]`)).toBeVisible()
   await page.keyboard.press('v')
 
@@ -369,6 +371,11 @@ test('M6-14: the inspector works on a linked Revit sheet: hovering a wall shows 
 
   await page.mouse.move(target!.x, target!.y)
   await page.mouse.move(target!.x + 0.5, target!.y)
+  await expect(page.getByTestId('inspect-highlight').first()).toHaveAttribute('data-element', target!.el)
+  // the card is for a selected element: click it, and open the element panel
+  await page.mouse.down()
+  await page.mouse.up()
+  await openPanel(page, 'element')
   const card = page.getByTestId('left-sidebar').getByTestId('inspect-panel')
   await expect(card).toHaveAttribute('data-element', target!.el)
   await expect(card).toContainText('Walls')

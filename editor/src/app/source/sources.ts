@@ -195,20 +195,21 @@ export class PackageDrawingSource implements DrawingSource {
     return contextFromPackage(this.manifest, sheetId)
   }
 
-  private vectors = new Map<string, VectorPage>()
+  private vectors?: Map<string, VectorPage>
   /**
    * The manifest's elements as a pickable page (the package has no vector items of its own): what makes the
-   * inspector, selection and hover work on a Revit link sheet. Built once per sheet; the same object every call, as
-   * the hit index and overlays are keyed by page.
+   * inspector, selection and hover work on a Revit link sheet. Built once for all sheets; the same object every call,
+   * as the hit index and overlays are keyed by page. Like a `.drawing`, every sheet shares one element map (of all
+   * sheets), so an element is found whichever sheet it is looked up on.
    */
   vectorPage(sheetId: string): VectorPage | null {
-    const hit = this.vectors.get(sheetId)
-    if (hit) return hit
-    const sheet = this.manifest.sheets.find((s) => s.id === sheetId)
-    if (!sheet) return null
-    const vp = vectorPageFromPackage(sheet)
-    this.vectors.set(sheetId, vp)
-    return vp
+    if (!this.vectors) {
+      const built = this.manifest.sheets.map((s) => vectorPageFromPackage(s))
+      const elements: Record<string, DrawingElement> = {}
+      for (const b of built) for (const [id, el] of Object.entries(b.elements)) elements[id] ??= el
+      this.vectors = new Map(this.manifest.sheets.map((s, i) => [s.id, { page: built[i].page, elements }]))
+    }
+    return this.vectors.get(sheetId) ?? null
   }
 
   async close(): Promise<void> {

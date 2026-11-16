@@ -9,3 +9,7 @@ playwright-report/
 
 .vercel
 .env*
+
+# demo: Autodesk sample models copied in for the rehearsal (licensed, large; not ours to commit)
+fixtures/demo/*.rvt
+fixtures/demo/*.jpg

@@ -6,7 +6,7 @@
  * live reading before commit. Screenshot: m4-suggestion.png.
  */
 import { expect, test, type Page } from '@playwright/test'
-import { screenPath } from './helpers'
+import { screenPath, openPanel } from './helpers'
 import { openWith, readRecording, settle } from './m1-helpers'
 
 const SIX = 'office-6-sheets.pdf'
@@ -28,7 +28,10 @@ test('M4: a slow second pass never delays the commit; its late answer is only a 
   await page.evaluate(() =>
     window.__brushDev!.useCassetteRescorer({ probs: { door: 0.9, wall: 0.05 }, latencyMs: 1500, weight: 0.9, settings: { ambiguousBelow: 0.8, timeoutMs: 3000 } }),
   )
+  await openPanel(page, 'tool')
   await expect(page.getByTestId('second-pass')).toContainText('cassette:hosted')
+  // the "asking" chip is in the reading panel
+  await openPanel(page, 'reading')
   const { strokeId, upAt } = await drawWall(page)
   await expect(page.getByTestId('second-asking')).toBeVisible()
 
@@ -78,6 +81,7 @@ test('M4: an answer before the commit refines the live reading and is what commi
 
 test('M4: Off by default — no second-pass call is made', async ({ page }) => {
   await openWith(page, SIX, { live: true })
+  await openPanel(page, 'tool')
   await expect(page.getByTestId('second-pass').getByRole('radio', { name: 'Off' })).toHaveAttribute('aria-checked', 'true')
   await drawWall(page)
   await page.waitForFunction(() => window.__brushDev!.live().phase === 'committed')
