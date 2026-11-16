@@ -11,6 +11,10 @@ export const PROBE_DPI = 50
  * draws the sheet.
  */
 export const MIN_TILES = 12
+/**
+ * A sheet whose first, strict feature match locks at least this many tiles has clearly been found (see sheetsToFinish).
+ */
+export const CONFIDENT_TILES = 4 * MIN_TILES
 /** Automatic sheet detection tries at most this many sheets. */
 export const MAX_AUTO_SHEETS = 16
 /** Long side of the working raster, px. Bounds memory in the browser (the pipeline holds several copies). */
@@ -114,6 +118,20 @@ export function printedScale(from: { w: number; h: number }, to: { w: number; h:
   const sx = to.w / from.w
   const sy = to.h / from.h
   return Math.abs(sx / sy - 1) <= 0.02 ? { sx, sy } : null
+}
+
+/**
+ * The sheets whose match still has to be finished (P1-02), given the first, strict step of every sheet's match.
+ * A sheet is final after that step when its strict features were confident and one of their alignments locked on;
+ * look-alike sheets that match that well are therefore all compared in full. The others would go on to the slow
+ * fallback passes, which are there for a print drawn in another style than the app draws the sheets. They are
+ * skipped while another sheet has locked on with confidence: every candidate is drawn in the same style, and that
+ * style matched the print, so a sheet whose strict match was inconclusive is not the one in the photo. With no
+ * confident lock anywhere, every unfinished sheet is finished, as before.
+ */
+export function sheetsToFinish<T extends { final: boolean; probe: { tiles: number } | null }>(firsts: readonly T[], confident = CONFIDENT_TILES): T[] {
+  const found = firsts.some((f) => f.final && f.probe && f.probe.tiles >= confident)
+  return found ? [] : firsts.filter((f) => !f.final)
 }
 
 /** A remembered sheet choice, if that sheet is in the open document; otherwise undefined (find it automatically). */

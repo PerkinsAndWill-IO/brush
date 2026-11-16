@@ -70,6 +70,32 @@ public sealed record SetType : Command
     public string? Family { get; init; }
 }
 
+/// <summary>
+/// S2 (editor decision 0012): move host elements by (<see cref="Dx"/>, <see cref="Dy"/>) sheet points, measured at
+/// <see cref="At"/> (which picks the plan viewport). One per element, <c>strokeId</c> <c>move:&lt;element id&gt;</c>.
+/// </summary>
+public sealed record MoveElements : Command
+{
+    public override string Op => "move";
+    public required IReadOnlyList<string> Targets { get; init; }
+    public required SheetPoint At { get; init; }
+    public required double Dx { get; init; }
+    public required double Dy { get; init; }
+}
+
+/// <summary>
+/// S2 (editor decision 0012): copy host elements so that <see cref="At"/> on the command's sheet lands on <see cref="To"/>
+/// on <see cref="ToSheetId"/> (the same sheet or another level's plan sheet).
+/// </summary>
+public sealed record CopyElements : Command
+{
+    public override string Op => "copy";
+    public required IReadOnlyList<string> Targets { get; init; }
+    public required SheetPoint At { get; init; }
+    public required string ToSheetId { get; init; }
+    public required SheetPoint To { get; init; }
+}
+
 /// <summary>An op this plugin does not know. Kept so the reply can say "skipped" for it instead of failing the batch.</summary>
 public sealed record UnknownCommand : Command
 {
@@ -92,6 +118,8 @@ public sealed class CommandJsonConverter : JsonConverter<Command>
             "place_instance" => root.Deserialize<PlaceInstanceDto>(options)?.ToCommand(),
             "delete" => root.Deserialize<DeleteDto>(options)?.ToCommand(),
             "set_type" => root.Deserialize<SetTypeDto>(options)?.ToCommand(),
+            "move" => root.Deserialize<MoveDto>(options)?.ToCommand(),
+            "copy" => root.Deserialize<CopyDto>(options)?.ToCommand(),
             _ => root.Deserialize<BaseDto>(options) is { } b ? new UnknownCommand { Id = b.Id ?? "", SheetId = b.SheetId ?? "", StrokeId = b.StrokeId, RawOp = op } : null,
         };
         return cmd ?? throw new JsonException($"command with op '{op}' is empty");
@@ -106,6 +134,8 @@ public sealed class CommandJsonConverter : JsonConverter<Command>
             PlaceInstance c => new PlaceInstanceDto { Op = c.Op, Id = c.Id, SheetId = c.SheetId, StrokeId = c.StrokeId, At = PointDto.Of(c.At), Bbox = RectDto.Of(c.Bbox), AngleRad = c.AngleRad, Family = c.Family },
             DeleteElements c => new DeleteDto { Op = c.Op, Id = c.Id, SheetId = c.SheetId, StrokeId = c.StrokeId, Targets = c.Targets.ToList() },
             SetType c => new SetTypeDto { Op = c.Op, Id = c.Id, SheetId = c.SheetId, StrokeId = c.StrokeId, Targets = c.Targets.ToList(), TypeName = c.TypeName, Family = c.Family },
+            MoveElements c => new MoveDto { Op = c.Op, Id = c.Id, SheetId = c.SheetId, StrokeId = c.StrokeId, Targets = c.Targets.ToList(), At = PointDto.Of(c.At), Dx = c.Dx, Dy = c.Dy },
+            CopyElements c => new CopyDto { Op = c.Op, Id = c.Id, SheetId = c.SheetId, StrokeId = c.StrokeId, Targets = c.Targets.ToList(), At = PointDto.Of(c.At), ToSheetId = c.ToSheetId, To = PointDto.Of(c.To) },
             _ => new BaseDto { Op = value.Op, Id = value.Id, SheetId = value.SheetId, StrokeId = value.StrokeId },
         };
         JsonSerializer.Serialize(writer, dto, dto.GetType(), options);
@@ -233,6 +263,43 @@ public sealed class CommandJsonConverter : JsonConverter<Command>
             var (id, sheet) = Ids();
             var name = TypeName is { Length: > 0 } n ? n : throw new JsonException($"{id}: missing typeName");
             return new SetType { Id = id, SheetId = sheet, StrokeId = StrokeId, Targets = Need(Targets, "targets", id), TypeName = name, Family = string.IsNullOrEmpty(Family) ? null : Family };
+        }
+    }
+
+    private sealed class MoveDto : BaseDto
+    {
+        public List<string>? Targets { get; set; }
+        public PointDto? At { get; set; }
+        public double? Dx { get; set; }
+        public double? Dy { get; set; }
+
+        public MoveElements ToCommand()
+        {
+            var (id, sheet) = Ids();
+            return new MoveElements
+            {
+                Id = id, SheetId = sheet, StrokeId = StrokeId, Targets = Need(Targets, "targets", id),
+                At = Need(At, "at", id).To(id), Dx = Need(Dx, "dx", id), Dy = Need(Dy, "dy", id),
+            };
+        }
+    }
+
+    private sealed class CopyDto : BaseDto
+    {
+        public List<string>? Targets { get; set; }
+        public PointDto? At { get; set; }
+        public string? ToSheetId { get; set; }
+        public PointDto? To { get; set; }
+
+        public CopyElements ToCommand()
+        {
+            var (id, sheet) = Ids();
+            return new CopyElements
+            {
+                Id = id, SheetId = sheet, StrokeId = StrokeId, Targets = Need(Targets, "targets", id),
+                At = Need(At, "at", id).To(id), ToSheetId = ToSheetId is { Length: > 0 } t ? t : throw new JsonException($"{id}: missing toSheetId"),
+                To = Need(To, "to", id).To(id),
+            };
         }
     }
 }

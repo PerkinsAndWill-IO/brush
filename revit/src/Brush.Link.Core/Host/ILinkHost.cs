@@ -81,6 +81,9 @@ public sealed record CommandResult(string Id, string Status, IReadOnlyList<strin
 /// <summary>One element's type change by a <c>set_type</c> command: the type it had and the type it was given.</summary>
 public sealed record TypeChange(string ElementId, string From, string To);
 
+/// <summary>S2: where an element a <c>move</c> touched was before it. <see cref="Location"/> is written and read by the host.</summary>
+public sealed record MovedElement(string ElementId, string Location);
+
 /// <summary>
 /// Which elements each command of this link created, so delete-by-command and revert can find them, and which types a
 /// <c>set_type</c> command replaced, so revert can put them back.
@@ -120,6 +123,31 @@ public sealed class CommandLedger(Dictionary<string, List<string>> created, Dict
         lock (gate) return created.TryGetValue(commandId, out var l) ? l.ToList() : [];
     }
 
+    // S2: where each element a `move` touched was before it (the moved ones and the walls that followed), so revert can
+    // put them back. Kept in the shared `created` store under a key no command id has, so it outlives this object (and
+    // a hot reload) like the rest. `Location` is opaque here: the host writes and reads it.
+    private const string MovesKey = "\u0001moves:";
+
+    /// <summary>S2: a <c>move</c> command: it created nothing; these elements were here before it.</summary>
+    public void RecordMoves(string commandId, IEnumerable<MovedElement> before)
+    {
+        lock (gate)
+        {
+            created[commandId] = [];
+            created[MovesKey + commandId] = before.SelectMany(m => new[] { m.ElementId, m.Location }).ToList();
+        }
+    }
+
+    /// <summary>S2: where a <c>move</c>'s elements were before it; null for any other command.</summary>
+    public IReadOnlyList<MovedElement>? MovesOf(string commandId)
+    {
+        lock (gate)
+        {
+            if (!created.TryGetValue(MovesKey + commandId, out var l)) return null;
+            return Enumerable.Range(0, l.Count / 2).Select(i => new MovedElement(l[2 * i], l[2 * i + 1])).ToList();
+        }
+    }
+
     /// <summary>The type changes of a <c>set_type</c> command; null for any other command.</summary>
     public IReadOnlyList<TypeChange>? TypeChangesOf(string commandId)
     {
@@ -135,6 +163,7 @@ public sealed class CommandLedger(Dictionary<string, List<string>> created, Dict
         lock (gate)
         {
             created.Remove(commandId);
+            created.Remove(MovesKey + commandId);
             retyped.Remove(commandId);
         }
     }

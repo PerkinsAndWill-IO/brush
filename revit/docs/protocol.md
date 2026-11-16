@@ -75,6 +75,27 @@ elements, tags and parameters:
   "strokeId": "type:912001" }                  // no stroke makes it: one command per element
 ```
 
+`move` and `copy` (editor decision 0012, S2) move or copy elements already in the model, keeping their ids (a move) and
+their types and parameters:
+
+```jsonc
+{ "op": "move", "id": "cmd-0013", "sheetId": "382617", "targets": ["912001"],
+  "at": { "x": 410, "y": 255 },      // the grab point: picks the plan viewport the offset is measured in
+  "dx": 30, "dy": 0,                 // sheet points; one move per element, strokeId "move:<element id>"
+  "strokeId": "move:912001" }
+{ "op": "copy", "id": "cmd-0014", "sheetId": "382617", "targets": ["912001"],
+  "at": { "x": 410, "y": 255 }, "toSheetId": "382618", "to": { "x": 300, "y": 400 },  // `at` lands on `to` on that sheet
+  "strokeId": "copy:1" }
+```
+
+- `move`: the offset goes through the plan viewport under `at` to a model vector. Walls joined at a moved wall's ends
+  follow (Revit's default); doors and windows hosted in a moved wall go with it. `revert` puts every element it touched
+  back where it was.
+- `copy`: the vector runs from `at` (through its sheet's plan viewport) to `to` (through `toSheetId`'s). A wall's hosted
+  doors and windows are copied with it. On another level's plan the copies take that level (base and top constraints),
+  keeping their offsets. `revert` deletes the copies.
+- A point outside every plan viewport fails the command ("not inside a plan viewport on this sheet").
+
 ## Plugin → editor
 
 ```jsonc

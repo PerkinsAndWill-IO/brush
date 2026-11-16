@@ -24,7 +24,7 @@ The spec is `docs/spec.md`. Shared contracts are `src/core/types/index.ts` (froz
 | Command | Does | Target time |
 |---|---|---|
 | `pnpm dev` | Runs the app in a browser tab with hot reload (http://localhost:5173) | instant reloads |
-| `pnpm dev:phone` | `pnpm dev` open to the network, to send a photo from a phone (P1-11): put `BLOB_READ_WRITE_TOKEN` (a **private** Blob store) in `.env.local`, open the app at the network address it prints (not `localhost`), phone on the same Wi-Fi | instant reloads |
+| `pnpm dev:phone` | `pnpm dev` open to the network, to send a photo from a phone (P1-11): photos wait in a temp folder on this computer (or in a **private** Blob store if `.env.local` has `BLOB_READ_WRITE_TOKEN`); open the app at the network address it prints (not `localhost`), phone on the same Wi-Fi | instant reloads |
 | `pnpm check` | Typecheck, lint, core unit tests (`tests/unit/**`, Vitest, node) | under 30 s |
 | `pnpm e2e` | Playwright on Chromium (`tests/e2e/**`), screenshots to `reports/screens` | a few minutes |
 | `pnpm eval` | Replays `fixtures/strokes/**` through `core/predict`, writes `reports/eval.json` | under 1 min |

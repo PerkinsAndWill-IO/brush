@@ -798,3 +798,7 @@ button.revit-sheet-name:hover { text-decoration: underline; }
 @media (prefers-reduced-motion: reduce) { .side-panel.sidebar.left, .side-panel.sidebar.right { animation: none; } .rail-btn:active { transform: none; } }
 @media (prefers-reduced-transparency: reduce) { .side-rail, .side-panel.sidebar { background: var(--surface); backdrop-filter: none; } }
 @media (max-width: 600px) { .side-panel.sidebar.left, .side-panel.sidebar.right, .side-panel.sidebar.left.wide { width: calc(100vw - 84px); } }
+/* ── move / copy (S2-07) ── */
+.move-ghost .line { fill: none; stroke: var(--sheet-ink, #1d1d1f); stroke-linecap: round; }
+.move-ghost .fill { fill: var(--sheet-ink, #1d1d1f); fill-opacity: 0.25; }
+.select-notice { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 70; padding: 8px 14px; border-radius: 8px; background: var(--ink, #1d1d1f); color: #fff; font-size: 12px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2); }

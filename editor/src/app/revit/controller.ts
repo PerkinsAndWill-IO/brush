@@ -581,6 +581,10 @@ export function anchorOf(cmd: Command, strokes: readonly Stroke[]): Point | null
     }
     case 'set_type':
       return elementAnchor(cmd.sheetId, cmd.targets[0])
+    case 'move':
+      return { x: cmd.at.x + cmd.dx, y: cmd.at.y + cmd.dy }
+    case 'copy':
+      return cmd.to // on cmd.toSheetId
   }
 }
 

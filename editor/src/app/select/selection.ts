@@ -44,9 +44,13 @@ export interface SelectionState {
   items: readonly SelItem[]
   /** The type menu, open at a client point. */
   menu: { x: number; y: number } | null
+  /** S2-07: the selection is being dragged by this sheet offset (drawn shifted until the drop). */
+  drag: { dx: number; dy: number } | null
+  /** S2-07: a short message about the last move or paste (a refused paste), shown for a few seconds. */
+  notice: string | null
 }
 
-let state: SelectionState = { items: [], menu: null }
+let state: SelectionState = { items: [], menu: null, drag: null, notice: null }
 const listeners = new Set<() => void>()
 function set(next: Partial<SelectionState>) {
   state = { ...state, ...next }
@@ -93,6 +97,16 @@ export const selection = {
   },
   clear() {
     if (state.items.length || state.menu) set({ items: [], menu: null })
+  },
+  /** S2-07: the drag offset to draw the selection at (null when not dragging). */
+  setDrag(drag: { dx: number; dy: number } | null) {
+    if (drag === state.drag || (drag && state.drag && drag.dx === state.drag.dx && drag.dy === state.drag.dy)) return
+    set({ drag })
+  },
+  /** S2-07: show a short message (cleared after a few seconds). */
+  notice(text: string | null) {
+    set({ notice: text })
+    if (text && typeof setTimeout !== 'undefined') setTimeout(() => state.notice === text && set({ notice: null }), 4000)
   },
 }
 

@@ -85,13 +85,16 @@ const hueDist = (a: number, b: number): number => Math.min(Math.abs(a - b), 180 
  */
 export async function explainAway(cv: Cv, rgb: Uint8Array, valid: Uint8Array, refRgb: Uint8Array, w: number, h: number, { scale = 1, tol = Math.max(1, Math.round(4 * scale)) }: { scale?: number; tol?: number } = {}) {
   const refBlur = await blurRaw(cv, refRgb, w, h, 3, Math.max(0.5, 1.2 * scale)); // roughly the photo's sharpness
-  const refLo = morph(cv, refBlur, w, h, cv.MORPH_ERODE, 2 * tol + 1, 3); // darkest the drawing could be within tol
 
   // --- fit the local models
   const S = Math.max(8, Math.round(24 * scale)), half = Math.round(1.5 * S);
   const gw = Math.ceil(w / S) + 1, gh = Math.ceil(h / S) + 1, G = gw * gh;
   const stride = Math.max(1, Math.floor((2 * half + 1) / 24));
-  const { A, B, ok, seesPaper } = await fitModels({ w, h, S, half, stride, gw, gh }, rgb, valid, refBlur);
+  // the models are fitted on the helper workers (when there are any) while this thread erodes the drawing
+  const fitted = fitModels({ w, h, S, half, stride, gw, gh }, rgb, valid, refBlur);
+  fitted.catch(() => {}); // awaited just below
+  const refLo = morph(cv, refBlur, w, h, cv.MORPH_ERODE, 2 * tol + 1, 3); // darkest the drawing could be within tol
+  const { A, B, ok, seesPaper } = await fitted;
   if (!ok.some((v) => v)) throw new Error("the registered photo does not cover any of the sheet");
 
   // A window that sits entirely inside a marker fill, or on an object lying on the sheet, would "learn" that

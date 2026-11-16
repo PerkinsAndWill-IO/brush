@@ -311,6 +311,28 @@ export type Command =
       family?: string
       strokeId: string
     }
+  | {
+      /** Decision 0012 (S2): move host elements by (dx, dy) sheet points, measured at `at` on `sheetId`. */
+      op: 'move'
+      id: string
+      sheetId: string
+      targets: string[] // one host element id; strokeId "move:<elementId>"
+      at: Point
+      dx: number
+      dy: number
+      strokeId: string
+    }
+  | {
+      /** Decision 0012 (S2): copy host elements so that `at` on `sheetId` lands on `to` on `toSheetId`. */
+      op: 'copy'
+      id: string
+      sheetId: string
+      targets: string[] // host element ids; strokeId "copy:<n>"
+      at: Point
+      toSheetId: string
+      to: Point
+      strokeId: string
+    }
 
 export type CommandOp = Command['op']
 

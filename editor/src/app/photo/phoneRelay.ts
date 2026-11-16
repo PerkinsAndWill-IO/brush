@@ -36,28 +36,57 @@ export async function relayAvailable(): Promise<boolean> {
 
 const extOf = (type: string) => (type === 'image/png' ? 'png' : type === 'image/heic' ? 'heic' : 'jpg')
 
-/** Wait for the photo in `slot`; resolves with it as a File. Rejects on abort, expiry or a relay error. */
-export async function waitForPhoto(slot: string, signal: AbortSignal, now = () => Date.now()): Promise<File> {
+/** Longest pause between polls while the connection is down. */
+export const MAX_RETRY_MS = 10_000
+/** Server errors in a row (not network drops) before the dialog gives up on a code. */
+export const MAX_SERVER_ERRORS = 5
+
+/** What the relay answered, short enough for the dialog: its plain-text message, else the status. */
+async function relayError(r: Response): Promise<string> {
+  const plain = (r.headers.get('content-type') ?? '').startsWith('text/plain')
+  const msg = plain ? (await r.text().catch(() => '')).trim() : ''
+  return msg && msg.length <= 200 ? msg : `the server answered ${r.status}`
+}
+
+/**
+ * Wait for the photo in `slot`; resolves with it as a File. Rejects on abort, expiry or a relay error.
+ *
+ * A dropped connection (Wi-Fi gone, the laptop asleep) is not an error: the photo waits in the slot until the code
+ * expires, so the dialog keeps asking, less often, and says it is reconnecting (`onConnection(false)`) until an answer
+ * comes back (`onConnection(true)`). Only repeated error answers from the relay end the wait, with their message.
+ */
+export async function waitForPhoto(slot: string, signal: AbortSignal, now = () => Date.now(), onConnection?: (connected: boolean) => void): Promise<File> {
   const until = now() + SLOT_LIFETIME_MS
-  let failures = 0
+  let serverErrors = 0
+  let drops = 0
+  const setConnected = (ok: boolean) => {
+    if (ok === (drops === 0)) return
+    if (ok) drops = 0
+    onConnection?.(ok)
+  }
   while (!signal.aborted) {
     if (now() > until) throw new Error('The code has expired. Show a new one to send a photo.')
+    let response: Response | undefined
     try {
-      const r = await fetch(`${RELAY}?id=${encodeURIComponent(slot)}`, { cache: 'no-store', signal })
-      if (r.status === 200) {
-        const type = (r.headers.get('content-type') ?? 'image/jpeg').split(';')[0]
-        const blob = await r.blob()
+      response = await fetch(`${RELAY}?id=${encodeURIComponent(slot)}`, { cache: 'no-store', signal })
+    } catch {
+      if (signal.aborted) break
+      setConnected(false)
+      drops++
+    }
+    if (response) {
+      setConnected(true)
+      if (response.status === 200) {
+        const type = (response.headers.get('content-type') ?? 'image/jpeg').split(';')[0]
+        const blob = await response.blob()
         return new File([blob], `phone-photo.${extOf(type)}`, { type })
       }
-      if (r.status === 503) throw new Error(await r.text())
-      failures = r.status === 204 ? 0 : failures + 1
-    } catch (e) {
-      if (signal.aborted) break
-      if (e instanceof Error && /not set up/.test(e.message)) throw e
-      failures++
+      if (response.status === 503) throw new Error(await response.text())
+      if (response.status === 204) serverErrors = 0
+      else if (++serverErrors >= MAX_SERVER_ERRORS) throw new Error(`Could not collect the photo: ${await relayError(response)}. Show a new code to try again.`)
     }
-    if (failures >= 5) throw new Error('Lost the connection while waiting for the photo. Show a new code to try again.')
-    await new Promise((r) => setTimeout(r, POLL_MS))
+    const pause = drops ? Math.min(MAX_RETRY_MS, POLL_MS * 2 ** (drops - 1)) : POLL_MS
+    await new Promise((r) => setTimeout(r, pause))
   }
   throw new DOMException('stopped', 'AbortError')
 }

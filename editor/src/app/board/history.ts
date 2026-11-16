@@ -29,18 +29,29 @@ export type HistoryOp =
   | { type: 'erase'; removed: Removed[] }
   | { type: 'commit'; decision: AcceptedDecision; command: Command | null }
   | { type: 'commitMany'; items: { decision: AcceptedDecision; command: Command | null }[] }
-  | { type: 'replace'; removed: Replaced; added: { decisions: AcceptedDecision[]; commands: Command[] } }
+  | { type: 'replace'; removed: Replaced; added: { decisions: AcceptedDecision[]; commands: Command[] }; ink?: InkChange }
 
 /** One element's decision and / or command, with what it becomes; either side may be empty. */
+/**
+ * One element changed in a replace. `stroke` (S2-02) moves ink with it: a `before.stroke` is swapped in place for the
+ * `after.stroke` (a move), removed when there is none after, and an `after.stroke` with none before is added (a paste).
+ */
 export interface Replacement {
-  before: { decision?: AcceptedDecision | null; command?: Command | null }
-  after: { decision?: AcceptedDecision | null; command?: Command | null }
+  before: { decision?: AcceptedDecision | null; command?: Command | null; stroke?: Stroke | null }
+  after: { decision?: AcceptedDecision | null; command?: Command | null; stroke?: Stroke | null }
 }
 
 /** What a replace took out, with the index each item had, to put it back on undo. */
 interface Replaced {
   decisions: { decision: AcceptedDecision; index: number }[]
   commands: { command: Command; index: number }[]
+}
+
+/** Ink a replace changed: strokes swapped in place, removed, and added. */
+interface InkChange {
+  swapped: { before: Stroke; after: Stroke }[]
+  removed: { stroke: Stroke; index: number }[]
+  added: Stroke[]
 }
 
 export class StrokeHistory {
@@ -114,8 +125,20 @@ export class StrokeHistory {
       decisions: changes.flatMap((c) => (c.after.decision ? [c.after.decision] : [])),
       commands: changes.flatMap((c) => (c.after.command ? [c.after.command] : [])),
     }
-    if (!removed.decisions.length && !removed.commands.length && !added.decisions.length && !added.commands.length) return
-    const op: HistoryOp = { type: 'replace', removed, added }
+    const ink: InkChange = { swapped: [], removed: [], added: [] }
+    for (const c of changes) {
+      const b = c.before.stroke
+      const a = c.after.stroke
+      if (b && a) ink.swapped.push({ before: b, after: a })
+      else if (b) {
+        const index = this.list.indexOf(b)
+        if (index >= 0) ink.removed.push({ stroke: b, index })
+      } else if (a) ink.added.push(a)
+    }
+    ink.removed.sort((x, y) => x.index - y.index)
+    const inkChanged = ink.swapped.length > 0 || ink.removed.length > 0 || ink.added.length > 0
+    if (!removed.decisions.length && !removed.commands.length && !added.decisions.length && !added.commands.length && !inkChanged) return
+    const op: HistoryOp = { type: 'replace', removed, added, ink }
     this.applyReplace(op)
     this.push(op)
   }
@@ -125,6 +148,11 @@ export class StrokeHistory {
     const outC = new Set(op.removed.commands.map((r) => r.command))
     this.acc = [...this.acc.filter((d) => !outD.has(d)), ...op.added.decisions]
     this.cmds = [...this.cmds.filter((c) => !outC.has(c)), ...op.added.commands]
+    if (op.ink) {
+      const swap = new Map(op.ink.swapped.map((s) => [s.before, s.after]))
+      const out = new Set(op.ink.removed.map((r) => r.stroke))
+      this.list = [...this.list.filter((s) => !out.has(s)).map((s) => swap.get(s) ?? s), ...op.ink.added]
+    }
   }
 
   private undoReplace(op: Extract<HistoryOp, { type: 'replace' }>) {
@@ -137,6 +165,13 @@ export class StrokeHistory {
     for (const r of op.removed.commands) cmds.splice(Math.min(r.index, cmds.length), 0, r.command)
     this.acc = acc
     this.cmds = cmds
+    if (op.ink) {
+      const back = new Map(op.ink.swapped.map((s) => [s.after, s.before]))
+      const inS = new Set(op.ink.added)
+      const list = this.list.filter((s) => !inS.has(s)).map((s) => back.get(s) ?? s)
+      for (const r of op.ink.removed) list.splice(Math.min(r.index, list.length), 0, r.stroke)
+      this.list = list
+    }
   }
 
   /** Remove strokes by id without recording history (live erasing). Returns what was removed. */

@@ -8,6 +8,8 @@ import { erasedElements } from '@core/context'
 import { filters } from '../drawing/filters'
 import { getSession, subscribeSession } from '../session'
 import { contextNow, subscribeContexts } from './contextStore'
+import { movedHostElements } from '../select/moved'
+import { entryFor } from '../revit/controller'
 
 let contextsVersion = 0
 let memo: { accepted: readonly unknown[]; contexts: number; refs: ReadonlySet<string> } | null = null
@@ -25,7 +27,11 @@ let started = false
 export function installErasedSync() {
   if (started) return
   started = true
-  const sync = () => filters.setErased(erasedNow())
+  // S2-07: host elements moved on the board are hidden at their old place too, until Revit redraws them there
+  const sync = () => {
+    const moved = movedHostElements(getSession().commands, (id) => entryFor(id)?.landed === true)
+    filters.setErased(moved.size ? new Set([...erasedNow(), ...moved]) : erasedNow())
+  }
   subscribeContexts(() => {
     contextsVersion++
     sync()
