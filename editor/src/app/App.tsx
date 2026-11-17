@@ -3,6 +3,7 @@
  * capsule. Layout and look follow docs/design/project/{Main,Empty}.dc.html.
  */
 import { lazy, Suspense, useEffect, useState, type CSSProperties, type DragEvent } from 'react'
+import { Toaster } from 'sonner'
 import samples from 'virtual:brush-samples'
 import { Board } from './board/Board'
 import { installBrain } from './brain'
@@ -197,7 +198,7 @@ function EmptyState({ error, loading, bytes, progress }: { error?: string; loadi
             )}{' '}
             or <span className="ext">.drawing</span> to start
           </h1>
-          {converter === 'unavailable' && error !== RVT_UNAVAILABLE && <p data-testid="rvt-unavailable">{RVT_UNAVAILABLE}</p>}
+          {converter === 'unavailable' && <p data-testid="rvt-unavailable">{RVT_UNAVAILABLE}</p>}
           <div className="cta">
             {loading ? (
               <div className="landing-loading" role="status" data-testid="landing-loading">
@@ -303,6 +304,7 @@ export function App() {
         </Suspense>
       )}
       <SelectNotice />
+      <Toaster position="bottom-center" offset={{ bottom: 96 }} toastOptions={{ className: 'brush-toast' }} />
     </div>
   )
 }

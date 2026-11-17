@@ -4,6 +4,7 @@
  * server on this computer. The start page asks once and says so when it is missing, so nobody picks a model for nothing.
  */
 import { useEffect, useSyncExternalStore } from 'react'
+import { toast } from 'sonner'
 
 const DEV = import.meta.env.DEV || import.meta.env.VITE_TEST === '1'
 
@@ -15,6 +16,9 @@ const DEV = import.meta.env.DEV || import.meta.env.VITE_TEST === '1'
 export const RVT_CONVERT_URL: string | undefined = import.meta.env.VITE_RVT_CONVERT_URL || (DEV ? 'http://127.0.0.1:4100/convert' : undefined)
 
 export const RVT_UNAVAILABLE = 'Opening Revit models (.rvt) isn’t available yet. You can open a sample or upload a PDF.'
+
+/** Said as a pop-up when a `.rvt` is opened anyway; trying again shows the same one, not a second. */
+export const toastRvtUnavailable = (): void => void toast(RVT_UNAVAILABLE, { id: 'rvt-unavailable' })
 
 const PROBE_TIMEOUT_MS = 3000
 

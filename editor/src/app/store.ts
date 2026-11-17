@@ -11,7 +11,7 @@ import { closeContexts, openContexts, refreshContexts, type ContextProvider } fr
 import { DrawingFileSource, openSource, watchPages, type DrawingSource, type PageRenderer } from './source'
 import { resetLive } from './brain/live'
 import { startConversion, ConversionCancelled, ConverterUnreachable, type Conversion } from './convertClient'
-import { RVT_CONVERT_URL, RVT_UNAVAILABLE, setConverterStatus } from './converter'
+import { RVT_CONVERT_URL, setConverterStatus, toastRvtUnavailable } from './converter'
 import type { ConvertProgress } from './convertProgress'
 
 export type DocStatus = 'empty' | 'loading' | 'ready' | 'error'
@@ -270,20 +270,15 @@ export async function refreshSource(source: DrawingSource, changed: readonly str
   refreshContexts(sheets.map((s) => s.id), changed)
 }
 
-/** A model could not become a `.drawing`: back to the start page, which says why. */
-function conversionFailed(loadId: number, error: string): void {
-  void state.source?.close()
-  closeSession()
-  closeContexts()
-  resetLive()
-  set({ status: 'error', loadId, progress: undefined, pages: undefined, source: undefined, destroy: undefined, sheets: [], placements: [], error })
-}
-
 /** Send a Revit model to the conversion server and open the `.drawing` it answers with. Same states as openDocument, plus `progress` while it converts. */
 async function openRevitModel(file: OpenedFile): Promise<void> {
+  if (!RVT_CONVERT_URL) {
+    toastRvtUnavailable()
+    if (state.status === 'loading') closeDocument() // still "looking for it in Revit"
+    return
+  }
   supersedeConversion()
   const loadId = state.loadId + 1
-  if (!RVT_CONVERT_URL) return conversionFailed(loadId, RVT_UNAVAILABLE)
   set({ status: 'loading', fileName: `${file.name}, converting to .drawing`, fileSize: file.size, loadId, error: undefined, progress: undefined })
   const running = startConversion({ url: RVT_CONVERT_URL, name: file.name, bytes: file.bytes }, (progress) => {
     // another file was opened meanwhile: its late progress is not shown, and the conversion stops
@@ -297,9 +292,18 @@ async function openRevitModel(file: OpenedFile): Promise<void> {
   } catch (e) {
     if (e instanceof ConversionCancelled || loadId !== state.loadId) return // another file was opened meanwhile
     if (conversion === running) conversion = undefined
-    const unreachable = e instanceof ConverterUnreachable
-    if (unreachable) setConverterStatus('unavailable')
-    return conversionFailed(loadId, unreachable ? RVT_UNAVAILABLE : `Could not convert “${file.name}” to a .drawing. (${(e as Error).message})`)
+    if (e instanceof ConverterUnreachable) {
+      setConverterStatus('unavailable')
+      toastRvtUnavailable()
+      return closeDocument()
+    }
+    void state.source?.close()
+    closeSession()
+    closeContexts()
+    resetLive()
+    const error = `Could not convert “${file.name}” to a .drawing. (${(e as Error).message})`
+    set({ status: 'error', progress: undefined, pages: undefined, source: undefined, destroy: undefined, sheets: [], placements: [], error })
+    return
   }
   if (conversion === running) conversion = undefined
   setConverterStatus('available')
