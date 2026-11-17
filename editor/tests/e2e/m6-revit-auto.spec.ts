@@ -89,7 +89,7 @@ test('M6-11: a file of another model leaves the link off', async ({ page }) => {
 test('M6-11: a .rvt that is open in Revit skips the conversion server and lists its sheets', async ({ page }) => {
   const seen: Msg[] = []
   let converted = 0
-  await page.route('http://127.0.0.1:4100/convert', (r) => (converted++, r.fulfill({ status: 500, body: 'should not be called' })))
+  await page.route('http://127.0.0.1:4100/convert', (r) => (r.request().method() === 'POST' && converted++, r.fulfill({ status: 500, body: 'should not be called' })))
   await mockRevit(page, seen)
   await openApp(page)
   await chooseFile(page, 'Tower A.rvt', Buffer.from('not really a revit model'))
