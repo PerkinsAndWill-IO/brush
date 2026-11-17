@@ -26,6 +26,13 @@ export class ConversionCancelled extends Error {
   }
 }
 
+/** The server did not answer at all (not running, wrong address, or blocked by CORS). */
+export class ConverterUnreachable extends Error {
+  constructor() {
+    super('Network error')
+  }
+}
+
 const PHASES: ReadonlySet<string> = new Set<ConvertPhase>(['queue', 'parse', 'draw', 'write'])
 
 /** How long after the upload the server may stay silent before it counts as one opaque conversion (an async server answers 202 at once). */
@@ -89,7 +96,7 @@ export function startConversion(req: ConvertRequest, onProgress: (p: ConvertProg
         }
         xhr.onerror = () => {
           xhrs.delete(xhr)
-          rej(new Error('Network error'))
+          rej(new ConverterUnreachable())
         }
         xhr.ontimeout = xhr.onerror
         xhr.send(opts.body ?? null)

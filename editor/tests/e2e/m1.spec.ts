@@ -12,7 +12,7 @@ const SIX = 'office-6-sheets.pdf'
 test('M1-01: empty state shows a drop zone and a Choose file button, tools disabled', async ({ page }) => {
   await openApp(page)
   await expect(page.getByTestId('empty-state')).toBeVisible()
-  await expect(page.getByRole('heading', { name: /Drop a PDF, \.rvt or \.drawing to start/ })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /Drop a PDF.* or \.drawing to start/ })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Choose file' })).toBeEnabled()
   const tools = page.getByTestId('tool-capsule').getByRole('button')
   expect(await tools.count()).toBeGreaterThanOrEqual(5)

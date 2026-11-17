@@ -10,7 +10,8 @@ import { closeSession, openEphemeralSession, openSession } from './session'
 import { closeContexts, openContexts, refreshContexts, type ContextProvider } from './brain/contextStore'
 import { DrawingFileSource, openSource, watchPages, type DrawingSource, type PageRenderer } from './source'
 import { resetLive } from './brain/live'
-import { startConversion, ConversionCancelled, type Conversion } from './convertClient'
+import { startConversion, ConversionCancelled, ConverterUnreachable, type Conversion } from './convertClient'
+import { RVT_CONVERT_URL, RVT_UNAVAILABLE, setConverterStatus } from './converter'
 import type { ConvertProgress } from './convertProgress'
 
 export type DocStatus = 'empty' | 'loading' | 'ready' | 'error'
@@ -269,17 +270,20 @@ export async function refreshSource(source: DrawingSource, changed: readonly str
   refreshContexts(sheets.map((s) => s.id), changed)
 }
 
-/**
- * Where a Revit model goes to become a `.drawing`: a conversion server you run yourself, which answers `POST` (the
- * model's bytes, its URI-encoded name in `X-Filename`) with the `.drawing` file, or (asked with `Prefer:
- * respond-async`) with where to follow the conversion's progress (`convertClient.ts`). `VITE_RVT_CONVERT_URL` moves it.
- */
-const RVT_CONVERT_URL: string = import.meta.env.VITE_RVT_CONVERT_URL ?? 'http://127.0.0.1:4100/convert'
+/** A model could not become a `.drawing`: back to the start page, which says why. */
+function conversionFailed(loadId: number, error: string): void {
+  void state.source?.close()
+  closeSession()
+  closeContexts()
+  resetLive()
+  set({ status: 'error', loadId, progress: undefined, pages: undefined, source: undefined, destroy: undefined, sheets: [], placements: [], error })
+}
 
 /** Send a Revit model to the conversion server and open the `.drawing` it answers with. Same states as openDocument, plus `progress` while it converts. */
 async function openRevitModel(file: OpenedFile): Promise<void> {
   supersedeConversion()
   const loadId = state.loadId + 1
+  if (!RVT_CONVERT_URL) return conversionFailed(loadId, RVT_UNAVAILABLE)
   set({ status: 'loading', fileName: `${file.name}, converting to .drawing`, fileSize: file.size, loadId, error: undefined, progress: undefined })
   const running = startConversion({ url: RVT_CONVERT_URL, name: file.name, bytes: file.bytes }, (progress) => {
     // another file was opened meanwhile: its late progress is not shown, and the conversion stops
@@ -293,15 +297,12 @@ async function openRevitModel(file: OpenedFile): Promise<void> {
   } catch (e) {
     if (e instanceof ConversionCancelled || loadId !== state.loadId) return // another file was opened meanwhile
     if (conversion === running) conversion = undefined
-    void state.source?.close()
-    closeSession()
-    closeContexts()
-    resetLive()
-    const error = `Could not convert “${file.name}” to a .drawing at ${RVT_CONVERT_URL}. Is the conversion server running? (${(e as Error).message})`
-    set({ status: 'error', progress: undefined, pages: undefined, source: undefined, destroy: undefined, sheets: [], placements: [], error })
-    return
+    const unreachable = e instanceof ConverterUnreachable
+    if (unreachable) setConverterStatus('unavailable')
+    return conversionFailed(loadId, unreachable ? RVT_UNAVAILABLE : `Could not convert “${file.name}” to a .drawing. (${(e as Error).message})`)
   }
   if (conversion === running) conversion = undefined
+  setConverterStatus('available')
   if (loadId !== state.loadId) return
   const opening: ConvertProgress = { phase: 'open', label: 'Opening', fraction: 0.99, elapsedMs: state.progress?.elapsedMs ?? 0 }
   await openDocument(bytes, file.name.replace(/\.(rvt|rfa)$/i, '.drawing'), { size: bytes.byteLength, progress: opening }).catch(() => {})

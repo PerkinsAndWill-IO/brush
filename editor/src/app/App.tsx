@@ -14,6 +14,7 @@ import { useView } from './view'
 import { getPlatform } from './platform'
 import { fileToOpened } from './platform/browser'
 import { formatDuration, formatEta, type ConvertProgress } from './convertProgress'
+import { RVT_UNAVAILABLE, useConverterStatus } from './converter'
 import { getDocState, openDocument, openFile, useDocState } from './store'
 import brushLogoRed from './ui/assets/brush-logo-red.png'
 import { BrushLoader } from './ui/BrushLoader'
@@ -175,6 +176,7 @@ function PickerState({ error }: { error?: string }) {
 
 function EmptyState({ error, loading, bytes, progress }: { error?: string; loading?: string; bytes?: number; progress?: ConvertProgress }) {
   const linked = useRevit().link.state === 'on'
+  const converter = useConverterStatus()
   if (linked && !loading) return <PickerState error={error} />
   return (
     <div className="empty landing" data-testid="empty-state">
@@ -188,8 +190,14 @@ function EmptyState({ error, loading, bytes, progress }: { error?: string; loadi
         <div className="dropzone">
           <DropOutline />
           <h1>
-            Drop a PDF, <span className="ext">.rvt</span> or <span className="ext">.drawing</span> to start
+            Drop a PDF{converter === 'available' && (
+              <>
+                , <span className="ext">.rvt</span>
+              </>
+            )}{' '}
+            or <span className="ext">.drawing</span> to start
           </h1>
+          {converter === 'unavailable' && error !== RVT_UNAVAILABLE && <p data-testid="rvt-unavailable">{RVT_UNAVAILABLE}</p>}
           <div className="cta">
             {loading ? (
               <div className="landing-loading" role="status" data-testid="landing-loading">
